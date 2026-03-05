@@ -6,6 +6,7 @@ interface Product {
   name: string;
   emoji: string;
   price: number;
+  cost: number;
   stock: number;
 }
 interface CartItem {
@@ -16,6 +17,7 @@ interface Transaction {
   id: string;
   items: string;
   total: number;
+  totalCost: number;
   buyer: string;
   date: string;
   method: string;
@@ -32,13 +34,28 @@ interface Settings {
 }
 
 const DEFAULT_PRODUCTS: Product[] = [
-  { id: "cafe", name: "Cafe", emoji: "\u2615", price: 0.5, stock: 50 },
-  { id: "eau", name: "Eau", emoji: "\uD83D\uDCA7", price: 0.5, stock: 30 },
+  {
+    id: "cafe",
+    name: "Cafe",
+    emoji: "\u2615",
+    price: 0.5,
+    cost: 0.15,
+    stock: 50,
+  },
+  {
+    id: "eau",
+    name: "Eau",
+    emoji: "\uD83D\uDCA7",
+    price: 0.5,
+    cost: 0.1,
+    stock: 30,
+  },
   {
     id: "coca",
     name: "Coca-Cola",
     emoji: "\uD83E\uDD64",
     price: 1.0,
+    cost: 0.45,
     stock: 24,
   },
   {
@@ -46,10 +63,25 @@ const DEFAULT_PRODUCTS: Product[] = [
     name: "Orangina",
     emoji: "\uD83C\uDF4A",
     price: 1.0,
+    cost: 0.45,
     stock: 24,
   },
-  { id: "biere", name: "Biere", emoji: "\uD83C\uDF7A", price: 1.5, stock: 20 },
-  { id: "snack", name: "Snack", emoji: "\uD83C\uDF6B", price: 1.0, stock: 15 },
+  {
+    id: "biere",
+    name: "Biere",
+    emoji: "\uD83C\uDF7A",
+    price: 1.5,
+    cost: 0.8,
+    stock: 20,
+  },
+  {
+    id: "snack",
+    name: "Snack",
+    emoji: "\uD83C\uDF6B",
+    price: 1.0,
+    cost: 0.5,
+    stock: 15,
+  },
 ];
 
 const DEFAULT_SETTINGS: Settings = { clubName: "Aero-Club", adminPin: "1234" };
@@ -112,6 +144,7 @@ export default function AeroClubBar() {
     name: "",
     emoji: "\uD83E\uDD64",
     price: 1.0,
+    cost: 0.5,
     stock: 20,
   });
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -168,6 +201,10 @@ export default function AeroClubBar() {
   }, []);
 
   const cartTotal = cart.reduce((s, i) => s + i.product.price * i.qty, 0);
+  const cartTotalCost = cart.reduce(
+    (s, i) => s + (i.product.cost || 0) * i.qty,
+    0,
+  );
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
 
   const addToCart = (p: Product) => {
@@ -288,6 +325,7 @@ export default function AeroClubBar() {
       id: Date.now().toString(36),
       items: cart.map((c) => c.qty + "x " + c.product.name).join(", "),
       total: cartTotal,
+      totalCost: cartTotalCost,
       buyer: buyerName.trim(),
       date: new Date().toISOString(),
       method,
@@ -338,7 +376,13 @@ export default function AeroClubBar() {
       "-" +
       Date.now().toString(36);
     setProducts((prev) => [...prev, { ...newProduct, id }]);
-    setNewProduct({ name: "", emoji: "\uD83E\uDD64", price: 1.0, stock: 20 });
+    setNewProduct({
+      name: "",
+      emoji: "\uD83E\uDD64",
+      price: 1.0,
+      cost: 0.5,
+      stock: 20,
+    });
     setShowAddProduct(false);
     showToast("Produit ajoute !");
   };
@@ -378,6 +422,12 @@ export default function AeroClubBar() {
   const todayTx = transactions.filter((t) => t.date.slice(0, 10) === todayStr);
   const todayRevenue = todayTx.reduce((s, t) => s + t.total, 0);
   const totalRevenue = transactions.reduce((s, t) => s + t.total, 0);
+  const totalCost = transactions.reduce((s, t) => s + (t.totalCost || 0), 0);
+  const totalProfit = totalRevenue - totalCost;
+  const marginPct =
+    totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0;
+  const todayCost = todayTx.reduce((s, t) => s + (t.totalCost || 0), 0);
+  const todayProfit = todayRevenue - todayCost;
   const lowStock = products.filter((p) => p.stock <= 5);
   const filteredTx = filterBuyer
     ? transactions.filter((t) =>
@@ -899,7 +949,8 @@ export default function AeroClubBar() {
           <div className="flex gap-1 mb-4">
             {[
               { key: "stock", label: "\uD83D\uDCE6 Stock" },
-              { key: "history", label: "\uD83D\uDCCB Historique" },
+              { key: "finance", label: "\uD83D\uDCB0 Finances" },
+              { key: "history", label: "\uD83D\uDCCB Ventes" },
               { key: "suggestions", label: "\uD83D\uDCA1 Idees" },
               { key: "settings", label: "\u2699 Config" },
             ].map((tab) => (
@@ -964,7 +1015,7 @@ export default function AeroClubBar() {
                         </div>
                         <div className="flex flex-col gap-1">
                           <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                            {"Prix"}
+                            {"Prix vente"}
                           </label>
                           <input
                             type="number"
@@ -980,6 +1031,23 @@ export default function AeroClubBar() {
                           />
                         </div>
                         <div className="flex flex-col gap-1">
+                          <label className="text-[10px] text-slate-500 font-semibold uppercase">
+                            {"Prix achat"}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editingProduct.cost || 0}
+                            onChange={(e) =>
+                              setEditingProduct({
+                                ...editingProduct,
+                                cost: parseFloat(e.target.value) || 0,
+                              })
+                            }
+                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-emerald-400 text-sm text-center outline-none"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 col-span-2">
                           <label className="text-[10px] text-slate-500 font-semibold uppercase">
                             {"Stock"}
                           </label>
@@ -1022,6 +1090,9 @@ export default function AeroClubBar() {
                       <span className="text-sm font-bold">{p.name}</span>
                       <span className="text-xs text-amber-500 font-semibold">
                         {formatPrice(p.price)}
+                        <span className="text-slate-600">
+                          {" / cout: " + formatPrice(p.cost || 0)}
+                        </span>
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
@@ -1102,7 +1173,7 @@ export default function AeroClubBar() {
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                        {"Prix"}
+                        {"Prix vente"}
                       </label>
                       <input
                         type="number"
@@ -1118,6 +1189,23 @@ export default function AeroClubBar() {
                       />
                     </div>
                     <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-slate-500 font-semibold uppercase">
+                        {"Prix achat"}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={newProduct.cost}
+                        onChange={(e) =>
+                          setNewProduct({
+                            ...newProduct,
+                            cost: parseFloat(e.target.value) || 0,
+                          })
+                        }
+                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-emerald-400 text-sm text-center outline-none"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1 col-span-2">
                       <label className="text-[10px] text-slate-500 font-semibold uppercase">
                         {"Stock"}
                       </label>
@@ -1150,6 +1238,165 @@ export default function AeroClubBar() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeAdminTab === "finance" && (
+            <div className="flex flex-col gap-3">
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl p-4 border bg-[#131b2e] border-[#1e2d4a]">
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                    {"Chiffre d\u0027affaires total"}
+                  </span>
+                  <span className="text-xl font-extrabold text-amber-500">
+                    {formatPrice(totalRevenue)}
+                  </span>
+                </div>
+                <div className="rounded-xl p-4 border bg-[#131b2e] border-[#1e2d4a]">
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                    {"Cout total"}
+                  </span>
+                  <span className="text-xl font-extrabold text-red-400">
+                    {formatPrice(totalCost)}
+                  </span>
+                </div>
+                <div className="rounded-xl p-4 border bg-[#131b2e] border-emerald-800">
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                    {"Benefice total"}
+                  </span>
+                  <span
+                    className={
+                      "text-xl font-extrabold " +
+                      (totalProfit >= 0 ? "text-emerald-400" : "text-red-400")
+                    }
+                  >
+                    {formatPrice(totalProfit)}
+                  </span>
+                </div>
+                <div className="rounded-xl p-4 border bg-[#131b2e] border-[#1e2d4a]">
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                    {"Marge"}
+                  </span>
+                  <span
+                    className={
+                      "text-xl font-extrabold " +
+                      (marginPct >= 0 ? "text-emerald-400" : "text-red-400")
+                    }
+                  >
+                    {marginPct + "%"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Today */}
+              <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4">
+                <span className="text-xs font-bold text-amber-500 uppercase tracking-wider block mb-2">
+                  {"Aujourd\u0027hui"}
+                </span>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">
+                      {"Recettes"}
+                    </span>
+                    <span className="text-sm font-bold text-amber-500">
+                      {formatPrice(todayRevenue)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">
+                      {"Couts"}
+                    </span>
+                    <span className="text-sm font-bold text-red-400">
+                      {formatPrice(todayCost)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">
+                      {"Benefice"}
+                    </span>
+                    <span
+                      className={
+                        "text-sm font-bold " +
+                        (todayProfit >= 0 ? "text-emerald-400" : "text-red-400")
+                      }
+                    >
+                      {formatPrice(todayProfit)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Per product */}
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-2">
+                {"Marge par produit"}
+              </span>
+              <div className="flex flex-col gap-1.5">
+                {products.map((p) => {
+                  const margin = p.price - (p.cost || 0);
+                  const marginP =
+                    p.price > 0 ? Math.round((margin / p.price) * 100) : 0;
+                  return (
+                    <div
+                      key={p.id}
+                      className="flex items-center gap-2.5 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3.5 py-2"
+                    >
+                      <span className="text-xl">{p.emoji}</span>
+                      <span className="text-sm font-semibold flex-1">
+                        {p.name}
+                      </span>
+                      <div className="text-right">
+                        <span className="text-xs text-slate-500 block">
+                          {"Achat " +
+                            formatPrice(p.cost || 0) +
+                            " \u2192 Vente " +
+                            formatPrice(p.price)}
+                        </span>
+                        <span
+                          className={
+                            "text-sm font-bold " +
+                            (margin >= 0 ? "text-emerald-400" : "text-red-400")
+                          }
+                        >
+                          {"+" + formatPrice(margin) + " (" + marginP + "%)"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Stock value */}
+              <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4 mt-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                  {"Valeur du stock actuel"}
+                </span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">
+                      {"Au prix d\u0027achat"}
+                    </span>
+                    <span className="text-sm font-bold text-red-400">
+                      {formatPrice(
+                        products.reduce(
+                          (s, p) => s + (p.cost || 0) * p.stock,
+                          0,
+                        ),
+                      )}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">
+                      {"Au prix de vente"}
+                    </span>
+                    <span className="text-sm font-bold text-amber-500">
+                      {formatPrice(
+                        products.reduce((s, p) => s + p.price * p.stock, 0),
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1341,7 +1588,7 @@ export default function AeroClubBar() {
               <button
                 onClick={() => {
                   const csv = [
-                    "Date,Articles,Total,Acheteur,Methode",
+                    "Date,Articles,Total,Cout,Benefice,Acheteur,Methode",
                     ...transactions.map(
                       (t) =>
                         t.date +
@@ -1349,6 +1596,10 @@ export default function AeroClubBar() {
                         t.items +
                         '",' +
                         t.total +
+                        "," +
+                        (t.totalCost || 0) +
+                        "," +
+                        (t.total - (t.totalCost || 0)) +
                         ',"' +
                         (t.buyer || "") +
                         '",' +
