@@ -6,10 +6,12 @@ export async function GET() {
     const products = await kv.get("aeroclub-products");
     const transactions = await kv.get("aeroclub-transactions");
     const settings = await kv.get("aeroclub-settings");
+    const suggestions = await kv.get("aeroclub-suggestions");
     return NextResponse.json({
       products: products || null,
       transactions: transactions || null,
       settings: settings || null,
+      suggestions: suggestions || null,
     });
   } catch (e) {
     console.error("KV read error:", e);

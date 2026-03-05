@@ -20,6 +20,12 @@ interface Transaction {
   date: string;
   method: string;
 }
+interface Suggestion {
+  id: string;
+  text: string;
+  author: string;
+  date: string;
+}
 interface Settings {
   clubName: string;
   adminPin: string;
@@ -114,6 +120,10 @@ export default function AeroClubBar() {
     null,
   );
   const [filterBuyer, setFilterBuyer] = useState("");
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [showSuggestionModal, setShowSuggestionModal] = useState(false);
+  const [suggestionText, setSuggestionText] = useState("");
+  const [suggestionAuthor, setSuggestionAuthor] = useState("");
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
 
   // Debounced save to avoid too many API calls
@@ -132,6 +142,7 @@ export default function AeroClubBar() {
         if (data.products) setProducts(data.products);
         if (data.transactions) setTransactions(data.transactions);
         if (data.settings) setSettings(data.settings);
+        if (data.suggestions) setSuggestions(data.suggestions);
       }
       setLoading(false);
     })();
@@ -147,6 +158,9 @@ export default function AeroClubBar() {
   useEffect(() => {
     if (!loading) debouncedSave("aeroclub-settings", settings);
   }, [settings, loading, debouncedSave]);
+  useEffect(() => {
+    if (!loading) debouncedSave("aeroclub-suggestions", suggestions);
+  }, [suggestions, loading, debouncedSave]);
 
   const showToast = useCallback((msg: string, type = "success") => {
     setToast({ msg, type });
@@ -319,6 +333,25 @@ export default function AeroClubBar() {
     showToast("Produit modifie !");
   };
 
+  const submitSuggestion = () => {
+    if (!suggestionText.trim()) return;
+    const s: Suggestion = {
+      id: Date.now().toString(36),
+      text: suggestionText.trim(),
+      author: suggestionAuthor.trim() || "Anonyme",
+      date: new Date().toISOString(),
+    };
+    setSuggestions((prev) => [s, ...prev]);
+    setSuggestionText("");
+    setSuggestionAuthor("");
+    setShowSuggestionModal(false);
+    showToast("Merci pour votre suggestion !");
+  };
+
+  const deleteSuggestion = (id: string) => {
+    setSuggestions((prev) => prev.filter((s) => s.id !== id));
+  };
+
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayTx = transactions.filter((t) => t.date.slice(0, 10) === todayStr);
   const todayRevenue = todayTx.reduce((s, t) => s + t.total, 0);
@@ -373,6 +406,12 @@ export default function AeroClubBar() {
             >
               {"\u2699\uFE0F"}
             </button>
+            <button
+              onClick={() => setShowSuggestionModal(true)}
+              className="absolute top-5 left-2 text-slate-600 text-xl p-2 hover:text-slate-400 transition cursor-pointer"
+            >
+              {"\uD83D\uDCA1"}
+            </button>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-lg">
@@ -417,6 +456,62 @@ export default function AeroClubBar() {
               );
             })}
           </div>
+
+          {/* Suggestion modal */}
+          {showSuggestionModal && (
+            <div
+              className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 p-4"
+              onClick={() => setShowSuggestionModal(false)}
+            >
+              <div
+                className="bg-[#131b2e] border border-[#1e2d4a] rounded-3xl p-6 max-w-sm w-full shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h2 className="text-lg font-bold mb-1">
+                  {"\uD83D\uDCA1 Une suggestion ?"}
+                </h2>
+                <p className="text-xs text-slate-500 mb-4">
+                  {
+                    "Proposez un produit, une amelioration, ou dites-nous ce qui vous ferait plaisir !"
+                  }
+                </p>
+                <div className="flex flex-col gap-3">
+                  <input
+                    type="text"
+                    placeholder="Votre nom (optionnel)"
+                    value={suggestionAuthor}
+                    onChange={(e) => setSuggestionAuthor(e.target.value)}
+                    className="h-10 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-sm px-3 outline-none focus:border-amber-500"
+                  />
+                  <textarea
+                    placeholder="Votre suggestion..."
+                    value={suggestionText}
+                    onChange={(e) => setSuggestionText(e.target.value)}
+                    rows={3}
+                    className="rounded-xl border border-slate-700 bg-[#0f172a] text-white text-sm p-3 outline-none focus:border-amber-500 resize-none"
+                  />
+                  <button
+                    onClick={submitSuggestion}
+                    disabled={!suggestionText.trim()}
+                    className={
+                      "w-full py-3 rounded-xl font-bold text-sm transition-all " +
+                      (suggestionText.trim()
+                        ? "bg-amber-500 text-black active:scale-95 cursor-pointer"
+                        : "bg-slate-800 text-slate-600 cursor-not-allowed")
+                    }
+                  >
+                    {"Envoyer"}
+                  </button>
+                  <button
+                    onClick={() => setShowSuggestionModal(false)}
+                    className="text-slate-500 text-sm cursor-pointer"
+                  >
+                    {"Annuler"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {cartCount > 0 && !showCheckout && (
             <div className="fixed bottom-0 left-0 right-0 bg-[#131b2e] border-t border-[#1e2d4a] p-4 z-30">
@@ -780,6 +875,7 @@ export default function AeroClubBar() {
             {[
               { key: "stock", label: "\uD83D\uDCE6 Stock" },
               { key: "history", label: "\uD83D\uDCCB Historique" },
+              { key: "suggestions", label: "\uD83D\uDCA1 Idees" },
               { key: "settings", label: "\u2699 Config" },
             ].map((tab) => (
               <button
@@ -1117,6 +1213,53 @@ export default function AeroClubBar() {
                   className="self-center mt-2 px-4 py-2.5 rounded-lg bg-[#1c1917] border border-red-900 text-red-300 text-sm font-semibold hover:bg-red-950 transition cursor-pointer"
                 >
                   {"Effacer l\u0027historique"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {activeAdminTab === "suggestions" && (
+            <div className="flex flex-col gap-2">
+              {suggestions.length === 0 ? (
+                <p className="text-slate-600 text-center py-10 text-sm">
+                  {"Aucune suggestion pour le moment"}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {suggestions.map((s) => (
+                    <div
+                      key={s.id}
+                      className="bg-[#131b2e] border border-[#1e2d4a] rounded-xl p-3.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1">
+                          <p className="text-sm text-slate-200">{s.text}</p>
+                          <p className="text-[11px] text-slate-500 mt-1.5">
+                            {s.author + " \u2022 " + formatDate(s.date)}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => deleteSuggestion(s.id)}
+                          className="text-red-500 opacity-50 hover:opacity-100 text-sm cursor-pointer shrink-0"
+                        >
+                          {"\u2715"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {suggestions.length > 0 && (
+                <button
+                  onClick={() => {
+                    if (confirm("Effacer toutes les suggestions ?")) {
+                      setSuggestions([]);
+                      showToast("Suggestions effacees", "info");
+                    }
+                  }}
+                  className="self-center mt-2 px-4 py-2.5 rounded-lg bg-[#1c1917] border border-red-900 text-red-300 text-sm font-semibold hover:bg-red-950 transition cursor-pointer"
+                >
+                  {"Effacer toutes les suggestions"}
                 </button>
               )}
             </div>
