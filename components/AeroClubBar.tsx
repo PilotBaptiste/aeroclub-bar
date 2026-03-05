@@ -431,6 +431,28 @@ export default function AeroClubBar() {
     setSuggestions((prev) => prev.filter((s) => s.id !== id));
   };
 
+  const deleteTransaction = (tx: Transaction) => {
+    if (!confirm("Supprimer cette vente ? Le stock sera restaure.")) return;
+    // Parse items to restore stock (format: "2x Cafe, 1x Coca Cola")
+    const itemParts = tx.items.split(", ");
+    setProducts((prev) => {
+      let u = [...prev];
+      for (const part of itemParts) {
+        const match = part.match(/^(\d+)x (.+)$/);
+        if (match) {
+          const qty = parseInt(match[1], 10);
+          const name = match[2];
+          u = u.map((p) =>
+            p.name === name ? { ...p, stock: p.stock + qty } : p,
+          );
+        }
+      }
+      return u;
+    });
+    setTransactions((prev) => prev.filter((t) => t.id !== tx.id));
+    showToast("Vente supprimee, stock restaure", "info");
+  };
+
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayTx = transactions.filter((t) => t.date.slice(0, 10) === todayStr);
   const todayRevenue = todayTx.reduce((s, t) => s + t.total, 0);
@@ -1515,7 +1537,7 @@ export default function AeroClubBar() {
                   {filteredTx.slice(0, 100).map((tx) => (
                     <div
                       key={tx.id}
-                      className="flex items-center gap-3 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3.5 py-2.5"
+                      className="flex items-center gap-2 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3.5 py-2.5"
                     >
                       <div className="flex-1 flex flex-col gap-0.5">
                         <span className="text-sm font-semibold">
@@ -1531,12 +1553,18 @@ export default function AeroClubBar() {
                             tx.method}
                         </span>
                       </div>
-                      <span className="text-sm font-bold text-amber-500 min-w-[60px] text-right">
+                      <span className="text-sm font-bold text-amber-500 min-w-[50px] text-right">
                         {formatPrice(tx.total)}
                       </span>
-                      <span className="text-[11px] text-slate-500 min-w-[110px] text-right">
+                      <span className="text-[11px] text-slate-500 min-w-[90px] text-right">
                         {formatDate(tx.date)}
                       </span>
+                      <button
+                        onClick={() => deleteTransaction(tx)}
+                        className="text-red-500 opacity-40 hover:opacity-100 text-sm cursor-pointer shrink-0"
+                      >
+                        {"\u2715"}
+                      </button>
                     </div>
                   ))}
                 </div>
