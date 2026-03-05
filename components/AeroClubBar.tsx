@@ -251,6 +251,8 @@ export default function AeroClubBar() {
 
   const confirmPayment = (method: string) => {
     if (!buyerName.trim() || cart.length === 0) return;
+    // Update stock and check for low stock alerts
+    const updatedProducts: Product[] = [];
     setProducts((prev) => {
       let u = [...prev];
       for (const item of cart) {
@@ -260,8 +262,28 @@ export default function AeroClubBar() {
             : p,
         );
       }
+      updatedProducts.push(...u);
       return u;
     });
+    // Send Telegram alerts for low stock (async, fire and forget)
+    setTimeout(() => {
+      for (const p of updatedProducts) {
+        if (p.stock > 0 && p.stock <= 5) {
+          fetch("/api/alert", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ productName: p.name, stock: p.stock }),
+          }).catch(() => {});
+        }
+        if (p.stock === 0) {
+          fetch("/api/alert", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ productName: p.name, stock: 0 }),
+          }).catch(() => {});
+        }
+      }
+    }, 100);
     const tx: Transaction = {
       id: Date.now().toString(36),
       items: cart.map((c) => c.qty + "x " + c.product.name).join(", "),
@@ -406,12 +428,6 @@ export default function AeroClubBar() {
             >
               {"\u2699\uFE0F"}
             </button>
-            <button
-              onClick={() => setShowSuggestionModal(true)}
-              className="absolute top-5 left-2 text-slate-600 text-xl p-2 hover:text-slate-400 transition cursor-pointer"
-            >
-              {"\uD83D\uDCA1"}
-            </button>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-lg">
@@ -456,6 +472,15 @@ export default function AeroClubBar() {
               );
             })}
           </div>
+
+          {/* Suggestion button */}
+          <button
+            onClick={() => setShowSuggestionModal(true)}
+            className="mt-4 w-full max-w-lg flex items-center justify-center gap-2 py-3 rounded-xl border border-[#1e2d4a] bg-[#131b2e] text-slate-400 text-sm font-semibold hover:border-amber-500/40 hover:text-amber-500 transition cursor-pointer"
+          >
+            <span>{"\uD83D\uDCA1"}</span>
+            <span>{"Une idee ? Proposez un produit ou une suggestion !"}</span>
+          </button>
 
           {/* Suggestion modal */}
           {showSuggestionModal && (
