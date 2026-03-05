@@ -133,6 +133,12 @@ export default function AeroClubBar() {
   const [buyerName, setBuyerName] = useState("");
   const [lastBuyerName, setLastBuyerName] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
+  const [lastOrder, setLastOrder] = useState<{
+    items: CartItem[];
+    total: number;
+    buyer: string;
+    method: string;
+  } | null>(null);
   const [sumupLoading, setSumupLoading] = useState(false);
   const [sumupError, setSumupError] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
@@ -332,6 +338,12 @@ export default function AeroClubBar() {
     };
     setTransactions((prev) => [tx, ...prev]);
     setLastBuyerName(buyerName.trim());
+    setLastOrder({
+      items: [...cart],
+      total: cartTotal,
+      buyer: buyerName.trim(),
+      method,
+    });
     setPaymentStatus("success");
     showToast(
       "Merci " +
@@ -342,7 +354,8 @@ export default function AeroClubBar() {
     setTimeout(() => {
       clearCart();
       setBuyerName("");
-    }, 2500);
+      setLastOrder(null);
+    }, 8000);
   };
 
   const handleAdminLogin = () => {
@@ -820,18 +833,72 @@ export default function AeroClubBar() {
                     </button>
                   </div>
                 )}
-                {paymentStatus === "success" && (
-                  <div className="py-10 flex flex-col items-center gap-2">
-                    <div className="w-20 h-20 rounded-full bg-emerald-500 flex items-center justify-center text-4xl text-white font-bold shadow-[0_0_40px_rgba(16,185,129,0.4)]">
+                {paymentStatus === "success" && lastOrder && (
+                  <div className="py-6 flex flex-col items-center gap-3">
+                    <div className="w-16 h-16 rounded-full bg-emerald-500 flex items-center justify-center text-3xl text-white font-bold shadow-[0_0_40px_rgba(16,185,129,0.4)]">
                       {"\u2713"}
                     </div>
-                    <h2 className="text-2xl font-bold text-emerald-400 mt-2">
-                      {"Merci !"}
+                    <h2 className="text-xl font-bold text-emerald-400">
+                      {"Merci " + lastOrder.buyer.split(" ")[0] + " !"}
                     </h2>
-                    <p className="text-slate-400">
-                      {formatPrice(cartTotal) +
-                        " \u2014 Bonne degustation \uD83D\uDE0A"}
+
+                    <div className="w-full bg-[#0f172a] rounded-xl p-4 mt-2">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                        {"Recapitulatif"}
+                      </span>
+                      <div className="flex flex-col gap-1.5">
+                        {lastOrder.items.map((item) => (
+                          <div
+                            key={item.product.id}
+                            className="flex items-center justify-between"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">
+                                {item.product.emoji}
+                              </span>
+                              <span className="text-sm">
+                                {item.qty > 1 ? item.qty + "x " : ""}
+                                {item.product.name}
+                              </span>
+                            </div>
+                            <span className="text-sm font-bold text-amber-500">
+                              {formatPrice(item.product.price * item.qty)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="h-px bg-[#1e2d4a] my-3" />
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold">{"Total"}</span>
+                        <span className="text-lg font-extrabold text-amber-500">
+                          {formatPrice(lastOrder.total)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-xs text-slate-500">
+                          {"Paye par"}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          {lastOrder.method === "especes"
+                            ? "\uD83D\uDCB0 Especes"
+                            : "\uD83D\uDCB3 Carte"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="text-slate-600 text-xs mt-2">
+                      {"Bonne degustation ! \uD83D\uDE0A"}
                     </p>
+                    <button
+                      onClick={() => {
+                        clearCart();
+                        setBuyerName("");
+                        setLastOrder(null);
+                      }}
+                      className="mt-2 px-6 py-2.5 rounded-xl bg-[#1e2d4a] text-amber-500 text-sm font-semibold cursor-pointer active:scale-95"
+                    >
+                      {"Fermer"}
+                    </button>
                   </div>
                 )}
               </div>
