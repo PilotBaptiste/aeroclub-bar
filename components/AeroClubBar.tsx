@@ -838,10 +838,7 @@ export default function AeroClubBar() {
               className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 p-4"
               onClick={() => {
                 if (!paymentStatus) {
-                  setShowCheckout(false);
-                  setSumupCheckoutUrl(null);
-                  setQrDataUrl(null);
-                  setSumupError(null);
+                  clearCart();
                 }
               }}
             >
@@ -1266,12 +1263,7 @@ export default function AeroClubBar() {
 
                     <button
                       onClick={() => {
-                        setShowCheckout(false);
-                        setSumupCheckoutUrl(null);
-                        setQrDataUrl(null);
-                        setSumupError(null);
-                        setShowCashFlow(false);
-                        setCashAmountInput("");
+                        clearCart();
                       }}
                       className="mt-3 px-5 py-2.5 rounded-lg border border-slate-700 text-slate-400 text-sm font-semibold hover:border-slate-500 transition cursor-pointer"
                     >
