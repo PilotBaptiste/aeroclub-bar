@@ -810,6 +810,11 @@ export default function AeroClubBar() {
                   </button>
                   <button
                     onClick={() => {
+                      // Annule tous les cooldowns : l'utilisateur est en train de payer
+                      setCartCooldowns((cd) => {
+                        Object.values(cd).forEach((t) => clearTimeout(t));
+                        return {};
+                      });
                       setShowCheckout(true);
                       setBuyerName("");
                     }}
