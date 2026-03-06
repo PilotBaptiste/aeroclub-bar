@@ -183,6 +183,10 @@ export default function AeroClubBar() {
     Record<string, ReturnType<typeof setTimeout>>
   >({});
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+  const [showBureauPin, setShowBureauPin] = useState(false);
+  const [bureauPinInput, setBureauPinInput] = useState("");
+  const [bureauPinError, setBureauPinError] = useState(false);
+  const [bureauUnlocked, setBureauUnlocked] = useState(false);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
 
   // Debounced save to avoid too many API calls
@@ -349,6 +353,9 @@ export default function AeroClubBar() {
     setSumupCheckoutUrl(null);
     setQrDataUrl(null);
     setSumupError(null);
+    setBureauUnlocked(false);
+    setShowBureauPin(false);
+    setBureauPinInput("");
   };
   const getCartQty = (pid: string) => {
     const i = cart.find((c) => c.product.id === pid);
@@ -1156,6 +1163,99 @@ export default function AeroClubBar() {
                         className="w-full py-3.5 rounded-xl font-bold text-[15px] bg-purple-700 text-white active:scale-95 cursor-pointer mb-2"
                       >
                         {"\uD83C\uDF81 Offert"}
+                      </button>
+                    )}
+
+                    {/* Membre du Bureau */}
+                    {!bureauUnlocked && !showBureauPin && (
+                      <button
+                        onClick={() => setShowBureauPin(true)}
+                        className="w-full mt-1 py-2 rounded-xl text-xs text-slate-600 hover:text-slate-400 transition cursor-pointer"
+                      >
+                        {"🎖 Membre du Bureau"}
+                      </button>
+                    )}
+                    {showBureauPin && !bureauUnlocked && (
+                      <div className="mt-2 bg-[#0f172a] border border-slate-700 rounded-xl p-4 flex flex-col items-center gap-3">
+                        <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
+                          {"Code Bureau"}
+                        </p>
+                        <div className="flex gap-2">
+                          {[0, 1, 2, 3].map((i) => (
+                            <div
+                              key={i}
+                              className={
+                                "w-3 h-3 rounded-full transition-all " +
+                                (bureauPinInput.length > i
+                                  ? bureauPinError
+                                    ? "bg-red-500"
+                                    : "bg-amber-500"
+                                  : "bg-slate-700")
+                              }
+                            />
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 w-full max-w-[200px]">
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, "C", 0, "OK"].map(
+                            (k) => (
+                              <button
+                                key={String(k)}
+                                onClick={() => {
+                                  if (k === "C") {
+                                    setBureauPinInput("");
+                                  } else if (k === "OK") {
+                                    if (bureauPinInput === "1215") {
+                                      setBureauUnlocked(true);
+                                      setShowBureauPin(false);
+                                      setBureauPinInput("");
+                                    } else {
+                                      setBureauPinError(true);
+                                      setTimeout(() => {
+                                        setBureauPinError(false);
+                                        setBureauPinInput("");
+                                      }, 1200);
+                                    }
+                                  } else {
+                                    if (bureauPinInput.length < 4)
+                                      setBureauPinInput((p) => p + String(k));
+                                  }
+                                }}
+                                className={
+                                  "py-2.5 rounded-lg text-sm font-bold flex items-center justify-center cursor-pointer transition " +
+                                  (k === "OK"
+                                    ? "bg-amber-500 text-black"
+                                    : k === "C"
+                                      ? "bg-[#131b2e] border border-red-900 text-red-500"
+                                      : "bg-[#131b2e] border border-slate-700 text-slate-200")
+                                }
+                              >
+                                {String(k)}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                        {bureauPinError && (
+                          <p className="text-red-500 text-xs font-semibold">
+                            {"Code incorrect"}
+                          </p>
+                        )}
+                        <button
+                          onClick={() => {
+                            setShowBureauPin(false);
+                            setBureauPinInput("");
+                          }}
+                          className="text-slate-600 text-xs cursor-pointer"
+                        >
+                          {"Annuler"}
+                        </button>
+                      </div>
+                    )}
+                    {bureauUnlocked && buyerName.trim() && (
+                      <button
+                        onClick={() => confirmPayment("bureau")}
+                        className="w-full py-3.5 rounded-xl font-bold text-[15px] bg-amber-700 text-white active:scale-95 cursor-pointer mt-1 mb-2"
+                      >
+                        {"🎖 Commande Bureau (gratuit)"}
                       </button>
                     )}
 
