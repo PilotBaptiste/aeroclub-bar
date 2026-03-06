@@ -500,7 +500,6 @@ export default function AeroClubBar() {
 
   const deleteTransaction = (tx: Transaction) => {
     if (!confirm("Supprimer cette vente ? Le stock sera restaure.")) return;
-    // Parse items to restore stock (format: "2x Cafe, 1x Coca Cola")
     const itemParts = tx.items.split(", ");
     setProducts((prev) => {
       let u = [...prev];
@@ -518,6 +517,24 @@ export default function AeroClubBar() {
     });
     setTransactions((prev) => prev.filter((t) => t.id !== tx.id));
     showToast("Vente supprimee, stock restaure", "info");
+  };
+
+  const editTransaction = (tx: Transaction) => {
+    const newAmount = prompt(
+      "Nouveau montant pour cette vente (actuel: " + tx.total + ") :",
+      String(tx.total),
+    );
+    if (newAmount === null) return;
+    const amount = parseFloat(newAmount);
+    if (isNaN(amount) || amount < 0) return;
+    setTransactions((prev) =>
+      prev.map((t) =>
+        t.id === tx.id
+          ? { ...t, total: amount, method: amount === 0 ? "offert" : t.method }
+          : t,
+      ),
+    );
+    showToast("Transaction modifiee : " + formatPrice(amount));
   };
 
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -1605,6 +1622,30 @@ export default function AeroClubBar() {
                 </div>
               </div>
 
+              {/* Cash in box */}
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                      {"Fond de caisse (especes)"}
+                    </span>
+                    <span className="text-xl font-extrabold text-amber-500">
+                      {formatPrice(settings.cashInBox || 0)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                      {"Total avoirs membres"}
+                    </span>
+                    <span className="text-xl font-extrabold text-emerald-400">
+                      {formatPrice(
+                        members.reduce((s, m) => s + Math.max(0, m.balance), 0),
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {/* Today */}
               <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4">
                 <span className="text-xs font-bold text-amber-500 uppercase tracking-wider block mb-2">
@@ -1775,17 +1816,34 @@ export default function AeroClubBar() {
                             " \u2022 " +
                             (tx.method === "especes"
                               ? "\uD83D\uDCB0"
-                              : "\uD83D\uDCB3") +
+                              : tx.method === "avoir"
+                                ? "\uD83D\uDCB3 avoir"
+                                : tx.method === "offert"
+                                  ? "\uD83C\uDF81 offert"
+                                  : "\uD83D\uDCB3") +
                             " " +
                             tx.method}
                         </span>
                       </div>
-                      <span className="text-sm font-bold text-amber-500 min-w-[50px] text-right">
-                        {formatPrice(tx.total)}
+                      <span
+                        className={
+                          "text-sm font-bold min-w-[50px] text-right " +
+                          (tx.total === 0
+                            ? "text-purple-400"
+                            : "text-amber-500")
+                        }
+                      >
+                        {tx.total === 0 ? "Offert" : formatPrice(tx.total)}
                       </span>
                       <span className="text-[11px] text-slate-500 min-w-[90px] text-right">
                         {formatDate(tx.date)}
                       </span>
+                      <button
+                        onClick={() => editTransaction(tx)}
+                        className="text-amber-500 opacity-40 hover:opacity-100 text-sm cursor-pointer shrink-0"
+                      >
+                        {"\u270F\uFE0F"}
+                      </button>
                       <button
                         onClick={() => deleteTransaction(tx)}
                         className="text-red-500 opacity-40 hover:opacity-100 text-sm cursor-pointer shrink-0"
