@@ -21,6 +21,11 @@ interface Transaction {
   buyer: string;
   date: string;
   method: string;
+  amountPaid?: number;
+}
+interface MemberAccount {
+  name: string;
+  balance: number;
 }
 interface Suggestion {
   id: string;
@@ -31,6 +36,7 @@ interface Suggestion {
 interface Settings {
   clubName: string;
   adminPin: string;
+  cashInBox?: number;
 }
 
 const DEFAULT_PRODUCTS: Product[] = [
@@ -160,9 +166,12 @@ export default function AeroClubBar() {
   );
   const [filterBuyer, setFilterBuyer] = useState("");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [members, setMembers] = useState<MemberAccount[]>([]);
   const [showSuggestionModal, setShowSuggestionModal] = useState(false);
   const [suggestionText, setSuggestionText] = useState("");
   const [suggestionAuthor, setSuggestionAuthor] = useState("");
+  const [cashAmountInput, setCashAmountInput] = useState("");
+  const [showCashFlow, setShowCashFlow] = useState(false);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
 
   // Debounced save to avoid too many API calls
@@ -182,6 +191,7 @@ export default function AeroClubBar() {
         if (data.transactions) setTransactions(data.transactions);
         if (data.settings) setSettings(data.settings);
         if (data.suggestions) setSuggestions(data.suggestions);
+        if (data.members) setMembers(data.members);
       }
       setLoading(false);
     })();
@@ -200,6 +210,9 @@ export default function AeroClubBar() {
   useEffect(() => {
     if (!loading) debouncedSave("aeroclub-suggestions", suggestions);
   }, [suggestions, loading, debouncedSave]);
+  useEffect(() => {
+    if (!loading) debouncedSave("aeroclub-members", members);
+  }, [members, loading, debouncedSave]);
 
   const showToast = useCallback((msg: string, type = "success") => {
     setToast({ msg, type });
@@ -212,6 +225,39 @@ export default function AeroClubBar() {
     0,
   );
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
+
+  const normalizeName = (n: string) => n.trim().toLowerCase();
+
+  const getMemberBalance = (name: string): number => {
+    const key = normalizeName(name);
+    const m = members.find((m) => normalizeName(m.name) === key);
+    return m ? m.balance : 0;
+  };
+
+  const updateMemberBalance = (name: string, delta: number) => {
+    const key = normalizeName(name);
+    setMembers((prev) => {
+      const existing = prev.find((m) => normalizeName(m.name) === key);
+      if (existing) {
+        return prev.map((m) =>
+          normalizeName(m.name) === key
+            ? {
+                ...m,
+                name: name.trim(),
+                balance: Math.round((m.balance + delta) * 100) / 100,
+              }
+            : m,
+        );
+      }
+      if (delta > 0) {
+        return [
+          ...prev,
+          { name: name.trim(), balance: Math.round(delta * 100) / 100 },
+        ];
+      }
+      return prev;
+    });
+  };
 
   const addToCart = (p: Product) => {
     if (p.stock <= 0) return;
@@ -292,7 +338,7 @@ export default function AeroClubBar() {
     }
   };
 
-  const confirmPayment = (method: string) => {
+  const confirmPayment = (method: string, amountPaid?: number) => {
     if (!buyerName.trim() || cart.length === 0) return;
     // Update stock and check for low stock alerts
     const updatedProducts: Product[] = [];
@@ -327,6 +373,22 @@ export default function AeroClubBar() {
         }
       }
     }, 100);
+
+    // Handle member balance
+    if (method === "avoir") {
+      updateMemberBalance(buyerName.trim(), -cartTotal);
+    } else if (method === "especes" && amountPaid !== undefined) {
+      const change = amountPaid - cartTotal;
+      if (change > 0) {
+        updateMemberBalance(buyerName.trim(), change);
+      }
+      // Update cash in box
+      setSettings((prev) => ({
+        ...prev,
+        cashInBox: Math.round(((prev.cashInBox || 0) + amountPaid) * 100) / 100,
+      }));
+    }
+
     const tx: Transaction = {
       id: Date.now().toString(36),
       items: cart.map((c) => c.qty + "x " + c.product.name).join(", "),
@@ -335,6 +397,7 @@ export default function AeroClubBar() {
       buyer: buyerName.trim(),
       date: new Date().toISOString(),
       method,
+      amountPaid,
     };
     setTransactions((prev) => [tx, ...prev]);
     setLastBuyerName(buyerName.trim());
@@ -345,16 +408,19 @@ export default function AeroClubBar() {
       method,
     });
     setPaymentStatus("success");
-    showToast(
-      "Merci " +
-        buyerName.trim().split(" ")[0] +
-        " ! " +
-        formatPrice(cartTotal),
-    );
+    const balanceAfter =
+      method === "avoir"
+        ? getMemberBalance(buyerName.trim()) - cartTotal
+        : method === "especes" && amountPaid
+          ? getMemberBalance(buyerName.trim()) + (amountPaid - cartTotal)
+          : getMemberBalance(buyerName.trim());
+    showToast("Merci " + buyerName.trim().split(" ")[0] + " !");
     setTimeout(() => {
       clearCart();
       setBuyerName("");
       setLastOrder(null);
+      setShowCashFlow(false);
+      setCashAmountInput("");
     }, 8000);
   };
 
@@ -750,7 +816,11 @@ export default function AeroClubBar() {
                         type="text"
                         placeholder="ex: Jean Dupont"
                         value={buyerName}
-                        onChange={(e) => setBuyerName(e.target.value)}
+                        onChange={(e) => {
+                          setBuyerName(e.target.value);
+                          setShowCashFlow(false);
+                          setCashAmountInput("");
+                        }}
                         autoFocus
                         className={
                           "h-12 rounded-xl border-2 bg-[#0f172a] text-white text-center text-base font-semibold outline-none transition-colors " +
@@ -764,11 +834,156 @@ export default function AeroClubBar() {
                           {"Obligatoire pour valider"}
                         </span>
                       )}
+                      {buyerName.trim() && getMemberBalance(buyerName) > 0 && (
+                        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-2 text-center">
+                          <span className="text-sm text-emerald-400 font-semibold">
+                            {"Bonjour " +
+                              buyerName.trim().split(" ")[0] +
+                              " ! Avoir : " +
+                              formatPrice(getMemberBalance(buyerName))}
+                          </span>
+                        </div>
+                      )}
+                      {buyerName.trim() &&
+                        getMemberBalance(buyerName) === 0 && (
+                          <span className="text-[11px] text-slate-600">
+                            {"Pas d\u0027avoir pour ce nom"}
+                          </span>
+                        )}
                     </div>
+
                     <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-3">
                       {"Comment payer ?"}
                     </p>
-                    <div className="flex flex-col items-center gap-3 mb-4">
+
+                    {/* Pay with avoir */}
+                    {buyerName.trim() &&
+                      getMemberBalance(buyerName) >= cartTotal &&
+                      cartTotal > 0 && (
+                        <button
+                          onClick={() => confirmPayment("avoir")}
+                          className="w-full py-3.5 rounded-xl font-bold text-[15px] bg-emerald-600 text-white active:scale-95 cursor-pointer mb-3"
+                        >
+                          {"\u2705 Utiliser mon avoir (" +
+                            formatPrice(getMemberBalance(buyerName)) +
+                            ")"}
+                        </button>
+                      )}
+                    {buyerName.trim() &&
+                      getMemberBalance(buyerName) > 0 &&
+                      getMemberBalance(buyerName) < cartTotal &&
+                      cartTotal > 0 && (
+                        <div className="bg-[#0f172a] rounded-xl p-3 mb-3 text-xs text-slate-400 text-center">
+                          {"Avoir insuffisant (" +
+                            formatPrice(getMemberBalance(buyerName)) +
+                            " < " +
+                            formatPrice(cartTotal) +
+                            "). Payez par especes ou carte."}
+                        </div>
+                      )}
+
+                    {/* Cash flow */}
+                    {!showCashFlow && (
+                      <button
+                        onClick={() => setShowCashFlow(true)}
+                        disabled={!buyerName.trim()}
+                        className={
+                          "w-full py-3.5 rounded-xl font-bold text-[15px] transition-all mb-2 " +
+                          (buyerName.trim()
+                            ? "bg-emerald-700 text-white active:scale-95 cursor-pointer"
+                            : "bg-slate-800 text-slate-600 cursor-not-allowed")
+                        }
+                      >
+                        {"\uD83D\uDCB0 Payer en especes"}
+                      </button>
+                    )}
+                    {showCashFlow && (
+                      <div className="bg-[#0f172a] border border-emerald-700 rounded-xl p-4 mb-3">
+                        <label className="text-xs font-bold text-emerald-400 uppercase tracking-wider block mb-2">
+                          {"Montant mis dans la boite"}
+                        </label>
+                        <div className="flex gap-2 mb-2">
+                          {[0.5, 1, 2, 5].map((v) => (
+                            <button
+                              key={v}
+                              onClick={() => setCashAmountInput(String(v))}
+                              className={
+                                "flex-1 py-2 rounded-lg text-sm font-bold transition cursor-pointer " +
+                                (cashAmountInput === String(v)
+                                  ? "bg-emerald-600 text-white"
+                                  : "bg-[#131b2e] border border-slate-700 text-slate-300")
+                              }
+                            >
+                              {formatPrice(v)}
+                            </button>
+                          ))}
+                        </div>
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          placeholder="Autre montant..."
+                          value={cashAmountInput}
+                          onChange={(e) => setCashAmountInput(e.target.value)}
+                          className="w-full h-10 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-center text-sm font-bold outline-none mb-2"
+                        />
+                        {cashAmountInput &&
+                          parseFloat(cashAmountInput) >= cartTotal && (
+                            <div className="text-xs text-center mb-2">
+                              {parseFloat(cashAmountInput) > cartTotal && (
+                                <span className="text-emerald-400 font-semibold">
+                                  {"Avoir credite : +" +
+                                    formatPrice(
+                                      parseFloat(cashAmountInput) - cartTotal,
+                                    )}
+                                </span>
+                              )}
+                              {parseFloat(cashAmountInput) === cartTotal && (
+                                <span className="text-slate-400">
+                                  {"Montant exact"}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        {cashAmountInput &&
+                          parseFloat(cashAmountInput) < cartTotal && (
+                            <div className="text-xs text-center mb-2 text-red-400">
+                              {"Montant insuffisant (il manque " +
+                                formatPrice(
+                                  cartTotal - parseFloat(cashAmountInput),
+                                ) +
+                                ")"}
+                            </div>
+                          )}
+                        <button
+                          onClick={() => {
+                            const amt = parseFloat(cashAmountInput);
+                            if (amt >= cartTotal)
+                              confirmPayment("especes", amt);
+                          }}
+                          disabled={
+                            !cashAmountInput ||
+                            parseFloat(cashAmountInput) < cartTotal
+                          }
+                          className={
+                            "w-full py-3 rounded-xl font-bold text-sm transition-all " +
+                            (cashAmountInput &&
+                            parseFloat(cashAmountInput) >= cartTotal
+                              ? "bg-emerald-600 text-white active:scale-95 cursor-pointer"
+                              : "bg-slate-800 text-slate-600 cursor-not-allowed")
+                          }
+                        >
+                          {"Confirmer paiement especes"}
+                        </button>
+                      </div>
+                    )}
+
+                    <p className="text-slate-600 text-xs my-2">
+                      {"--- ou ---"}
+                    </p>
+
+                    {/* Card payment */}
+                    <div className="flex flex-col items-center gap-3 mb-3">
                       {!sumupCheckoutUrl && !sumupLoading && (
                         <button
                           onClick={createSumUpCheckout}
@@ -827,29 +1042,27 @@ export default function AeroClubBar() {
                         </div>
                       )}
                     </div>
-                    <p className="text-slate-600 text-xs my-2">
-                      {"--- ou ---"}
-                    </p>
-                    <button
-                      onClick={() => confirmPayment("especes")}
-                      disabled={!buyerName.trim()}
-                      className={
-                        "w-full py-3.5 rounded-xl font-bold text-[15px] transition-all " +
-                        (buyerName.trim()
-                          ? "bg-emerald-700 text-white active:scale-95 cursor-pointer"
-                          : "bg-slate-800 text-slate-600 cursor-not-allowed")
-                      }
-                    >
-                      {"\uD83D\uDCB0 Paye en especes"}
-                    </button>
+
+                    {/* Offert / gratuit */}
+                    {cartTotal === 0 && buyerName.trim() && (
+                      <button
+                        onClick={() => confirmPayment("offert")}
+                        className="w-full py-3.5 rounded-xl font-bold text-[15px] bg-purple-700 text-white active:scale-95 cursor-pointer mb-2"
+                      >
+                        {"\uD83C\uDF81 Offert"}
+                      </button>
+                    )}
+
                     <button
                       onClick={() => {
                         setShowCheckout(false);
                         setSumupCheckoutUrl(null);
                         setQrDataUrl(null);
                         setSumupError(null);
+                        setShowCashFlow(false);
+                        setCashAmountInput("");
                       }}
-                      className="mt-4 px-5 py-2.5 rounded-lg border border-slate-700 text-slate-400 text-sm font-semibold hover:border-slate-500 transition cursor-pointer"
+                      className="mt-3 px-5 py-2.5 rounded-lg border border-slate-700 text-slate-400 text-sm font-semibold hover:border-slate-500 transition cursor-pointer"
                     >
                       {"Retour"}
                     </button>
@@ -903,9 +1116,21 @@ export default function AeroClubBar() {
                         <span className="text-xs text-slate-400">
                           {lastOrder.method === "especes"
                             ? "\uD83D\uDCB0 Especes"
-                            : "\uD83D\uDCB3 Carte"}
+                            : lastOrder.method === "avoir"
+                              ? "\uD83D\uDCB3 Avoir"
+                              : lastOrder.method === "offert"
+                                ? "\uD83C\uDF81 Offert"
+                                : "\uD83D\uDCB3 Carte"}
                         </span>
                       </div>
+                      {getMemberBalance(lastOrder.buyer) > 0 && (
+                        <div className="mt-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-2 text-center">
+                          <span className="text-sm text-emerald-400 font-semibold">
+                            {"Votre avoir : " +
+                              formatPrice(getMemberBalance(lastOrder.buyer))}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <p className="text-slate-600 text-xs mt-2">
@@ -1040,6 +1265,7 @@ export default function AeroClubBar() {
               { key: "stock", label: "\uD83D\uDCE6 Stock" },
               { key: "finance", label: "\uD83D\uDCB0 Finances" },
               { key: "history", label: "\uD83D\uDCCB Ventes" },
+              { key: "members", label: "\uD83D\uDC65 Comptes" },
               { key: "suggestions", label: "\uD83D\uDCA1 Idees" },
               { key: "settings", label: "\u2699 Config" },
             ].map((tab) => (
@@ -1582,6 +1808,136 @@ export default function AeroClubBar() {
                   {"Effacer l\u0027historique"}
                 </button>
               )}
+            </div>
+          )}
+
+          {activeAdminTab === "members" && (
+            <div className="flex flex-col gap-2">
+              {/* Cash in box */}
+              <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4 mb-2">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    {"Caisse (especes en boite)"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl font-extrabold text-amber-500">
+                    {formatPrice(settings.cashInBox || 0)}
+                  </span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    placeholder="Ajuster..."
+                    className="flex-1 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const v = parseFloat(
+                          (e.target as HTMLInputElement).value,
+                        );
+                        if (!isNaN(v)) {
+                          setSettings((prev) => ({ ...prev, cashInBox: v }));
+                          (e.target as HTMLInputElement).value = "";
+                          showToast("Caisse mise a jour");
+                        }
+                      }
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-slate-600 mt-1">
+                  {"Tapez un montant et Entree pour ajuster"}
+                </p>
+              </div>
+
+              {/* Member accounts */}
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                {"Comptes membres (avoir)"}
+              </span>
+              {members.filter((m) => m.balance !== 0).length === 0 ? (
+                <p className="text-slate-600 text-center py-6 text-sm">
+                  {"Aucun avoir en cours"}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {members
+                    .filter((m) => m.balance !== 0)
+                    .sort((a, b) => b.balance - a.balance)
+                    .map((m) => (
+                      <div
+                        key={m.name}
+                        className="flex items-center gap-3 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3.5 py-2.5"
+                      >
+                        <span className="text-sm font-semibold flex-1">
+                          {m.name}
+                        </span>
+                        <span
+                          className={
+                            "text-sm font-bold " +
+                            (m.balance > 0
+                              ? "text-emerald-400"
+                              : "text-red-400")
+                          }
+                        >
+                          {formatPrice(m.balance)}
+                        </span>
+                        <button
+                          onClick={() => {
+                            const v = prompt(
+                              "Nouveau solde pour " +
+                                m.name +
+                                " (actuel: " +
+                                m.balance +
+                                ") :",
+                            );
+                            if (v !== null) {
+                              const n = parseFloat(v);
+                              if (!isNaN(n)) {
+                                setMembers((prev) =>
+                                  prev.map((x) =>
+                                    x.name === m.name
+                                      ? { ...x, balance: n }
+                                      : x,
+                                  ),
+                                );
+                                showToast("Solde modifie");
+                              }
+                            }
+                          }}
+                          className="text-xs text-slate-500 hover:text-amber-500 cursor-pointer"
+                        >
+                          {"\u270F\uFE0F"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (
+                              confirm(
+                                "Remettre le solde de " + m.name + " a 0 ?",
+                              )
+                            ) {
+                              setMembers((prev) =>
+                                prev.map((x) =>
+                                  x.name === m.name ? { ...x, balance: 0 } : x,
+                                ),
+                              );
+                            }
+                          }}
+                          className="text-red-500 opacity-40 hover:opacity-100 text-sm cursor-pointer"
+                        >
+                          {"\u2715"}
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+              <div className="text-right mt-1">
+                <span className="text-xs text-slate-500">
+                  {"Total avoirs : "}
+                </span>
+                <span className="text-sm font-bold text-emerald-400">
+                  {formatPrice(
+                    members.reduce((s, m) => s + Math.max(0, m.balance), 0),
+                  )}
+                </span>
+              </div>
             </div>
           )}
 
