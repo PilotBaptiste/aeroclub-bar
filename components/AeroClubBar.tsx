@@ -8,6 +8,7 @@ interface Product {
   price: number;
   cost: number;
   stock: number;
+  stockReserve?: number;
 }
 interface CartItem {
   product: Product;
@@ -47,6 +48,7 @@ const DEFAULT_PRODUCTS: Product[] = [
     price: 0.5,
     cost: 0.15,
     stock: 50,
+    stockReserve: 0,
   },
   {
     id: "eau",
@@ -55,6 +57,7 @@ const DEFAULT_PRODUCTS: Product[] = [
     price: 0.5,
     cost: 0.1,
     stock: 30,
+    stockReserve: 0,
   },
   {
     id: "coca",
@@ -63,6 +66,7 @@ const DEFAULT_PRODUCTS: Product[] = [
     price: 1.0,
     cost: 0.45,
     stock: 24,
+    stockReserve: 0,
   },
   {
     id: "orangina",
@@ -71,6 +75,7 @@ const DEFAULT_PRODUCTS: Product[] = [
     price: 1.0,
     cost: 0.45,
     stock: 24,
+    stockReserve: 0,
   },
   {
     id: "biere",
@@ -79,6 +84,7 @@ const DEFAULT_PRODUCTS: Product[] = [
     price: 1.5,
     cost: 0.8,
     stock: 20,
+    stockReserve: 0,
   },
   {
     id: "snack",
@@ -87,6 +93,7 @@ const DEFAULT_PRODUCTS: Product[] = [
     price: 1.0,
     cost: 0.5,
     stock: 15,
+    stockReserve: 0,
   },
 ];
 
@@ -137,7 +144,6 @@ export default function AeroClubBar() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCheckout, setShowCheckout] = useState(false);
   const [buyerName, setBuyerName] = useState("");
-  const [lastBuyerName, setLastBuyerName] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
   const [lastOrder, setLastOrder] = useState<{
     items: CartItem[];
@@ -158,6 +164,7 @@ export default function AeroClubBar() {
     price: 1.0,
     cost: 0.5,
     stock: 20,
+    stockReserve: 0,
   });
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [activeAdminTab, setActiveAdminTab] = useState("stock");
@@ -172,6 +179,10 @@ export default function AeroClubBar() {
   const [suggestionAuthor, setSuggestionAuthor] = useState("");
   const [cashAmountInput, setCashAmountInput] = useState("");
   const [showCashFlow, setShowCashFlow] = useState(false);
+  const [_cartCooldowns, setCartCooldowns] = useState<
+    Record<string, ReturnType<typeof setTimeout>>
+  >({});
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
 
   // Debounced save to avoid too many API calls
@@ -226,24 +237,45 @@ export default function AeroClubBar() {
   );
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
 
-  const normalizeName = (n: string) => n.trim().toLowerCase();
+  // Normalize a full name by sorting tokens alphabetically so
+  // "DUPONT Jean", "Jean Dupont", "jean dupont" all map to the same key
+  const normalizeNameFuzzy = (n: string) =>
+    n.trim().toLowerCase().split(/\s+/).sort().join(" ");
+
+  // Autocomplete suggestions: names that contain any token of the input
+  const getNameSuggestions = (input: string): string[] => {
+    if (!input.trim() || input.trim().length < 2) return [];
+    const tokens = input.trim().toLowerCase().split(/\s+/);
+    const allNames = [
+      ...new Set([
+        ...transactions.map((t) => t.buyer).filter(Boolean),
+        ...members.map((m) => m.name),
+      ]),
+    ];
+    return allNames
+      .filter((n) => tokens.some((tok) => n.toLowerCase().includes(tok)))
+      .slice(0, 5);
+  };
 
   const getMemberBalance = (name: string): number => {
-    const key = normalizeName(name);
-    const m = members.find((m) => normalizeName(m.name) === key);
+    const key = normalizeNameFuzzy(name);
+    const m = members.find((m) => normalizeNameFuzzy(m.name) === key);
     return m ? m.balance : 0;
   };
 
   const updateMemberBalance = (name: string, delta: number) => {
-    const key = normalizeName(name);
+    const key = normalizeNameFuzzy(name);
+    // Use the canonical name already stored if found
+    const canonical = members.find((m) => normalizeNameFuzzy(m.name) === key);
+    const storeName = canonical ? canonical.name : name.trim();
     setMembers((prev) => {
-      const existing = prev.find((m) => normalizeName(m.name) === key);
+      const existing = prev.find((m) => normalizeNameFuzzy(m.name) === key);
       if (existing) {
         return prev.map((m) =>
-          normalizeName(m.name) === key
+          normalizeNameFuzzy(m.name) === key
             ? {
                 ...m,
-                name: name.trim(),
+                name: storeName,
                 balance: Math.round((m.balance + delta) * 100) / 100,
               }
             : m,
@@ -252,7 +284,7 @@ export default function AeroClubBar() {
       if (delta > 0) {
         return [
           ...prev,
-          { name: name.trim(), balance: Math.round(delta * 100) / 100 },
+          { name: storeName, balance: Math.round(delta * 100) / 100 },
         ];
       }
       return prev;
@@ -271,6 +303,20 @@ export default function AeroClubBar() {
       }
       return [...prev, { product: p, qty: 1 }];
     });
+
+    // Reset the 30s cooldown for this product
+    setCartCooldowns((prev) => {
+      if (prev[p.id]) clearTimeout(prev[p.id]);
+      const timer = setTimeout(() => {
+        setCart((c) => c.filter((item) => item.product.id !== p.id));
+        setCartCooldowns((cd) => {
+          const next = { ...cd };
+          delete next[p.id];
+          return next;
+        });
+      }, 30000);
+      return { ...prev, [p.id]: timer };
+    });
   };
 
   const removeFromCart = (pid: string) => {
@@ -280,11 +326,23 @@ export default function AeroClubBar() {
         return prev.map((c) =>
           c.product.id === pid ? { ...c, qty: c.qty - 1 } : c,
         );
+      // fully removed — clear cooldown
+      setCartCooldowns((cd) => {
+        if (cd[pid]) clearTimeout(cd[pid]);
+        const next = { ...cd };
+        delete next[pid];
+        return next;
+      });
       return prev.filter((c) => c.product.id !== pid);
     });
   };
 
   const clearCart = () => {
+    // Clear all cooldown timers
+    setCartCooldowns((cd) => {
+      Object.values(cd).forEach((t) => clearTimeout(t));
+      return {};
+    });
     setCart([]);
     setShowCheckout(false);
     setPaymentStatus(null);
@@ -409,12 +467,6 @@ export default function AeroClubBar() {
       method,
     });
     setPaymentStatus("success");
-    const balanceAfter =
-      method === "avoir"
-        ? getMemberBalance(buyerName.trim()) - cartTotal
-        : method === "especes" && amountPaid
-          ? getMemberBalance(buyerName.trim()) + (amountPaid - cartTotal)
-          : getMemberBalance(buyerName.trim());
     showToast("Merci " + buyerName.trim().split(" ")[0] + " !");
     setTimeout(() => {
       clearCart();
@@ -462,6 +514,7 @@ export default function AeroClubBar() {
       price: 1.0,
       cost: 0.5,
       stock: 20,
+      stockReserve: 0,
     });
     setShowAddProduct(false);
     showToast("Produit ajoute !");
@@ -635,6 +688,11 @@ export default function AeroClubBar() {
                   {!out && p.stock <= 5 && (
                     <span className="text-[10px] text-orange-400 bg-orange-950 px-2 py-0.5 rounded-full font-semibold">
                       {"Plus que " + p.stock}
+                    </span>
+                  )}
+                  {!out && p.stock > 5 && (
+                    <span className="text-[10px] text-slate-500 font-medium">
+                      {"Stock : " + p.stock}
                     </span>
                   )}
                 </button>
@@ -830,23 +888,53 @@ export default function AeroClubBar() {
                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                         {"Nom & Prenom"}
                       </label>
-                      <input
-                        type="text"
-                        placeholder="ex: Jean Dupont"
-                        value={buyerName}
-                        onChange={(e) => {
-                          setBuyerName(e.target.value);
-                          setShowCashFlow(false);
-                          setCashAmountInput("");
-                        }}
-                        autoFocus
-                        className={
-                          "h-12 rounded-xl border-2 bg-[#0f172a] text-white text-center text-base font-semibold outline-none transition-colors " +
-                          (buyerName.trim()
-                            ? "border-amber-500"
-                            : "border-slate-700")
-                        }
-                      />
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="ex: Jean Dupont"
+                          value={buyerName}
+                          onChange={(e) => {
+                            setBuyerName(e.target.value);
+                            setShowCashFlow(false);
+                            setCashAmountInput("");
+                            setShowNameSuggestions(true);
+                          }}
+                          onBlur={() =>
+                            setTimeout(() => setShowNameSuggestions(false), 150)
+                          }
+                          onFocus={() => setShowNameSuggestions(true)}
+                          autoFocus
+                          className={
+                            "h-12 w-full rounded-xl border-2 bg-[#0f172a] text-white text-center text-base font-semibold outline-none transition-colors " +
+                            (buyerName.trim()
+                              ? "border-amber-500"
+                              : "border-slate-700")
+                          }
+                        />
+                        {showNameSuggestions &&
+                          getNameSuggestions(buyerName).length > 0 && (
+                            <div className="absolute left-0 right-0 top-full mt-1 bg-[#0f172a] border border-slate-700 rounded-xl overflow-hidden z-10 shadow-xl">
+                              {getNameSuggestions(buyerName).map((name) => (
+                                <button
+                                  key={name}
+                                  onMouseDown={() => {
+                                    setBuyerName(name);
+                                    setShowNameSuggestions(false);
+                                  }}
+                                  className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-[#1e2d4a] transition cursor-pointer flex items-center justify-between"
+                                >
+                                  <span>{name}</span>
+                                  {getMemberBalance(name) > 0 && (
+                                    <span className="text-emerald-400 text-xs font-semibold">
+                                      {"Avoir : " +
+                                        formatPrice(getMemberBalance(name))}
+                                    </span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                      </div>
                       {!buyerName.trim() && (
                         <span className="text-[11px] text-amber-500 font-medium">
                           {"Obligatoire pour valider"}
@@ -1382,7 +1470,7 @@ export default function AeroClubBar() {
                         </div>
                         <div className="flex flex-col gap-1 col-span-2">
                           <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                            {"Stock"}
+                            {"Stock frigo / service"}
                           </label>
                           <input
                             type="number"
@@ -1394,6 +1482,22 @@ export default function AeroClubBar() {
                               })
                             }
                             className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 col-span-2">
+                          <label className="text-[10px] text-slate-500 font-semibold uppercase">
+                            {"Stock placard reserve"}
+                          </label>
+                          <input
+                            type="number"
+                            value={editingProduct.stockReserve ?? 0}
+                            onChange={(e) =>
+                              setEditingProduct({
+                                ...editingProduct,
+                                stockReserve: parseInt(e.target.value, 10) || 0,
+                              })
+                            }
+                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-purple-300 text-sm text-center outline-none"
                           />
                         </div>
                       </div>
@@ -1416,7 +1520,14 @@ export default function AeroClubBar() {
                 return (
                   <div
                     key={p.id}
-                    className="flex items-center gap-2.5 bg-[#131b2e] border border-[#1e2d4a] rounded-xl px-3.5 py-2.5"
+                    className={
+                      "flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 border " +
+                      (p.stock <= 5 && (p.stockReserve ?? 0) === 0
+                        ? "bg-red-950/40 border-red-800"
+                        : p.stock <= 5
+                          ? "bg-orange-950/30 border-orange-800"
+                          : "bg-[#131b2e] border-[#1e2d4a]")
+                    }
                   >
                     <span className="text-2xl w-9 text-center">{p.emoji}</span>
                     <div className="flex-1 flex flex-col">
@@ -1427,26 +1538,128 @@ export default function AeroClubBar() {
                           {" / cout: " + formatPrice(p.cost || 0)}
                         </span>
                       </span>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-slate-400">
+                          {"🧊 Frigo : "}
+                          <span
+                            className={
+                              p.stock <= 5
+                                ? "text-orange-400 font-bold"
+                                : "text-white"
+                            }
+                          >
+                            {p.stock}
+                          </span>
+                        </span>
+                        <span className="text-[10px] text-slate-600">
+                          {"•"}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {"📦 Réserve : "}
+                          <span
+                            className={
+                              (p.stockReserve ?? 0) === 0 && p.stock <= 5
+                                ? "text-red-400 font-bold"
+                                : "text-purple-300"
+                            }
+                          >
+                            {p.stockReserve ?? 0}
+                          </span>
+                        </span>
+                        {p.stock <= 5 && (p.stockReserve ?? 0) === 0 && (
+                          <span className="text-[10px] text-red-400 font-bold">
+                            {"⚠ Réappro!"}
+                          </span>
+                        )}
+                        {p.stock <= 5 && (p.stockReserve ?? 0) > 0 && (
+                          <span className="text-[10px] text-orange-400">
+                            {"↻ Réappro dispo"}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => adjustStock(p.id, -1)}
-                        className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-red-500 text-lg font-bold flex items-center justify-center cursor-pointer"
-                      >
-                        {"\u2212"}
-                      </button>
-                      <input
-                        type="number"
-                        value={p.stock}
-                        onChange={(e) => setStockDirect(p.id, e.target.value)}
-                        className="w-12 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-white text-sm font-bold text-center outline-none"
-                      />
-                      <button
-                        onClick={() => adjustStock(p.id, 1)}
-                        className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-emerald-500 text-lg font-bold flex items-center justify-center cursor-pointer"
-                      >
-                        {"+"}
-                      </button>
+                    <div className="flex flex-col gap-1 items-center">
+                      <span className="text-[9px] text-slate-600 uppercase font-semibold">
+                        Frigo
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => adjustStock(p.id, -1)}
+                          className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-red-500 text-lg font-bold flex items-center justify-center cursor-pointer"
+                        >
+                          {"\u2212"}
+                        </button>
+                        <input
+                          type="number"
+                          value={p.stock}
+                          onChange={(e) => setStockDirect(p.id, e.target.value)}
+                          className="w-12 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-white text-sm font-bold text-center outline-none"
+                        />
+                        <button
+                          onClick={() => adjustStock(p.id, 1)}
+                          className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-emerald-500 text-lg font-bold flex items-center justify-center cursor-pointer"
+                        >
+                          {"+"}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1 items-center">
+                      <span className="text-[9px] text-purple-400 uppercase font-semibold">
+                        Reserve
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() =>
+                            setProducts((prev) =>
+                              prev.map((x) =>
+                                x.id === p.id
+                                  ? {
+                                      ...x,
+                                      stockReserve: Math.max(
+                                        0,
+                                        (x.stockReserve ?? 0) - 1,
+                                      ),
+                                    }
+                                  : x,
+                              ),
+                            )
+                          }
+                          className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-red-500 text-lg font-bold flex items-center justify-center cursor-pointer"
+                        >
+                          {"\u2212"}
+                        </button>
+                        <input
+                          type="number"
+                          value={p.stockReserve ?? 0}
+                          onChange={(e) => {
+                            const n = parseInt(e.target.value, 10);
+                            if (!isNaN(n) && n >= 0)
+                              setProducts((prev) =>
+                                prev.map((x) =>
+                                  x.id === p.id ? { ...x, stockReserve: n } : x,
+                                ),
+                              );
+                          }}
+                          className="w-12 h-8 rounded-lg border border-purple-900 bg-[#0f172a] text-purple-300 text-sm font-bold text-center outline-none"
+                        />
+                        <button
+                          onClick={() =>
+                            setProducts((prev) =>
+                              prev.map((x) =>
+                                x.id === p.id
+                                  ? {
+                                      ...x,
+                                      stockReserve: (x.stockReserve ?? 0) + 1,
+                                    }
+                                  : x,
+                              ),
+                            )
+                          }
+                          className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-emerald-500 text-lg font-bold flex items-center justify-center cursor-pointer"
+                        >
+                          {"+"}
+                        </button>
+                      </div>
                     </div>
                     <button
                       onClick={() => setEditingProduct({ ...p })}
@@ -1540,7 +1753,7 @@ export default function AeroClubBar() {
                     </div>
                     <div className="flex flex-col gap-1 col-span-2">
                       <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                        {"Stock"}
+                        {"Stock frigo / service"}
                       </label>
                       <input
                         type="number"
@@ -1552,6 +1765,22 @@ export default function AeroClubBar() {
                           })
                         }
                         className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1 col-span-2">
+                      <label className="text-[10px] text-slate-500 font-semibold uppercase">
+                        {"Stock placard reserve"}
+                      </label>
+                      <input
+                        type="number"
+                        value={newProduct.stockReserve}
+                        onChange={(e) =>
+                          setNewProduct({
+                            ...newProduct,
+                            stockReserve: parseInt(e.target.value, 10) || 0,
+                          })
+                        }
+                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-purple-300 text-sm text-center outline-none"
                       />
                     </div>
                   </div>
