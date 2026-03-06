@@ -354,9 +354,11 @@ export default function AeroClubBar() {
       updatedProducts.push(...u);
       return u;
     });
-    // Send Telegram alerts for low stock (async, fire and forget)
+    // Send Telegram alerts ONLY for products in this cart that drop to low stock
+    const cartProductIds = cart.map((c) => c.product.id);
     setTimeout(() => {
       for (const p of updatedProducts) {
+        if (!cartProductIds.includes(p.id)) continue;
         if (p.stock > 0 && p.stock <= 5) {
           fetch("/api/alert", {
             method: "POST",
@@ -400,7 +402,6 @@ export default function AeroClubBar() {
       amountPaid,
     };
     setTransactions((prev) => [tx, ...prev]);
-    setLastBuyerName(buyerName.trim());
     setLastOrder({
       items: [...cart],
       total: cartTotal,
@@ -728,7 +729,7 @@ export default function AeroClubBar() {
                   <button
                     onClick={() => {
                       setShowCheckout(true);
-                      setBuyerName(lastBuyerName);
+                      setBuyerName("");
                     }}
                     className="flex-1 py-3.5 rounded-xl bg-amber-500 text-black font-bold text-base cursor-pointer active:scale-95 transition"
                   >
