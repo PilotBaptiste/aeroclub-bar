@@ -9,6 +9,7 @@ export async function POST(request: Request) {
     const MERCHANT_CODE = process.env.SUMUP_MERCHANT_CODE;
     const READER_ID = process.env.SUMUP_READER_ID;
     const AFFILIATE_KEY = process.env.SUMUP_AFFILIATE_KEY;
+    const APP_ID = process.env.SUMUP_APP_ID || "aeroclub-bar.vercel.app";
 
     if (!API_KEY || !MERCHANT_CODE || !READER_ID || !AFFILIATE_KEY) {
       return NextResponse.json(
@@ -56,7 +57,10 @@ export async function POST(request: Request) {
             value: valueInCents,
           },
           description,
-          affiliate: { app_id: AFFILIATE_KEY },
+          affiliate: {
+            app_id: APP_ID,
+            key: AFFILIATE_KEY,
+          },
           return_url: returnUrl,
         }),
       },
