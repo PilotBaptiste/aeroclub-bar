@@ -1,68 +1,79 @@
+import { kv } from "@vercel/kv";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
   try {
     const { amount, description, buyer } = await request.json();
 
-    if (!amount || !description || !buyer) {
-      return NextResponse.json({ error: "Champs manquants" }, { status: 400 });
-    }
+    const API_KEY = process.env.SUMUP_API_KEY;
+    const MERCHANT_CODE = process.env.SUMUP_MERCHANT_CODE;
+    const READER_ID = process.env.SUMUP_READER_ID;
+    const AFFILIATE_KEY = process.env.SUMUP_AFFILIATE_KEY;
 
-    const SUMUP_API_KEY = process.env.SUMUP_API_KEY;
-    const SUMUP_MERCHANT_CODE = process.env.SUMUP_MERCHANT_CODE;
-    const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-
-    if (!SUMUP_API_KEY || !SUMUP_MERCHANT_CODE) {
+    if (!API_KEY || !MERCHANT_CODE || !READER_ID || !AFFILIATE_KEY) {
       return NextResponse.json(
         { error: "SumUp non configure" },
         { status: 500 },
       );
     }
 
-    const checkoutRef =
-      "aerobar-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    // Montant en centimes (minor unit = 2)
+    const valueInCents = Math.round(amount * 100);
 
-    const sumupResponse = await fetch("https://api.sumup.com/v0.1/checkouts", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + SUMUP_API_KEY,
-        "Content-Type": "application/json",
+    // Génère un ID de session unique pour le polling
+    const sessionId =
+      Date.now().toString(36) + Math.random().toString(36).slice(2);
+    const returnUrl =
+      process.env.NEXT_PUBLIC_APP_URL +
+      "/api/sumup-webhook?session=" +
+      sessionId;
+
+    // Stocke la session en KV avec statut "pending"
+    await kv.set(
+      "sumup-session:" + sessionId,
+      {
+        status: "pending",
+        amount,
+        buyer,
+        description,
       },
-      body: JSON.stringify({
-        checkout_reference: checkoutRef,
-        amount: amount,
-        currency: "EUR",
-        merchant_code: SUMUP_MERCHANT_CODE,
-        description: description + " - " + buyer,
-        redirect_url: APP_URL,
-        hosted_checkout: {
-          enabled: true,
+      { ex: 300 },
+    ); // expire après 5 min
+
+    // Envoie au terminal Solo
+    const res = await fetch(
+      `https://api.sumup.com/v0.1/merchants/${MERCHANT_CODE}/readers/${READER_ID}/checkout`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + API_KEY,
+          "Content-Type": "application/json",
         },
-      }),
-    });
+        body: JSON.stringify({
+          total_amount: {
+            currency: "EUR",
+            minor_unit: 2,
+            value: valueInCents,
+          },
+          description,
+          affiliate: { app_id: AFFILIATE_KEY },
+          return_url: returnUrl,
+        }),
+      },
+    );
 
-    const checkout = await sumupResponse.json();
-    console.log("SumUp response:", JSON.stringify(checkout));
-
-    if (!sumupResponse.ok) {
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("SumUp reader error:", err);
       return NextResponse.json(
-        { error: "Erreur SumUp", details: JSON.stringify(checkout) },
+        { error: "Erreur terminal SumUp" },
         { status: 502 },
       );
     }
 
-    // Use the hosted checkout URL returned by SumUp
-    const paymentUrl = checkout.hosted_checkout_url;
-
-    console.log("Payment URL:", paymentUrl);
-
-    return NextResponse.json({
-      checkoutId: checkout.id,
-      checkoutRef: checkoutRef,
-      paymentUrl: paymentUrl,
-    });
-  } catch (error) {
-    console.error("Checkout error:", error);
+    return NextResponse.json({ ok: true, sessionId });
+  } catch (e) {
+    console.error("SumUp checkout error:", e);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }

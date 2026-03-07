@@ -153,8 +153,8 @@ export default function AeroClubBar() {
   } | null>(null);
   const [sumupLoading, setSumupLoading] = useState(false);
   const [sumupError, setSumupError] = useState<string | null>(null);
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [sumupCheckoutUrl, setSumupCheckoutUrl] = useState<string | null>(null);
+  const [sumupSessionId, setSumupSessionId] = useState<string | null>(null);
+  const [sumupPolling, setSumupPolling] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
   const [showAddProduct, setShowAddProduct] = useState(false);
@@ -350,8 +350,8 @@ export default function AeroClubBar() {
     setCart([]);
     setShowCheckout(false);
     setPaymentStatus(null);
-    setSumupCheckoutUrl(null);
-    setQrDataUrl(null);
+    setSumupSessionId(null);
+    setSumupPolling(false);
     setSumupError(null);
     setBureauUnlocked(false);
     setShowBureauPin(false);
@@ -366,8 +366,8 @@ export default function AeroClubBar() {
     if (!buyerName.trim() || cartTotal <= 0) return;
     setSumupLoading(true);
     setSumupError(null);
-    setSumupCheckoutUrl(null);
-    setQrDataUrl(null);
+    setSumupSessionId(null);
+    setSumupPolling(false);
     try {
       const desc = cart.map((c) => c.qty + "x " + c.product.name).join(", ");
       const res = await fetch("/api/sumup-checkout", {
@@ -384,20 +384,36 @@ export default function AeroClubBar() {
         setSumupError(data.error || "Erreur paiement");
         return;
       }
-      setSumupCheckoutUrl(data.paymentUrl);
-      try {
-        const QRCode = (await import("qrcode")).default;
-        const qr = await QRCode.toDataURL(data.paymentUrl, {
-          width: 280,
-          margin: 2,
-          color: { dark: "#000000", light: "#ffffff" },
-        });
-        setQrDataUrl(qr);
-      } catch {
-        /* */
-      }
+      setSumupSessionId(data.sessionId);
+      setSumupPolling(true);
+      // Polling toutes les 2 secondes
+      const interval = setInterval(async () => {
+        try {
+          const poll = await fetch(
+            "/api/sumup-webhook?session=" + data.sessionId,
+          );
+          const result = await poll.json();
+          if (result.status === "success") {
+            clearInterval(interval);
+            setSumupPolling(false);
+            confirmPayment("carte");
+          } else if (result.status === "failed") {
+            clearInterval(interval);
+            setSumupPolling(false);
+            setSumupError("Paiement refusé ou annulé. Réessayez.");
+            setSumupSessionId(null);
+          }
+        } catch {
+          /* continue polling */
+        }
+      }, 2000);
+      // Arrêt automatique après 3 minutes
+      setTimeout(() => {
+        clearInterval(interval);
+        setSumupPolling(false);
+      }, 180000);
     } catch {
-      setSumupError("Impossible de contacter le serveur.");
+      setSumupError("Impossible de contacter le terminal.");
     } finally {
       setSumupLoading(false);
     }
@@ -1097,9 +1113,9 @@ export default function AeroClubBar() {
                       {"--- ou ---"}
                     </p>
 
-                    {/* Card payment */}
+                    {/* Card payment — Solo terminal */}
                     <div className="flex flex-col items-center gap-3 mb-3">
-                      {!sumupCheckoutUrl && !sumupLoading && (
+                      {!sumupSessionId && !sumupLoading && (
                         <button
                           onClick={createSumUpCheckout}
                           disabled={!buyerName.trim()}
@@ -1110,49 +1126,45 @@ export default function AeroClubBar() {
                               : "bg-slate-800 text-slate-600 cursor-not-allowed")
                           }
                         >
-                          {"\uD83D\uDCB3 Payer " +
-                            formatPrice(cartTotal) +
-                            " par carte"}
+                          {"💳 Payer " + formatPrice(cartTotal) + " par carte"}
                         </button>
                       )}
                       {sumupLoading && (
                         <div className="flex items-center gap-2 py-4 text-slate-400">
                           <div className="w-5 h-5 border-2 border-slate-600 border-t-amber-500 rounded-full animate-spin" />
                           <span className="text-sm">
-                            {"Generation du QR code..."}
+                            {"Envoi au terminal..."}
                           </span>
+                        </div>
+                      )}
+                      {sumupPolling && sumupSessionId && (
+                        <div className="w-full bg-blue-950 border border-blue-700 rounded-xl p-4 flex flex-col items-center gap-3">
+                          <div className="w-8 h-8 border-[3px] border-blue-700 border-t-blue-300 rounded-full animate-spin" />
+                          <p className="text-blue-300 font-bold text-sm text-center">
+                            {"💳 En attente du paiement sur le terminal..."}
+                          </p>
+                          <p className="text-slate-500 text-xs text-center">
+                            {"Le client présente sa carte sur le SumUp Solo"}
+                          </p>
+                          <button
+                            onClick={() => {
+                              setSumupPolling(false);
+                              setSumupSessionId(null);
+                            }}
+                            className="text-xs text-slate-600 hover:text-slate-400 cursor-pointer mt-1"
+                          >
+                            {"Annuler"}
+                          </button>
                         </div>
                       )}
                       {sumupError && (
-                        <div className="bg-red-950 border border-red-800 rounded-xl p-3 text-red-300 text-sm w-full">
+                        <div className="bg-red-950 border border-red-800 rounded-xl p-3 text-red-300 text-sm w-full text-center">
                           {sumupError}
-                        </div>
-                      )}
-                      {qrDataUrl && sumupCheckoutUrl && (
-                        <div className="flex flex-col items-center gap-2">
-                          <div className="bg-white p-3 rounded-2xl shadow-xl">
-                            <img
-                              src={qrDataUrl}
-                              alt="QR Code paiement"
-                              className="w-52 h-52"
-                            />
-                          </div>
-                          <span className="text-xs text-slate-400">
-                            {"Scannez pour payer " + formatPrice(cartTotal)}
-                          </span>
-                          <a
-                            href={sumupCheckoutUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-blue-400 underline"
-                          >
-                            {"Ou ouvrez ce lien"}
-                          </a>
                           <button
-                            onClick={() => confirmPayment("carte")}
-                            className="mt-2 w-full py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm active:scale-95 cursor-pointer"
+                            onClick={() => setSumupError(null)}
+                            className="block mx-auto mt-2 text-xs text-slate-500 hover:text-slate-300 cursor-pointer"
                           >
-                            {"\u2705 J\u0027ai paye par carte"}
+                            {"Réessayer"}
                           </button>
                         </div>
                       )}
