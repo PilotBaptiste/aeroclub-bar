@@ -30,91 +30,24 @@ export async function GET(request: Request) {
     const data = await res.json();
     console.log("Reader status:", JSON.stringify(data));
 
-    // La réponse SumUp est { data: { state: "WAITING_FOR_CARD"|"IDLE"|..., status: "ONLINE" } }
     const readerState = (data?.data?.state || data?.state || "").toUpperCase();
+    console.log("Reader state:", readerState);
 
     // Terminal occupé = paiement en cours → on continue à poller
     if (
       readerState === "WAITING_FOR_CARD" ||
       readerState === "PROCESSING" ||
       readerState === "WAITING_FOR_PIN" ||
-      readerState === "BUSY"
+      readerState === "BUSY" ||
+      readerState === ""
     ) {
       return NextResponse.json({ status: "pending" });
     }
 
-    // Terminal IDLE = paiement terminé → vérifie la transaction via client_transaction_id
-    if (checkoutId) {
-      const txRes = await fetch(
-        `https://api.sumup.com/v0.1/merchants/${MERCHANT_CODE}/transactions?client_transaction_id=${checkoutId}`,
-        {
-          headers: { Authorization: "Bearer " + API_KEY },
-          cache: "no-store",
-        },
-      );
-      if (txRes.ok) {
-        const tx = await txRes.json();
-        console.log("Transaction by client_id:", JSON.stringify(tx));
-        const lastTx = Array.isArray(tx) ? tx[0] : tx?.items?.[0] || tx;
-        const txStatus = (
-          lastTx?.status ||
-          lastTx?.transaction_status ||
-          ""
-        ).toUpperCase();
-        console.log("Transaction status:", txStatus);
-        if (
-          txStatus === "SUCCESSFUL" ||
-          txStatus === "PAID" ||
-          txStatus === "COMPLETE"
-        ) {
-          return NextResponse.json({ status: "success" });
-        }
-        if (
-          txStatus === "FAILED" ||
-          txStatus === "CANCELLED" ||
-          txStatus === "EXPIRED"
-        ) {
-          return NextResponse.json({ status: "failed" });
-        }
-      } else {
-        console.log(
-          "Transaction lookup error:",
-          txRes.status,
-          await txRes.text(),
-        );
-      }
-    }
-
-    // Fallback : regarde les transactions récentes du reader
-    const txRes = await fetch(
-      `https://api.sumup.com/v0.1/merchants/${MERCHANT_CODE}/readers/${READER_ID}/transactions?limit=1`,
-      {
-        headers: { Authorization: "Bearer " + API_KEY },
-        cache: "no-store",
-      },
-    );
-
-    if (txRes.ok) {
-      const txData = await txRes.json();
-      console.log("Transactions response:", JSON.stringify(txData));
-      const lastTx = Array.isArray(txData) ? txData[0] : txData?.items?.[0];
-      if (lastTx) {
-        const txStatus = (lastTx.status || "").toUpperCase();
-        console.log("Last tx status:", txStatus);
-        if (
-          txStatus === "SUCCESSFUL" ||
-          txStatus === "PAID" ||
-          txStatus === "COMPLETE"
-        ) {
-          return NextResponse.json({ status: "success" });
-        }
-        if (txStatus === "FAILED" || txStatus === "CANCELLED") {
-          return NextResponse.json({ status: "failed" });
-        }
-      }
-    } else {
-      const errText = await txRes.text();
-      console.log("Transactions error:", txRes.status, errText);
+    // IDLE = terminal libre = paiement terminé avec succès
+    // (en cas d'échec le terminal affiche une erreur et reste busy)
+    if (readerState === "IDLE") {
+      return NextResponse.json({ status: "success" });
     }
 
     return NextResponse.json({ status: "pending" });
