@@ -43,10 +43,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ status: "pending" });
     }
 
-    // Terminal IDLE = paiement terminé (succès ou échec) → on vérifie la transaction
+    // Terminal IDLE = paiement terminé → vérifie la transaction via client_transaction_id
     if (checkoutId) {
       const txRes = await fetch(
-        `https://api.sumup.com/v0.1/checkouts/${checkoutId}`,
+        `https://api.sumup.com/v0.1/merchants/${MERCHANT_CODE}/transactions?client_transaction_id=${checkoutId}`,
         {
           headers: { Authorization: "Bearer " + API_KEY },
           cache: "no-store",
@@ -54,11 +54,17 @@ export async function GET(request: Request) {
       );
       if (txRes.ok) {
         const tx = await txRes.json();
-        console.log("Checkout status:", JSON.stringify(tx));
-        const txStatus = (tx.status || "").toUpperCase();
+        console.log("Transaction by client_id:", JSON.stringify(tx));
+        const lastTx = Array.isArray(tx) ? tx[0] : tx?.items?.[0] || tx;
+        const txStatus = (
+          lastTx?.status ||
+          lastTx?.transaction_status ||
+          ""
+        ).toUpperCase();
+        console.log("Transaction status:", txStatus);
         if (
-          txStatus === "PAID" ||
           txStatus === "SUCCESSFUL" ||
+          txStatus === "PAID" ||
           txStatus === "COMPLETE"
         ) {
           return NextResponse.json({ status: "success" });
@@ -70,6 +76,12 @@ export async function GET(request: Request) {
         ) {
           return NextResponse.json({ status: "failed" });
         }
+      } else {
+        console.log(
+          "Transaction lookup error:",
+          txRes.status,
+          await txRes.text(),
+        );
       }
     }
 
@@ -84,9 +96,11 @@ export async function GET(request: Request) {
 
     if (txRes.ok) {
       const txData = await txRes.json();
+      console.log("Transactions response:", JSON.stringify(txData));
       const lastTx = Array.isArray(txData) ? txData[0] : txData?.items?.[0];
       if (lastTx) {
         const txStatus = (lastTx.status || "").toUpperCase();
+        console.log("Last tx status:", txStatus);
         if (
           txStatus === "SUCCESSFUL" ||
           txStatus === "PAID" ||
@@ -98,6 +112,9 @@ export async function GET(request: Request) {
           return NextResponse.json({ status: "failed" });
         }
       }
+    } else {
+      const errText = await txRes.text();
+      console.log("Transactions error:", txRes.status, errText);
     }
 
     return NextResponse.json({ status: "pending" });
