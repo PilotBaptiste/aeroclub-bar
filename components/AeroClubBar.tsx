@@ -1346,6 +1346,14 @@ export default function AeroClubBar() {
                                 : "\uD83D\uDCB3 Carte"}
                         </span>
                       </div>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-xs text-slate-500">
+                          {"Membre"}
+                        </span>
+                        <span className="text-xs text-slate-300 font-semibold">
+                          {lastOrder.buyer}
+                        </span>
+                      </div>
                       {getMemberBalance(lastOrder.buyer) > 0 && (
                         <div className="mt-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-2 text-center">
                           <span className="text-sm text-emerald-400 font-semibold">
