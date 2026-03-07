@@ -153,7 +153,7 @@ export default function AeroClubBar() {
   } | null>(null);
   const [sumupLoading, setSumupLoading] = useState(false);
   const [sumupError, setSumupError] = useState<string | null>(null);
-  const [sumupSessionId, setSumupSessionId] = useState<string | null>(null);
+  const [sumupCheckoutId, setSumupCheckoutId] = useState<string | null>(null);
   const [sumupPolling, setSumupPolling] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
@@ -350,7 +350,7 @@ export default function AeroClubBar() {
     setCart([]);
     setShowCheckout(false);
     setPaymentStatus(null);
-    setSumupSessionId(null);
+    setSumupCheckoutId(null);
     setSumupPolling(false);
     setSumupError(null);
     setBureauUnlocked(false);
@@ -366,7 +366,7 @@ export default function AeroClubBar() {
     if (!buyerName.trim() || cartTotal <= 0) return;
     setSumupLoading(true);
     setSumupError(null);
-    setSumupSessionId(null);
+    setSumupCheckoutId(null);
     setSumupPolling(false);
     try {
       const desc = cart.map((c) => c.qty + "x " + c.product.name).join(", ");
@@ -384,14 +384,15 @@ export default function AeroClubBar() {
         setSumupError(data.error || "Erreur paiement");
         return;
       }
-      setSumupSessionId(data.sessionId);
+      setSumupCheckoutId(data.checkoutId);
       setSumupPolling(true);
       // Polling toutes les 2 secondes
       const interval = setInterval(async () => {
         try {
-          const poll = await fetch(
-            "/api/sumup-webhook?session=" + data.sessionId,
-          );
+          const url =
+            "/api/sumup-webhook" +
+            (data.checkoutId ? "?checkoutId=" + data.checkoutId : "");
+          const poll = await fetch(url);
           const result = await poll.json();
           if (result.status === "success") {
             clearInterval(interval);
@@ -401,7 +402,7 @@ export default function AeroClubBar() {
             clearInterval(interval);
             setSumupPolling(false);
             setSumupError("Paiement refusé ou annulé. Réessayez.");
-            setSumupSessionId(null);
+            setSumupCheckoutId(null);
           }
         } catch {
           /* continue polling */
@@ -1115,7 +1116,7 @@ export default function AeroClubBar() {
 
                     {/* Card payment — Solo terminal */}
                     <div className="flex flex-col items-center gap-3 mb-3">
-                      {!sumupSessionId && !sumupLoading && (
+                      {!sumupCheckoutId && !sumupLoading && (
                         <button
                           onClick={createSumUpCheckout}
                           disabled={!buyerName.trim()}
@@ -1137,7 +1138,7 @@ export default function AeroClubBar() {
                           </span>
                         </div>
                       )}
-                      {sumupPolling && sumupSessionId && (
+                      {sumupPolling && sumupCheckoutId && (
                         <div className="w-full bg-blue-950 border border-blue-700 rounded-xl p-4 flex flex-col items-center gap-3">
                           <div className="w-8 h-8 border-[3px] border-blue-700 border-t-blue-300 rounded-full animate-spin" />
                           <p className="text-blue-300 font-bold text-sm text-center">
@@ -1149,7 +1150,7 @@ export default function AeroClubBar() {
                           <button
                             onClick={() => {
                               setSumupPolling(false);
-                              setSumupSessionId(null);
+                              setSumupCheckoutId(null);
                             }}
                             className="text-xs text-slate-600 hover:text-slate-400 cursor-pointer mt-1"
                           >

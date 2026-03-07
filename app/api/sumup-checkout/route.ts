@@ -1,83 +1,115 @@
-import { kv } from "@vercel/kv";
 import { NextResponse } from "next/server";
 
-export async function POST(request: Request) {
+// GET : polling — interroge directement l'API SumUp pour le statut du reader
+export async function GET(request: Request) {
   try {
-    const { amount, description, buyer } = await request.json();
+    const { searchParams } = new URL(request.url);
+    const checkoutId = searchParams.get("checkoutId");
 
     const API_KEY = process.env.SUMUP_API_KEY;
     const MERCHANT_CODE = process.env.SUMUP_MERCHANT_CODE;
     const READER_ID = process.env.SUMUP_READER_ID;
-    const AFFILIATE_KEY = process.env.SUMUP_AFFILIATE_KEY;
-    const APP_ID = process.env.SUMUP_APP_ID || "aeroclub-bar.vercel.app";
 
-    if (!API_KEY || !MERCHANT_CODE || !READER_ID || !AFFILIATE_KEY) {
-      return NextResponse.json(
-        { error: "SumUp non configure" },
-        { status: 500 },
-      );
+    if (!API_KEY || !MERCHANT_CODE || !READER_ID) {
+      return NextResponse.json({ status: "pending" });
     }
 
-    // Montant en centimes (minor unit = 2)
-    const valueInCents = Math.round(amount * 100);
-
-    // Génère un ID de session unique pour le polling
-    const sessionId =
-      Date.now().toString(36) + Math.random().toString(36).slice(2);
-    const returnUrl =
-      process.env.NEXT_PUBLIC_APP_URL +
-      "/api/sumup-webhook?session=" +
-      sessionId;
-
-    // Stocke la session en KV avec statut "pending"
-    await kv.set(
-      "sumup-session:" + sessionId,
-      {
-        status: "pending",
-        amount,
-        buyer,
-        description,
-      },
-      { ex: 300 },
-    ); // expire après 5 min
-
-    // Envoie au terminal Solo
+    // Récupère le statut du reader (dernière transaction)
     const res = await fetch(
-      `https://api.sumup.com/v0.1/merchants/${MERCHANT_CODE}/readers/${READER_ID}/checkout`,
+      `https://api.sumup.com/v0.1/merchants/${MERCHANT_CODE}/readers/${READER_ID}/status`,
       {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          total_amount: {
-            currency: "EUR",
-            minor_unit: 2,
-            value: valueInCents,
-          },
-          description,
-          affiliate: {
-            app_id: APP_ID,
-            key: AFFILIATE_KEY,
-          },
-          return_url: returnUrl,
-        }),
+        headers: { Authorization: "Bearer " + API_KEY },
+        cache: "no-store",
       },
     );
 
     if (!res.ok) {
-      const err = await res.text();
-      console.error("SumUp reader error:", err);
-      return NextResponse.json(
-        { error: "Erreur terminal SumUp" },
-        { status: 502 },
-      );
+      return NextResponse.json({ status: "pending" });
     }
 
-    return NextResponse.json({ ok: true, sessionId });
+    const data = await res.json();
+    console.log("Reader status:", JSON.stringify(data));
+
+    // Le statut du reader indique l'état de la transaction en cours
+    // "ready" = terminal libre = paiement terminé (succès ou échec)
+    // "busy" / "processing" = paiement en cours
+    const readerStatus = data.status || data.reader_status || "";
+
+    if (readerStatus === "busy" || readerStatus === "processing") {
+      return NextResponse.json({ status: "pending" });
+    }
+
+    // Si on a un checkoutId, on vérifie le statut de la transaction
+    if (checkoutId) {
+      const txRes = await fetch(
+        `https://api.sumup.com/v0.1/checkouts/${checkoutId}`,
+        {
+          headers: { Authorization: "Bearer " + API_KEY },
+          cache: "no-store",
+        },
+      );
+      if (txRes.ok) {
+        const tx = await txRes.json();
+        console.log("Checkout status:", JSON.stringify(tx));
+        const txStatus = (tx.status || "").toUpperCase();
+        if (
+          txStatus === "PAID" ||
+          txStatus === "SUCCESSFUL" ||
+          txStatus === "COMPLETE"
+        ) {
+          return NextResponse.json({ status: "success" });
+        }
+        if (
+          txStatus === "FAILED" ||
+          txStatus === "CANCELLED" ||
+          txStatus === "EXPIRED"
+        ) {
+          return NextResponse.json({ status: "failed" });
+        }
+      }
+    }
+
+    // Fallback : regarde les transactions récentes du reader
+    const txRes = await fetch(
+      `https://api.sumup.com/v0.1/merchants/${MERCHANT_CODE}/readers/${READER_ID}/transactions?limit=1`,
+      {
+        headers: { Authorization: "Bearer " + API_KEY },
+        cache: "no-store",
+      },
+    );
+
+    if (txRes.ok) {
+      const txData = await txRes.json();
+      const lastTx = Array.isArray(txData) ? txData[0] : txData?.items?.[0];
+      if (lastTx) {
+        const txStatus = (lastTx.status || "").toUpperCase();
+        if (
+          txStatus === "SUCCESSFUL" ||
+          txStatus === "PAID" ||
+          txStatus === "COMPLETE"
+        ) {
+          return NextResponse.json({ status: "success" });
+        }
+        if (txStatus === "FAILED" || txStatus === "CANCELLED") {
+          return NextResponse.json({ status: "failed" });
+        }
+      }
+    }
+
+    return NextResponse.json({ status: "pending" });
   } catch (e) {
-    console.error("SumUp checkout error:", e);
-    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+    console.error("Polling error:", e);
+    return NextResponse.json({ status: "pending" });
+  }
+}
+
+// POST : webhook SumUp (garde au cas où)
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    console.log("SumUp webhook received:", JSON.stringify(body));
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ ok: true });
   }
 }
