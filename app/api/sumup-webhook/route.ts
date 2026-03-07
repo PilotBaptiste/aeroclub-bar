@@ -44,10 +44,46 @@ export async function GET(request: Request) {
       return NextResponse.json({ status: "pending" });
     }
 
-    // IDLE = terminal libre = paiement terminé avec succès
-    // (en cas d'échec le terminal affiche une erreur et reste busy)
-    if (readerState === "IDLE") {
-      return NextResponse.json({ status: "success" });
+    // IDLE = terminal libre = paiement terminé → vérifie si succès ou échec
+    // via les transactions récentes (dernière minute)
+    const since = new Date(Date.now() - 60000).toISOString();
+    const txRes = await fetch(
+      `https://api.sumup.com/v0.1/me/transactions/history?limit=1&newest_time=${new Date().toISOString()}&oldest_time=${since}`,
+      {
+        headers: { Authorization: "Bearer " + API_KEY },
+        cache: "no-store",
+      },
+    );
+
+    if (txRes.ok) {
+      const txData = await txRes.json();
+      console.log("Transactions history:", JSON.stringify(txData));
+      const lastTx =
+        txData?.items?.[0] || (Array.isArray(txData) ? txData[0] : null);
+      if (lastTx) {
+        const txStatus = (lastTx.status || "").toUpperCase();
+        console.log("Last tx status:", txStatus);
+        if (
+          txStatus === "SUCCESSFUL" ||
+          txStatus === "PAID" ||
+          txStatus === "COMPLETE"
+        ) {
+          return NextResponse.json({ status: "success" });
+        }
+        if (
+          txStatus === "FAILED" ||
+          txStatus === "CANCELLED" ||
+          txStatus === "DECLINED"
+        ) {
+          return NextResponse.json({ status: "failed" });
+        }
+      }
+    } else {
+      console.log(
+        "Transactions history error:",
+        txRes.status,
+        await txRes.text(),
+      );
     }
 
     return NextResponse.json({ status: "pending" });
