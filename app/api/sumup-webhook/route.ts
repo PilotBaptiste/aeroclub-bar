@@ -45,10 +45,10 @@ export async function GET(request: Request) {
     }
 
     // IDLE = terminal libre = paiement terminé → vérifie si succès ou échec
-    // via les transactions récentes (dernière minute)
+    // via les transactions récentes filtrées par client_transaction_id
     const since = new Date(Date.now() - 60000).toISOString();
     const txRes = await fetch(
-      `https://api.sumup.com/v0.1/me/transactions/history?limit=1&newest_time=${new Date().toISOString()}&oldest_time=${since}`,
+      `https://api.sumup.com/v0.1/me/transactions/history?limit=10&newest_time=${new Date().toISOString()}&oldest_time=${since}`,
       {
         headers: { Authorization: "Bearer " + API_KEY },
         cache: "no-store",
@@ -58,11 +58,27 @@ export async function GET(request: Request) {
     if (txRes.ok) {
       const txData = await txRes.json();
       console.log("Transactions history:", JSON.stringify(txData));
-      const lastTx =
-        txData?.items?.[0] || (Array.isArray(txData) ? txData[0] : null);
-      if (lastTx) {
-        const txStatus = (lastTx.status || "").toUpperCase();
-        console.log("Last tx status:", txStatus);
+      const items = txData?.items || (Array.isArray(txData) ? txData : []);
+
+      // Cherche la transaction correspondant au checkoutId
+      let matchedTx = checkoutId
+        ? items.find(
+            (t: { client_transaction_id?: string }) =>
+              t.client_transaction_id === checkoutId,
+          )
+        : items[0];
+
+      // Fallback sur la plus récente si pas trouvée
+      if (!matchedTx) matchedTx = items[0];
+
+      if (matchedTx) {
+        const txStatus = (matchedTx.status || "").toUpperCase();
+        console.log(
+          "Matched tx status:",
+          txStatus,
+          "client_tx_id:",
+          matchedTx.client_transaction_id,
+        );
         if (
           txStatus === "SUCCESSFUL" ||
           txStatus === "PAID" ||
