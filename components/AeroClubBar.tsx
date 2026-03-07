@@ -1148,9 +1148,16 @@ export default function AeroClubBar() {
                             {"Le client présente sa carte sur le SumUp Solo"}
                           </p>
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               setSumupPolling(false);
                               setSumupCheckoutId(null);
+                              try {
+                                await fetch("/api/sumup-terminate", {
+                                  method: "POST",
+                                });
+                              } catch {
+                                /* ignore */
+                              }
                             }}
                             className="text-xs text-slate-600 hover:text-slate-400 cursor-pointer mt-1"
                           >
