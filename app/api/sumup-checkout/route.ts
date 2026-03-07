@@ -53,10 +53,12 @@ export async function POST(request: Request) {
     }
 
     const data = await res.json();
+    console.log("SumUp reader response:", JSON.stringify(data));
     // On retourne le checkout ID pour pouvoir poller son statut
     return NextResponse.json({
       ok: true,
-      checkoutId: data.id || data.checkout_id || null,
+      checkoutId:
+        data.id || data.checkout_id || data.client_transaction_id || null,
     });
   } catch (e) {
     console.error("SumUp checkout error:", e);

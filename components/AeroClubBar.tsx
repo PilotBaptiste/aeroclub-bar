@@ -384,14 +384,13 @@ export default function AeroClubBar() {
         setSumupError(data.error || "Erreur paiement");
         return;
       }
-      setSumupCheckoutId(data.checkoutId);
+      setSumupCheckoutId(data.checkoutId || "pending");
       setSumupPolling(true);
       // Polling toutes les 2 secondes
       const interval = setInterval(async () => {
         try {
-          const url =
-            "/api/sumup-webhook" +
-            (data.checkoutId ? "?checkoutId=" + data.checkoutId : "");
+          const cid = data.checkoutId;
+          const url = "/api/sumup-webhook" + (cid ? "?checkoutId=" + cid : "");
           const poll = await fetch(url);
           const result = await poll.json();
           if (result.status === "success") {
@@ -404,6 +403,7 @@ export default function AeroClubBar() {
             setSumupError("Paiement refusé ou annulé. Réessayez.");
             setSumupCheckoutId(null);
           }
+          // "pending" → on continue de poller
         } catch {
           /* continue polling */
         }

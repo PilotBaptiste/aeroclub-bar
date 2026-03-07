@@ -30,16 +30,20 @@ export async function GET(request: Request) {
     const data = await res.json();
     console.log("Reader status:", JSON.stringify(data));
 
-    // Le statut du reader indique l'état de la transaction en cours
-    // "ready" = terminal libre = paiement terminé (succès ou échec)
-    // "busy" / "processing" = paiement en cours
-    const readerStatus = data.status || data.reader_status || "";
+    // La réponse SumUp est { data: { state: "WAITING_FOR_CARD"|"IDLE"|..., status: "ONLINE" } }
+    const readerState = (data?.data?.state || data?.state || "").toUpperCase();
 
-    if (readerStatus === "busy" || readerStatus === "processing") {
+    // Terminal occupé = paiement en cours → on continue à poller
+    if (
+      readerState === "WAITING_FOR_CARD" ||
+      readerState === "PROCESSING" ||
+      readerState === "WAITING_FOR_PIN" ||
+      readerState === "BUSY"
+    ) {
       return NextResponse.json({ status: "pending" });
     }
 
-    // Si on a un checkoutId, on vérifie le statut de la transaction
+    // Terminal IDLE = paiement terminé (succès ou échec) → on vérifie la transaction
     if (checkoutId) {
       const txRes = await fetch(
         `https://api.sumup.com/v0.1/checkouts/${checkoutId}`,
