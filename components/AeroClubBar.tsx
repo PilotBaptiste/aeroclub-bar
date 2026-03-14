@@ -211,7 +211,9 @@ export default function AeroClubBar() {
         if (data.members) setMembers(data.members);
       }
       setLoading(false);
-      setTimeout(() => { hasLoaded.current = true; }, 2000);
+      if (data) {
+  setTimeout(() => { hasLoaded.current = true; }, 2000);
+}
     })();
   }, []);
 
