@@ -2289,53 +2289,36 @@ export default function AeroClubBar() {
               </div>
 
               {/* Member accounts */}
+              {/* Member accounts */}
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                {"Comptes membres (avoir)"}
+                {"Tous les membres"}
               </span>
-              {members.filter((m) => m.balance !== 0).length === 0 ? (
-                <p className="text-slate-600 text-center py-6 text-sm">
-                  {"Aucun avoir en cours"}
-                </p>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  {members
-                    .filter((m) => m.balance !== 0)
-                    .sort((a, b) => b.balance - a.balance)
-                    .map((m) => (
-                      <div
-                        key={m.name}
-                        className="flex items-center gap-3 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3.5 py-2.5"
-                      >
-                        <span className="text-sm font-semibold flex-1">
-                          {m.name}
-                        </span>
-                        <span
-                          className={
-                            "text-sm font-bold " +
-                            (m.balance > 0
-                              ? "text-emerald-400"
-                              : "text-red-400")
-                          }
-                        >
-                          {formatPrice(m.balance)}
-                        </span>
-                        <button onClick={() => renameMember(m.name)} className="text-xs text-slate-500 hover:text-blue-400 cursor-pointer" title="Renommer">{"\u270F\uFE0F"}</button>
-                        <button onClick={() => { const v = prompt("Nouveau solde pour " + m.name + " (actuel: " + m.balance + ") :"); if (v !== null) { const n = parseFloat(v); if (!isNaN(n)) { setMembers((prev) => prev.map((x) => x.name === m.name ? { ...x, balance: n } : x)); showToast("Solde modifie"); } } }} className="text-xs text-slate-500 hover:text-amber-500 cursor-pointer" title="Modifier solde">{"\uD83D\uDCB0"}</button>
-                        <button onClick={() => deleteMember(m.name)} className="text-red-500 opacity-40 hover:opacity-100 text-sm cursor-pointer" title="Supprimer">{"\u2715"}</button>
-                      </div>
-                    ))}
-                </div>
-              )}
-              <div className="text-right mt-1">
-                <span className="text-xs text-slate-500">
-                  {"Total avoirs : "}
-                </span>
-                <span className="text-sm font-bold text-emerald-400">
-                  {formatPrice(
-                    members.reduce((s, m) => s + Math.max(0, m.balance), 0),
-                  )}
-                </span>
-              </div>
+              {(() => {
+                const allNames = [...new Set([
+                  ...members.map((m) => m.name),
+                  ...transactions.map((t) => t.buyer).filter(Boolean),
+                ])].sort();
+                return allNames.length === 0 ? (
+                  <p className="text-slate-600 text-center py-6 text-sm">{"Aucun membre"}</p>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {allNames.map((name) => {
+                      const bal = getMemberBalance(name);
+                      return (
+                        <div key={name} className="flex items-center gap-2 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3.5 py-2.5">
+                          <span className="text-sm font-semibold flex-1">{name}</span>
+                          {bal !== 0 && <span className={"text-sm font-bold " + (bal > 0 ? "text-emerald-400" : "text-red-400")}>{formatPrice(bal)}</span>}
+                          {bal === 0 && <span className="text-xs text-slate-600">{"Pas d\u0027avoir"}</span>}
+                          <button onClick={() => renameMember(name)} className="text-xs text-slate-500 hover:text-blue-400 cursor-pointer" title="Renommer">{"\u270F\uFE0F"}</button>
+                          <button onClick={() => { const v = prompt("Nouveau solde pour " + name + " (actuel: " + bal + ") :"); if (v !== null) { const n = parseFloat(v); if (!isNaN(n)) { const existing = members.find((m) => normalizeNameFuzzy(m.name) === normalizeNameFuzzy(name)); if (existing) { setMembers((prev) => prev.map((x) => x.name === existing.name ? { ...x, balance: n } : x)); } else { setMembers((prev) => [...prev, { name, balance: n }]); } showToast("Solde modifie"); } } }} className="text-xs text-slate-500 hover:text-amber-500 cursor-pointer" title="Modifier solde">{"\uD83D\uDCB0"}</button>
+                          <button onClick={() => deleteMember(name)} className="text-red-500 opacity-40 hover:opacity-100 text-sm cursor-pointer" title="Supprimer">{"\u2715"}</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+              <div className="text-right mt-1"><span className="text-xs text-slate-500">{"Total avoirs : "}</span><span className="text-sm font-bold text-emerald-400">{formatPrice(members.reduce((s, m) => s + Math.max(0, m.balance), 0))}</span></div>
             </div>
           )}
 
