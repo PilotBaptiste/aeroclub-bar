@@ -2322,26 +2322,6 @@ export default function AeroClubBar() {
                         <button onClick={() => renameMember(m.name)} className="text-xs text-slate-500 hover:text-blue-400 cursor-pointer" title="Renommer">{"\u270F\uFE0F"}</button>
                         <button onClick={() => { const v = prompt("Nouveau solde pour " + m.name + " (actuel: " + m.balance + ") :"); if (v !== null) { const n = parseFloat(v); if (!isNaN(n)) { setMembers((prev) => prev.map((x) => x.name === m.name ? { ...x, balance: n } : x)); showToast("Solde modifie"); } } }} className="text-xs text-slate-500 hover:text-amber-500 cursor-pointer" title="Modifier solde">{"\uD83D\uDCB0"}</button>
                         <button onClick={() => deleteMember(m.name)} className="text-red-500 opacity-40 hover:opacity-100 text-sm cursor-pointer" title="Supprimer">{"\u2715"}</button>
-                          {"\u270F\uFE0F"}
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (
-                              confirm(
-                                "Remettre le solde de " + m.name + " a 0 ?",
-                              )
-                            ) {
-                              setMembers((prev) =>
-                                prev.map((x) =>
-                                  x.name === m.name ? { ...x, balance: 0 } : x,
-                                ),
-                              );
-                            }
-                          }}
-                          className="text-red-500 opacity-40 hover:opacity-100 text-sm cursor-pointer"
-                        >
-                          {"\u2715"}
-                        </button>
                       </div>
                     ))}
                 </div>
