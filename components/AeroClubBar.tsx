@@ -38,6 +38,7 @@ interface Settings {
   clubName: string;
   adminPin: string;
   cashInBox?: number;
+  cbReceived?: number;
 }
 
 const DEFAULT_PRODUCTS: Product[] = [
@@ -476,6 +477,11 @@ export default function AeroClubBar() {
         ...prev,
         cashInBox: Math.round(((prev.cashInBox || 0) + amountPaid) * 100) / 100,
       }));
+    } else if (method === "carte") {
+      setSettings((prev) => ({
+        ...prev,
+        cbReceived: Math.round(((prev.cbReceived || 0) + cartTotal) * 100) / 100,
+      }));
     }
 
     const tx: Transaction = {
@@ -576,6 +582,20 @@ export default function AeroClubBar() {
     showToast("Merci pour votre suggestion !");
   };
 
+  const renameMember = (oldName: string) => {
+    const newName = prompt("Nouveau nom pour " + oldName + " :", oldName);
+    if (!newName || !newName.trim() || newName.trim() === oldName) return;
+    setMembers((prev) => prev.map((m) => m.name === oldName ? { ...m, name: newName.trim() } : m));
+    setTransactions((prev) => prev.map((t) => t.buyer === oldName ? { ...t, buyer: newName.trim() } : t));
+    showToast("Membre renomme");
+  };
+
+  const deleteMember = (name: string) => {
+    if (!confirm("Supprimer le compte de " + name + " ? Son avoir sera perdu.")) return;
+    setMembers((prev) => prev.filter((m) => m.name !== name));
+    showToast("Compte supprime", "info");
+  };
+  
   const deleteSuggestion = (id: string) => {
     setSuggestions((prev) => prev.filter((s) => s.id !== id));
   };
@@ -1983,24 +2003,18 @@ export default function AeroClubBar() {
 
               {/* Cash in box */}
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
-                <div className="flex items-center justify-between">
+                <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                      {"Fond de caisse (especes)"}
-                    </span>
-                    <span className="text-xl font-extrabold text-amber-500">
-                      {formatPrice(settings.cashInBox || 0)}
-                    </span>
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">{"Fond de caisse"}</span>
+                    <span className="text-xl font-extrabold text-amber-500">{formatPrice(settings.cashInBox || 0)}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                      {"Total avoirs membres"}
-                    </span>
-                    <span className="text-xl font-extrabold text-emerald-400">
-                      {formatPrice(
-                        members.reduce((s, m) => s + Math.max(0, m.balance), 0),
-                      )}
-                    </span>
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">{"Recu par CB"}</span>
+                    <span className="text-xl font-extrabold text-blue-400">{formatPrice(settings.cbReceived || 0)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">{"Avoirs membres"}</span>
+                    <span className="text-xl font-extrabold text-emerald-400">{formatPrice(members.reduce((s, m) => s + Math.max(0, m.balance), 0))}</span>
                   </div>
                 </div>
               </div>
@@ -2238,6 +2252,14 @@ export default function AeroClubBar() {
                     {"Caisse (especes en boite)"}
                   </span>
                 </div>
+                <div className="bg-[#0f172a] border border-blue-900 rounded-xl p-4 mb-2">
+                <span className="text-xs font-bold text-blue-400 uppercase tracking-wider block mb-2">{"Recu par CB (cumul)"}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl font-extrabold text-blue-400">{formatPrice(settings.cbReceived || 0)}</span>
+                  <input type="number" step="0.5" placeholder="Ajuster..." className="flex-1 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none" onKeyDown={(e) => { if (e.key === "Enter") { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, cbReceived: v })); (e.target as HTMLInputElement).value = ""; showToast("CB mise a jour"); } } }} />
+                </div>
+                <p className="text-[10px] text-slate-600 mt-1">{"Tapez un montant et Entree pour ajuster"}</p>
+              </div>
                 <div className="flex items-center gap-3">
                   <span className="text-2xl font-extrabold text-amber-500">
                     {formatPrice(settings.cashInBox || 0)}
@@ -2297,31 +2319,9 @@ export default function AeroClubBar() {
                         >
                           {formatPrice(m.balance)}
                         </span>
-                        <button
-                          onClick={() => {
-                            const v = prompt(
-                              "Nouveau solde pour " +
-                                m.name +
-                                " (actuel: " +
-                                m.balance +
-                                ") :",
-                            );
-                            if (v !== null) {
-                              const n = parseFloat(v);
-                              if (!isNaN(n)) {
-                                setMembers((prev) =>
-                                  prev.map((x) =>
-                                    x.name === m.name
-                                      ? { ...x, balance: n }
-                                      : x,
-                                  ),
-                                );
-                                showToast("Solde modifie");
-                              }
-                            }
-                          }}
-                          className="text-xs text-slate-500 hover:text-amber-500 cursor-pointer"
-                        >
+                        <button onClick={() => renameMember(m.name)} className="text-xs text-slate-500 hover:text-blue-400 cursor-pointer" title="Renommer">{"\u270F\uFE0F"}</button>
+                        <button onClick={() => { const v = prompt("Nouveau solde pour " + m.name + " (actuel: " + m.balance + ") :"); if (v !== null) { const n = parseFloat(v); if (!isNaN(n)) { setMembers((prev) => prev.map((x) => x.name === m.name ? { ...x, balance: n } : x)); showToast("Solde modifie"); } } }} className="text-xs text-slate-500 hover:text-amber-500 cursor-pointer" title="Modifier solde">{"\uD83D\uDCB0"}</button>
+                        <button onClick={() => deleteMember(m.name)} className="text-red-500 opacity-40 hover:opacity-100 text-sm cursor-pointer" title="Supprimer">{"\u2715"}</button>
                           {"\u270F\uFE0F"}
                         </button>
                         <button
