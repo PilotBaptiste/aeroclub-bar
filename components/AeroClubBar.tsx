@@ -188,13 +188,15 @@ export default function AeroClubBar() {
   const [bureauPinError, setBureauPinError] = useState(false);
   const [bureauUnlocked, setBureauUnlocked] = useState(false);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
+  const hasLoaded = useRef(false);  // ← AJOUTER CETTE LIGNE
 
   // Debounced save to avoid too many API calls
   const debouncedSave = useCallback((key: string, value: unknown) => {
+    if (!hasLoaded.current) return;  // ← AJOUTER CETTE LIGNE
     if (saveTimeout.current[key]) clearTimeout(saveTimeout.current[key]);
     saveTimeout.current[key] = setTimeout(() => {
       saveToServer(key, value);
-    }, 500);
+    }, 1000);  // ← CHANGER 500 en 1000
   }, []);
 
   // Load data from server
@@ -209,6 +211,7 @@ export default function AeroClubBar() {
         if (data.members) setMembers(data.members);
       }
       setLoading(false);
+      setTimeout(() => { hasLoaded.current = true; }, 2000);
     })();
   }, []);
 
