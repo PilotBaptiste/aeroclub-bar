@@ -585,9 +585,12 @@ export default function AeroClubBar() {
   const renameMember = (oldName: string) => {
     const newName = prompt("Nouveau nom pour " + oldName + " :", oldName);
     if (!newName || !newName.trim() || newName.trim() === oldName) return;
-    setMembers((prev) => prev.map((m) => m.name === oldName ? { ...m, name: newName.trim() } : m));
-    setTransactions((prev) => prev.map((t) => t.buyer === oldName ? { ...t, buyer: newName.trim() } : t));
-    showToast("Membre renomme");
+    const trimmed = newName.trim();
+    // Rename in members (if exists)
+    setMembers((prev) => prev.map((m) => m.name === oldName ? { ...m, name: trimmed } : m));
+    // Rename in ALL transactions
+    setTransactions((prev) => prev.map((t) => t.buyer === oldName ? { ...t, buyer: trimmed } : t));
+    showToast("Membre renomme : " + trimmed);
   };
 
   const deleteMember = (name: string) => {
