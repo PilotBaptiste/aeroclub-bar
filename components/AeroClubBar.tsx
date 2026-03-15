@@ -2004,6 +2004,12 @@ export default function AeroClubBar() {
                 </div>
               </div>
 
+              <div className="rounded-xl p-4 border-2 bg-[#131b2e] border-amber-500">
+                <span className="text-[10px] text-slate-500 font-semibold uppercase block">{"Tresorerie totale"}</span>
+                <span className="text-2xl font-extrabold text-amber-500">{formatPrice((settings.cashInBox || 0) + (settings.cbReceived || 0))}</span>
+                <span className="text-[10px] text-slate-600 block mt-1">{"Especes + CB"}</span>
+              </div>
+  
               {/* Cash in box */}
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
                 <div className="grid grid-cols-3 gap-3">
