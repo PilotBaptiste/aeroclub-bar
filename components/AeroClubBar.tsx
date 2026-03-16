@@ -599,9 +599,12 @@ export default function AeroClubBar() {
   };
   
   const deleteMember = (name: string) => {
-    if (!confirm("Supprimer le compte de " + name + " ? Son avoir sera perdu.")) return;
-    setMembers((prev) => prev.filter((m) => m.name !== name));
-    showToast("Compte supprime", "info");
+    const msg = "Supprimer " + name + " ? Cela supprimera aussi son avoir et son historique de transactions.";
+    if (!confirm(msg)) return;
+    const nameLower = name.toLowerCase();
+    setMembers((prev) => prev.filter((m) => m.name.toLowerCase() !== nameLower));
+    setTransactions((prev) => prev.filter((t) => (t.buyer || "").toLowerCase() !== nameLower));
+    showToast("Membre et transactions supprimes", "info");
   };
   
   const deleteSuggestion = (id: string) => {
