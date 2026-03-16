@@ -2278,10 +2278,16 @@ export default function AeroClubBar() {
                 {"Tous les membres"}
               </span>
               {(() => {
-                const allNames = [...new Set([
+                const allNamesRaw = [
                   ...members.map((m) => m.name),
                   ...transactions.map((t) => t.buyer).filter(Boolean),
-                ])].sort();
+                ];
+                const seen = new Map<string, string>();
+                for (const n of allNamesRaw) {
+                  const key = n.trim().toLowerCase();
+                  if (!seen.has(key)) seen.set(key, n);
+                }
+                const allNames = [...seen.values()].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
                 return allNames.length === 0 ? (
                   <p className="text-slate-600 text-center py-6 text-sm">{"Aucun membre"}</p>
                 ) : (
