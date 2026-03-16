@@ -2259,46 +2259,17 @@ export default function AeroClubBar() {
           {activeAdminTab === "members" && (
             <div className="flex flex-col gap-2">
               {/* Cash in box */}
-              <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4 mb-2">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                    {"Caisse (especes en boite)"}
-                  </span>
+              <div className="grid grid-cols-2 gap-3 mb-2">
+                <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4">
+                  <span className="text-xs font-bold text-amber-500 uppercase tracking-wider block mb-2">{"Caisse especes"}</span>
+                  <span className="text-2xl font-extrabold text-amber-500">{formatPrice(settings.cashInBox || 0)}</span>
+                  <input type="number" step="0.5" placeholder="Ajuster..." className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none mt-2" onKeyDown={(e) => { if (e.key === "Enter") { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, cashInBox: v })); (e.target as HTMLInputElement).value = ""; showToast("Caisse mise a jour"); } } }} />
                 </div>
-                <div className="bg-[#0f172a] border border-blue-900 rounded-xl p-4 mb-2">
-                <span className="text-xs font-bold text-blue-400 uppercase tracking-wider block mb-2">{"Recu par CB (cumul)"}</span>
-                <div className="flex items-center gap-3">
+                <div className="bg-[#0f172a] border border-blue-900 rounded-xl p-4">
+                  <span className="text-xs font-bold text-blue-400 uppercase tracking-wider block mb-2">{"Recu par CB"}</span>
                   <span className="text-2xl font-extrabold text-blue-400">{formatPrice(settings.cbReceived || 0)}</span>
-                  <input type="number" step="0.5" placeholder="Ajuster..." className="flex-1 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none" onKeyDown={(e) => { if (e.key === "Enter") { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, cbReceived: v })); (e.target as HTMLInputElement).value = ""; showToast("CB mise a jour"); } } }} />
+                  <input type="number" step="0.5" placeholder="Ajuster..." className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none mt-2" onKeyDown={(e) => { if (e.key === "Enter") { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, cbReceived: v })); (e.target as HTMLInputElement).value = ""; showToast("CB mise a jour"); } } }} />
                 </div>
-                <p className="text-[10px] text-slate-600 mt-1">{"Tapez un montant et Entree pour ajuster"}</p>
-              </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl font-extrabold text-amber-500">
-                    {formatPrice(settings.cashInBox || 0)}
-                  </span>
-                  <input
-                    type="number"
-                    step="0.5"
-                    placeholder="Ajuster..."
-                    className="flex-1 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const v = parseFloat(
-                          (e.target as HTMLInputElement).value,
-                        );
-                        if (!isNaN(v)) {
-                          setSettings((prev) => ({ ...prev, cashInBox: v }));
-                          (e.target as HTMLInputElement).value = "";
-                          showToast("Caisse mise a jour");
-                        }
-                      }
-                    }}
-                  />
-                </div>
-                <p className="text-[10px] text-slate-600 mt-1">
-                  {"Tapez un montant et Entree pour ajuster"}
-                </p>
               </div>
 
               {/* Member accounts */}
