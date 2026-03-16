@@ -586,17 +586,18 @@ export default function AeroClubBar() {
     const newName = prompt("Nouveau nom pour " + oldName + " :", oldName);
     if (!newName || !newName.trim() || newName.trim() === oldName) return;
     const trimmed = newName.trim();
-    // Rename in members — if not in members, create entry with balance 0
+    const oldLower = oldName.toLowerCase();
+    // Rename in members
     setMembers((prev) => {
-      const exists = prev.find((m) => m.name === oldName);
-      if (exists) return prev.map((m) => m.name === oldName ? { ...m, name: trimmed } : m);
+      const exists = prev.find((m) => m.name.toLowerCase() === oldLower);
+      if (exists) return prev.map((m) => m.name.toLowerCase() === oldLower ? { ...m, name: trimmed } : m);
       return [...prev, { name: trimmed, balance: 0 }];
     });
-    // Rename in ALL transactions
-    setTransactions((prev) => prev.map((t) => t.buyer === oldName ? { ...t, buyer: trimmed } : t));
+    // Rename in ALL transactions (case insensitive match)
+    setTransactions((prev) => prev.map((t) => t.buyer.toLowerCase() === oldLower ? { ...t, buyer: trimmed } : t));
     showToast("Membre renomme : " + trimmed);
   };
-
+  
   const deleteMember = (name: string) => {
     if (!confirm("Supprimer le compte de " + name + " ? Son avoir sera perdu.")) return;
     setMembers((prev) => prev.filter((m) => m.name !== name));
