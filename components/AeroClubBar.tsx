@@ -2360,6 +2360,16 @@ export default function AeroClubBar() {
                 </div>
               </div>
 
+              <button
+                onClick={() => {
+                  fetch("/api/fridge?action=trigger").catch(() => {});
+                  showToast("Frigo deverrouille 15s !");
+                }}
+                className="w-full py-3.5 rounded-xl font-bold text-[15px] bg-blue-600 text-white active:scale-95 cursor-pointer mb-2"
+              >
+                {"\uD83D\uDD13 Ouvrir le frigo"}
+              </button>
+
               {/* Member accounts */}
               {/* Member accounts */}
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
