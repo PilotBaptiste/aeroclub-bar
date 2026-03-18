@@ -4,13 +4,17 @@ import { NextResponse } from "next/server";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action");
-  const lock = searchParams.get("lock"); // "cafe", "frigo", or "both"
+  const lock = searchParams.get("lock");
 
   try {
     if (action === "check") {
       const cafe = await kv.get("aeroclub-lock-cafe");
       const frigo = await kv.get("aeroclub-lock-frigo");
       const both = await kv.get("aeroclub-lock-both");
+      // Auto-reset after reading to prevent loops
+      if (cafe === true) await kv.set("aeroclub-lock-cafe", false);
+      if (frigo === true) await kv.set("aeroclub-lock-frigo", false);
+      if (both === true) await kv.set("aeroclub-lock-both", false);
       return NextResponse.json({
         cafe: cafe === true,
         frigo: frigo === true,
@@ -19,20 +23,13 @@ export async function GET(request: Request) {
     }
 
     if (action === "done") {
-      if (lock === "cafe") await kv.set("aeroclub-lock-cafe", false);
-      if (lock === "frigo") await kv.set("aeroclub-lock-frigo", false);
-      if (lock === "both") {
-        await kv.set("aeroclub-lock-both", false);
-        await kv.set("aeroclub-lock-cafe", false);
-        await kv.set("aeroclub-lock-frigo", false);
-      }
       return NextResponse.json({ ok: true });
     }
 
     if (action === "trigger") {
       if (lock === "cafe") await kv.set("aeroclub-lock-cafe", true);
       else if (lock === "frigo") await kv.set("aeroclub-lock-frigo", true);
-      else await kv.set("aeroclub-lock-both", true); // default = both
+      else await kv.set("aeroclub-lock-both", true);
       return NextResponse.json({ ok: true, lock: lock || "both" });
     }
 
