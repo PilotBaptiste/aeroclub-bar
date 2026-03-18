@@ -487,8 +487,22 @@ export default function AeroClubBar() {
       }));
     }
 
-    // Deverrouille le frigo
-    fetch("/api/fridge?action=trigger").catch(() => {});
+    // Deverrouille la bonne serrure selon le panier
+    const hasCafe = cart.some(
+      (c) =>
+        c.product.name.toLowerCase().includes("cafe") ||
+        c.product.name.toLowerCase().includes("café"),
+    );
+    const hasOther = cart.some(
+      (c) =>
+        !c.product.name.toLowerCase().includes("cafe") &&
+        !c.product.name.toLowerCase().includes("café"),
+    );
+    if (hasCafe && hasOther)
+      fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
+    else if (hasCafe)
+      fetch("/api/fridge?action=trigger&lock=cafe").catch(() => {});
+    else fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
 
     const tx: Transaction = {
       id: Date.now().toString(36),
@@ -2360,15 +2374,41 @@ export default function AeroClubBar() {
                 </div>
               </div>
 
-              <button
-                onClick={() => {
-                  fetch("/api/fridge?action=trigger").catch(() => {});
-                  showToast("Frigo deverrouille 15s !");
-                }}
-                className="w-full py-3.5 rounded-xl font-bold text-[15px] bg-blue-600 text-white active:scale-95 cursor-pointer mb-2"
-              >
-                {"\uD83D\uDD13 Ouvrir le frigo"}
-              </button>
+              <div className="flex gap-2 mb-2">
+                <button
+                  onClick={() => {
+                    fetch("/api/fridge?action=trigger&lock=cafe").catch(
+                      () => {},
+                    );
+                    showToast("Cafe ouvert 15s !");
+                  }}
+                  className="flex-1 py-3 rounded-xl font-bold text-sm bg-amber-700 text-white active:scale-95 cursor-pointer"
+                >
+                  {"\u2615 Ouvrir cafe"}
+                </button>
+                <button
+                  onClick={() => {
+                    fetch("/api/fridge?action=trigger&lock=frigo").catch(
+                      () => {},
+                    );
+                    showToast("Frigo ouvert 15s !");
+                  }}
+                  className="flex-1 py-3 rounded-xl font-bold text-sm bg-blue-600 text-white active:scale-95 cursor-pointer"
+                >
+                  {"\uD83E\uDDCA Ouvrir frigo"}
+                </button>
+                <button
+                  onClick={() => {
+                    fetch("/api/fridge?action=trigger&lock=both").catch(
+                      () => {},
+                    );
+                    showToast("Tout ouvert 15s !");
+                  }}
+                  className="flex-1 py-3 rounded-xl font-bold text-sm bg-emerald-600 text-white active:scale-95 cursor-pointer"
+                >
+                  {"\uD83D\uDD13 Ouvrir tout"}
+                </button>
+              </div>
 
               {/* Member accounts */}
               {/* Member accounts */}

@@ -4,30 +4,39 @@ import { NextResponse } from "next/server";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action");
+  const lock = searchParams.get("lock"); // "cafe", "frigo", or "both"
 
   try {
     if (action === "check") {
-      // ESP32 polls this to know if it should unlock
-      const unlock = await kv.get("aeroclub-fridge-unlock");
-      return NextResponse.json({ unlock: unlock === true });
+      const cafe = await kv.get("aeroclub-lock-cafe");
+      const frigo = await kv.get("aeroclub-lock-frigo");
+      const both = await kv.get("aeroclub-lock-both");
+      return NextResponse.json({
+        cafe: cafe === true,
+        frigo: frigo === true,
+        both: both === true,
+      });
     }
 
     if (action === "done") {
-      // ESP32 confirms unlock is done
-      await kv.set("aeroclub-fridge-unlock", false);
+      if (lock === "cafe") await kv.set("aeroclub-lock-cafe", false);
+      if (lock === "frigo") await kv.set("aeroclub-lock-frigo", false);
+      if (lock === "both") {
+        await kv.set("aeroclub-lock-both", false);
+        await kv.set("aeroclub-lock-cafe", false);
+        await kv.set("aeroclub-lock-frigo", false);
+      }
       return NextResponse.json({ ok: true });
     }
 
     if (action === "trigger") {
-      // Called by the app after payment to trigger unlock
-      await kv.set("aeroclub-fridge-unlock", true);
-      return NextResponse.json({ ok: true, message: "Frigo deverrouille !" });
+      if (lock === "cafe") await kv.set("aeroclub-lock-cafe", true);
+      else if (lock === "frigo") await kv.set("aeroclub-lock-frigo", true);
+      else await kv.set("aeroclub-lock-both", true); // default = both
+      return NextResponse.json({ ok: true, lock: lock || "both" });
     }
 
-    return NextResponse.json(
-      { error: "Action required: check, done, or trigger" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Action required" }, { status: 400 });
   } catch (e) {
     console.error("Fridge API error:", e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
