@@ -262,6 +262,16 @@ export default function AeroClubBar() {
     };
   }, []);
 
+  // Auto-reload toutes les 10 min si l'app est idle (iPad non surveillé)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (cart.length === 0 && !showCheckout && view !== "admin") {
+        window.location.reload();
+      }
+    }, 10 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [cart.length, showCheckout, view]);
+
   // Tick interval pour le countdown du panier
   useEffect(() => {
     if (cart.length > 0) {
