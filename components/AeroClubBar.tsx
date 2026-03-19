@@ -195,6 +195,8 @@ export default function AeroClubBar() {
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false); // ← AJOUTER CETTE LIGNE
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sumupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearCartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounced save to avoid too many API calls
   const debouncedSave = useCallback((key: string, value: unknown) => {
@@ -244,10 +246,12 @@ export default function AeroClubBar() {
     if (!loading) debouncedSave("aeroclub-members", members);
   }, [members, loading, debouncedSave]);
 
-  // Nettoyer l'interval SumUp au démontage du composant
+  // Nettoyer les timers SumUp et le clearCart au démontage du composant
   useEffect(() => {
     return () => {
       if (sumupIntervalRef.current) clearInterval(sumupIntervalRef.current);
+      if (sumupTimeoutRef.current) clearTimeout(sumupTimeoutRef.current);
+      if (clearCartTimeoutRef.current) clearTimeout(clearCartTimeoutRef.current);
     };
   }, []);
 
@@ -440,7 +444,9 @@ export default function AeroClubBar() {
         }
       }, 2000);
       // Arrêt automatique après 3 minutes
-      setTimeout(() => {
+      if (sumupTimeoutRef.current) clearTimeout(sumupTimeoutRef.current);
+      sumupTimeoutRef.current = setTimeout(() => {
+        sumupTimeoutRef.current = null;
         if (sumupIntervalRef.current) clearInterval(sumupIntervalRef.current);
         sumupIntervalRef.current = null;
         setSumupPolling(false);
@@ -549,7 +555,10 @@ export default function AeroClubBar() {
     });
     setPaymentStatus("success");
     showToast("Merci " + canonicalBuyer.split(" ")[0] + " !");
-    setTimeout(() => {
+    // Annuler un éventuel timeout précédent avant d'en créer un nouveau
+    if (clearCartTimeoutRef.current) clearTimeout(clearCartTimeoutRef.current);
+    clearCartTimeoutRef.current = setTimeout(() => {
+      clearCartTimeoutRef.current = null;
       clearCart();
       setBuyerName("");
       setLastOrder(null);
@@ -726,9 +735,15 @@ export default function AeroClubBar() {
         (t.buyer || "").toLowerCase().includes(filterBuyer.toLowerCase()),
       )
     : transactions;
-  const uniqueBuyers = [
-    ...new Set(transactions.map((t) => t.buyer).filter(Boolean)),
-  ];
+  const uniqueBuyers = (() => {
+    const seen = new Map<string, string>();
+    for (const t of transactions) {
+      if (!t.buyer) continue;
+      const key = normalizeNameFuzzy(t.buyer);
+      if (!seen.has(key)) seen.set(key, t.buyer);
+    }
+    return [...seen.values()];
+  })();
 
   if (loading)
     return (
@@ -1248,6 +1263,10 @@ export default function AeroClubBar() {
                               if (sumupIntervalRef.current) {
                                 clearInterval(sumupIntervalRef.current);
                                 sumupIntervalRef.current = null;
+                              }
+                              if (sumupTimeoutRef.current) {
+                                clearTimeout(sumupTimeoutRef.current);
+                                sumupTimeoutRef.current = null;
                               }
                               setSumupPolling(false);
                               setSumupCheckoutId(null);
