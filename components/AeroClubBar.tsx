@@ -272,13 +272,18 @@ export default function AeroClubBar() {
   const getNameSuggestions = (input: string): string[] => {
     if (!input.trim() || input.trim().length < 2) return [];
     const tokens = input.trim().toLowerCase().split(/\s+/);
+    // Membres en premier pour privilegier leur graphie canonique
     const allNames = [
-      ...new Set([
-        ...transactions.map((t) => t.buyer).filter(Boolean),
-        ...members.map((m) => m.name),
-      ]),
+      ...members.map((m) => m.name),
+      ...transactions.map((t) => t.buyer).filter(Boolean),
     ];
-    return allNames
+    // Déduplication insensible à la casse et à l'ordre des tokens
+    const seen = new Map<string, string>();
+    for (const n of allNames) {
+      const key = normalizeNameFuzzy(n);
+      if (!seen.has(key)) seen.set(key, n);
+    }
+    return [...seen.values()]
       .filter((n) => tokens.some((tok) => n.toLowerCase().includes(tok)))
       .slice(0, 5);
   };
@@ -449,6 +454,14 @@ export default function AeroClubBar() {
 
   const confirmPayment = (method: string, amountPaid?: number) => {
     if (!buyerName.trim() || cart.length === 0) return;
+    // Utiliser le nom canonique du membre si connu, sinon le nom tel que tapé
+    const buyerKey = normalizeNameFuzzy(buyerName.trim());
+    const canonicalMember = members.find(
+      (m) => normalizeNameFuzzy(m.name) === buyerKey,
+    );
+    const canonicalBuyer = canonicalMember
+      ? canonicalMember.name
+      : buyerName.trim();
     // Calculer les produits mis à jour AVANT setProducts pour éviter la race condition
     let updatedProducts = [...products];
     for (const item of cart) {
@@ -481,11 +494,11 @@ export default function AeroClubBar() {
 
     // Handle member balance
     if (method === "avoir") {
-      updateMemberBalance(buyerName.trim(), -cartTotal);
+      updateMemberBalance(canonicalBuyer, -cartTotal);
     } else if (method === "especes" && amountPaid !== undefined) {
       const change = amountPaid - cartTotal;
       if (change > 0) {
-        updateMemberBalance(buyerName.trim(), change);
+        updateMemberBalance(canonicalBuyer, change);
       }
       // Update cash in box
       setSettings((prev) => ({
@@ -522,7 +535,7 @@ export default function AeroClubBar() {
       items: cart.map((c) => c.qty + "x " + c.product.name).join(", "),
       total: cartTotal,
       totalCost: cartTotalCost,
-      buyer: buyerName.trim(),
+      buyer: canonicalBuyer,
       date: new Date().toISOString(),
       method,
       amountPaid,
@@ -531,11 +544,11 @@ export default function AeroClubBar() {
     setLastOrder({
       items: [...cart],
       total: cartTotal,
-      buyer: buyerName.trim(),
+      buyer: canonicalBuyer,
       method,
     });
     setPaymentStatus("success");
-    showToast("Merci " + buyerName.trim().split(" ")[0] + " !");
+    showToast("Merci " + canonicalBuyer.split(" ")[0] + " !");
     setTimeout(() => {
       clearCart();
       setBuyerName("");
@@ -619,20 +632,20 @@ export default function AeroClubBar() {
     const newName = prompt("Nouveau nom pour " + oldName + " :", oldName);
     if (!newName || !newName.trim() || newName.trim() === oldName) return;
     const trimmed = newName.trim();
-    const oldLower = oldName.toLowerCase();
+    const oldKey = normalizeNameFuzzy(oldName);
     // Rename in members
     setMembers((prev) => {
-      const exists = prev.find((m) => m.name.toLowerCase() === oldLower);
+      const exists = prev.find((m) => normalizeNameFuzzy(m.name) === oldKey);
       if (exists)
         return prev.map((m) =>
-          m.name.toLowerCase() === oldLower ? { ...m, name: trimmed } : m,
+          normalizeNameFuzzy(m.name) === oldKey ? { ...m, name: trimmed } : m,
         );
       return [...prev, { name: trimmed, balance: 0 }];
     });
-    // Rename in ALL transactions (case insensitive match)
+    // Rename in ALL transactions (match toutes les variantes : casse, ordre tokens)
     setTransactions((prev) =>
       prev.map((t) =>
-        t.buyer.toLowerCase() === oldLower ? { ...t, buyer: trimmed } : t,
+        normalizeNameFuzzy(t.buyer) === oldKey ? { ...t, buyer: trimmed } : t,
       ),
     );
     showToast("Membre renomme : " + trimmed);
@@ -644,12 +657,12 @@ export default function AeroClubBar() {
       name +
       " ? Cela supprimera aussi son avoir et son historique de transactions.";
     if (!confirm(msg)) return;
-    const nameLower = name.toLowerCase();
+    const nameKey = normalizeNameFuzzy(name);
     setMembers((prev) =>
-      prev.filter((m) => m.name.toLowerCase() !== nameLower),
+      prev.filter((m) => normalizeNameFuzzy(m.name) !== nameKey),
     );
     setTransactions((prev) =>
-      prev.filter((t) => (t.buyer || "").toLowerCase() !== nameLower),
+      prev.filter((t) => normalizeNameFuzzy(t.buyer || "") !== nameKey),
     );
     showToast("Membre et transactions supprimes", "info");
   };
@@ -2447,7 +2460,7 @@ export default function AeroClubBar() {
                 ];
                 const seen = new Map<string, string>();
                 for (const n of allNamesRaw) {
-                  const key = n.trim().toLowerCase();
+                  const key = normalizeNameFuzzy(n);
                   if (!seen.has(key)) seen.set(key, n);
                 }
                 const allNames = [...seen.values()].sort((a, b) =>
