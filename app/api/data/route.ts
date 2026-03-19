@@ -21,11 +21,21 @@ export async function GET() {
   }
 }
 
+const ALLOWED_KEYS = [
+  "aeroclub-products",
+  "aeroclub-transactions",
+  "aeroclub-settings",
+  "aeroclub-suggestions",
+  "aeroclub-members",
+];
+
 export async function POST(request: Request) {
   try {
     const { key, value } = await request.json();
     if (!key)
       return NextResponse.json({ error: "Key required" }, { status: 400 });
+    if (!ALLOWED_KEYS.includes(key))
+      return NextResponse.json({ error: "Invalid key" }, { status: 400 });
     await kv.set(key, value);
     return NextResponse.json({ ok: true });
   } catch (e) {

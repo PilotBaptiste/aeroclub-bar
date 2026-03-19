@@ -37,6 +37,7 @@ interface Suggestion {
 interface Settings {
   clubName: string;
   adminPin: string;
+  bureauPin?: string;
   cashInBox?: number;
   cbReceived?: number;
 }
@@ -98,7 +99,7 @@ const DEFAULT_PRODUCTS: Product[] = [
   },
 ];
 
-const DEFAULT_SETTINGS: Settings = { clubName: "Aero-Club", adminPin: "1234" };
+const DEFAULT_SETTINGS: Settings = { clubName: "Aero-Club", adminPin: "1234", bureauPin: "1215" };
 
 function formatPrice(p: number) {
   return p.toFixed(2).replace(".", ",") + " \u20AC";
@@ -124,15 +125,17 @@ async function loadFromServer() {
   }
 }
 
-async function saveToServer(key: string, value: unknown) {
+async function saveToServer(key: string, value: unknown): Promise<boolean> {
   try {
-    await fetch("/api/data", {
+    const res = await fetch("/api/data", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key, value }),
     });
+    return res.ok;
   } catch (e) {
     console.error("Save error:", e);
+    return false;
   }
 }
 
@@ -188,15 +191,19 @@ export default function AeroClubBar() {
   const [bureauPinInput, setBureauPinInput] = useState("");
   const [bureauPinError, setBureauPinError] = useState(false);
   const [bureauUnlocked, setBureauUnlocked] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error">("idle");
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false); // ← AJOUTER CETTE LIGNE
+  const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Debounced save to avoid too many API calls
   const debouncedSave = useCallback((key: string, value: unknown) => {
     if (!hasLoaded.current) return; // ← AJOUTER CETTE LIGNE
     if (saveTimeout.current[key]) clearTimeout(saveTimeout.current[key]);
-    saveTimeout.current[key] = setTimeout(() => {
-      saveToServer(key, value);
+    setSaveStatus("saving");
+    saveTimeout.current[key] = setTimeout(async () => {
+      const ok = await saveToServer(key, value);
+      setSaveStatus(ok ? "idle" : "error");
     }, 1000); // ← CHANGER 500 en 1000
   }, []);
 
@@ -236,6 +243,13 @@ export default function AeroClubBar() {
   useEffect(() => {
     if (!loading) debouncedSave("aeroclub-members", members);
   }, [members, loading, debouncedSave]);
+
+  // Nettoyer l'interval SumUp au démontage du composant
+  useEffect(() => {
+    return () => {
+      if (sumupIntervalRef.current) clearInterval(sumupIntervalRef.current);
+    };
+  }, []);
 
   const showToast = useCallback((msg: string, type = "success") => {
     setToast({ msg, type });
@@ -394,19 +408,23 @@ export default function AeroClubBar() {
       }
       setSumupCheckoutId(data.checkoutId || "pending");
       setSumupPolling(true);
+      // Nettoyer un éventuel interval précédent
+      if (sumupIntervalRef.current) clearInterval(sumupIntervalRef.current);
       // Polling toutes les 2 secondes
-      const interval = setInterval(async () => {
+      sumupIntervalRef.current = setInterval(async () => {
         try {
           const cid = data.checkoutId;
           const url = "/api/sumup-webhook" + (cid ? "?checkoutId=" + cid : "");
           const poll = await fetch(url);
           const result = await poll.json();
           if (result.status === "success") {
-            clearInterval(interval);
+            if (sumupIntervalRef.current) clearInterval(sumupIntervalRef.current);
+            sumupIntervalRef.current = null;
             setSumupPolling(false);
             confirmPayment("carte");
           } else if (result.status === "failed") {
-            clearInterval(interval);
+            if (sumupIntervalRef.current) clearInterval(sumupIntervalRef.current);
+            sumupIntervalRef.current = null;
             setSumupPolling(false);
             setSumupError("Paiement refusé ou annulé. Réessayez.");
             setSumupCheckoutId(null);
@@ -418,7 +436,8 @@ export default function AeroClubBar() {
       }, 2000);
       // Arrêt automatique après 3 minutes
       setTimeout(() => {
-        clearInterval(interval);
+        if (sumupIntervalRef.current) clearInterval(sumupIntervalRef.current);
+        sumupIntervalRef.current = null;
         setSumupPolling(false);
       }, 180000);
     } catch {
@@ -430,41 +449,35 @@ export default function AeroClubBar() {
 
   const confirmPayment = (method: string, amountPaid?: number) => {
     if (!buyerName.trim() || cart.length === 0) return;
-    // Update stock and check for low stock alerts
-    const updatedProducts: Product[] = [];
-    setProducts((prev) => {
-      let u = [...prev];
-      for (const item of cart) {
-        u = u.map((p) =>
-          p.id === item.product.id
-            ? { ...p, stock: Math.max(0, p.stock - item.qty) }
-            : p,
-        );
-      }
-      updatedProducts.push(...u);
-      return u;
-    });
+    // Calculer les produits mis à jour AVANT setProducts pour éviter la race condition
+    let updatedProducts = [...products];
+    for (const item of cart) {
+      updatedProducts = updatedProducts.map((p) =>
+        p.id === item.product.id
+          ? { ...p, stock: Math.max(0, p.stock - item.qty) }
+          : p,
+      );
+    }
+    setProducts(updatedProducts);
     // Send Telegram alerts ONLY for products in this cart that drop to low stock
     const cartProductIds = cart.map((c) => c.product.id);
-    setTimeout(() => {
-      for (const p of updatedProducts) {
-        if (!cartProductIds.includes(p.id)) continue;
-        if (p.stock > 0 && p.stock <= 5) {
-          fetch("/api/alert", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ productName: p.name, stock: p.stock }),
-          }).catch(() => {});
-        }
-        if (p.stock === 0) {
-          fetch("/api/alert", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ productName: p.name, stock: 0 }),
-          }).catch(() => {});
-        }
+    for (const p of updatedProducts) {
+      if (!cartProductIds.includes(p.id)) continue;
+      if (p.stock > 0 && p.stock <= 5) {
+        fetch("/api/alert", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productName: p.name, stock: p.stock }),
+        }).catch(() => {});
       }
-    }, 100);
+      if (p.stock === 0) {
+        fetch("/api/alert", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productName: p.name, stock: 0 }),
+        }).catch(() => {});
+      }
+    }
 
     // Handle member balance
     if (method === "avoir") {
@@ -1219,6 +1232,10 @@ export default function AeroClubBar() {
                           </p>
                           <button
                             onClick={async () => {
+                              if (sumupIntervalRef.current) {
+                                clearInterval(sumupIntervalRef.current);
+                                sumupIntervalRef.current = null;
+                              }
                               setSumupPolling(false);
                               setSumupCheckoutId(null);
                               try {
@@ -1296,7 +1313,7 @@ export default function AeroClubBar() {
                                   if (k === "C") {
                                     setBureauPinInput("");
                                   } else if (k === "OK") {
-                                    if (bureauPinInput === "1215") {
+                                    if (bureauPinInput === (settings.bureauPin || "1215")) {
                                       setBureauUnlocked(true);
                                       setShowBureauPin(false);
                                       setBureauPinInput("");
@@ -1524,6 +1541,14 @@ export default function AeroClubBar() {
             <h1 className="text-xl font-extrabold text-amber-500">
               {"Gestion " + settings.clubName}
             </h1>
+            <span className="ml-auto text-xs">
+              {saveStatus === "saving" && (
+                <span className="text-slate-500">{"Sauvegarde..."}</span>
+              )}
+              {saveStatus === "error" && (
+                <span className="text-red-400">{"Erreur sauvegarde !"}</span>
+              )}
+            </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-5">
             <div className="rounded-2xl p-3.5 text-center border bg-[#131b2e] border-[#1e2d4a]">
@@ -1640,7 +1665,7 @@ export default function AeroClubBar() {
                             onChange={(e) =>
                               setEditingProduct({
                                 ...editingProduct,
-                                price: parseFloat(e.target.value) || 0,
+                                price: Math.max(0, parseFloat(e.target.value) || 0),
                               })
                             }
                             className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
@@ -1657,7 +1682,7 @@ export default function AeroClubBar() {
                             onChange={(e) =>
                               setEditingProduct({
                                 ...editingProduct,
-                                cost: parseFloat(e.target.value) || 0,
+                                cost: Math.max(0, parseFloat(e.target.value) || 0),
                               })
                             }
                             className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-emerald-400 text-sm text-center outline-none"
@@ -1923,7 +1948,7 @@ export default function AeroClubBar() {
                         onChange={(e) =>
                           setNewProduct({
                             ...newProduct,
-                            price: parseFloat(e.target.value) || 0,
+                            price: Math.max(0, parseFloat(e.target.value) || 0),
                           })
                         }
                         className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
@@ -1940,7 +1965,7 @@ export default function AeroClubBar() {
                         onChange={(e) =>
                           setNewProduct({
                             ...newProduct,
-                            cost: parseFloat(e.target.value) || 0,
+                            cost: Math.max(0, parseFloat(e.target.value) || 0),
                           })
                         }
                         className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-emerald-400 text-sm text-center outline-none"
@@ -2601,6 +2626,19 @@ export default function AeroClubBar() {
                   value={settings.adminPin}
                   onChange={(e) =>
                     setSettings({ ...settings, adminPin: e.target.value })
+                  }
+                  className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
+                  maxLength={6}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  {"Code PIN Bureau"}
+                </label>
+                <input
+                  value={settings.bureauPin || ""}
+                  onChange={(e) =>
+                    setSettings({ ...settings, bureauPin: e.target.value })
                   }
                   className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
                   maxLength={6}
