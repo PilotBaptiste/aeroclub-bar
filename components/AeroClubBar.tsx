@@ -40,6 +40,8 @@ interface Settings {
   bureauPin?: string;
   cashInBox?: number;
   cbReceived?: number;
+  cashInitialFund?: number;
+  cbInitialFund?: number;
 }
 
 const DEFAULT_PRODUCTS: Product[] = [
@@ -176,6 +178,7 @@ export default function AeroClubBar() {
     null,
   );
   const [filterBuyer, setFilterBuyer] = useState("");
+  const [filterMethod, setFilterMethod] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [members, setMembers] = useState<MemberAccount[]>([]);
   const [showSuggestionModal, setShowSuggestionModal] = useState(false);
@@ -186,6 +189,9 @@ export default function AeroClubBar() {
   const [_cartCooldowns, setCartCooldowns] = useState<
     Record<string, ReturnType<typeof setTimeout>>
   >({});
+  const [cartExpiries, setCartExpiries] = useState<Record<string, number>>({});
+  const [, setCartTick] = useState(0);
+  const cartTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const [showBureauPin, setShowBureauPin] = useState(false);
   const [bureauPinInput, setBureauPinInput] = useState("");
@@ -252,8 +258,21 @@ export default function AeroClubBar() {
       if (sumupIntervalRef.current) clearInterval(sumupIntervalRef.current);
       if (sumupTimeoutRef.current) clearTimeout(sumupTimeoutRef.current);
       if (clearCartTimeoutRef.current) clearTimeout(clearCartTimeoutRef.current);
+      if (cartTickRef.current) clearInterval(cartTickRef.current);
     };
   }, []);
+
+  // Tick interval pour le countdown du panier
+  useEffect(() => {
+    if (cart.length > 0) {
+      if (!cartTickRef.current) {
+        cartTickRef.current = setInterval(() => setCartTick((t) => t + 1), 1000);
+      }
+    } else {
+      if (cartTickRef.current) { clearInterval(cartTickRef.current); cartTickRef.current = null; }
+      setCartExpiries({});
+    }
+  }, [cart.length]);
 
   const showToast = useCallback((msg: string, type = "success") => {
     setToast({ msg, type });
@@ -340,12 +359,19 @@ export default function AeroClubBar() {
     });
 
     // Reset the 30s cooldown for this product
+    const expiryTs = Date.now() + 30000;
+    setCartExpiries((prev) => ({ ...prev, [p.id]: expiryTs }));
     setCartCooldowns((prev) => {
       if (prev[p.id]) clearTimeout(prev[p.id]);
       const timer = setTimeout(() => {
         setCart((c) => c.filter((item) => item.product.id !== p.id));
         setCartCooldowns((cd) => {
           const next = { ...cd };
+          delete next[p.id];
+          return next;
+        });
+        setCartExpiries((ce) => {
+          const next = { ...ce };
           delete next[p.id];
           return next;
         });
@@ -361,10 +387,15 @@ export default function AeroClubBar() {
         return prev.map((c) =>
           c.product.id === pid ? { ...c, qty: c.qty - 1 } : c,
         );
-      // fully removed — clear cooldown
+      // fully removed — clear cooldown and expiry
       setCartCooldowns((cd) => {
         if (cd[pid]) clearTimeout(cd[pid]);
         const next = { ...cd };
+        delete next[pid];
+        return next;
+      });
+      setCartExpiries((ce) => {
+        const next = { ...ce };
         delete next[pid];
         return next;
       });
@@ -730,11 +761,9 @@ export default function AeroClubBar() {
   const todayCost = todayTx.reduce((s, t) => s + (t.totalCost || 0), 0);
   const todayProfit = todayRevenue - todayCost;
   const lowStock = products.filter((p) => p.stock <= 5);
-  const filteredTx = filterBuyer
-    ? transactions.filter((t) =>
-        (t.buyer || "").toLowerCase().includes(filterBuyer.toLowerCase()),
-      )
-    : transactions;
+  const filteredTx = transactions
+    .filter((t) => !filterBuyer || (t.buyer || "").toLowerCase().includes(filterBuyer.toLowerCase()))
+    .filter((t) => !filterMethod || t.method === filterMethod);
   const uniqueBuyers = (() => {
     const seen = new Map<string, string>();
     for (const t of transactions) {
@@ -904,7 +933,10 @@ export default function AeroClubBar() {
             <div className="fixed bottom-0 left-0 right-0 bg-[#131b2e] border-t border-[#1e2d4a] p-4 z-30">
               <div className="max-w-lg mx-auto">
                 <div className="flex flex-wrap gap-2 mb-3">
-                  {cart.map((item) => (
+                  {cart.map((item) => {
+                    const expiry = cartExpiries[item.product.id];
+                    const secs = expiry ? Math.max(0, Math.ceil((expiry - Date.now()) / 1000)) : null;
+                    return (
                     <div
                       key={item.product.id}
                       className="flex items-center gap-1.5 bg-[#0f172a] border border-[#1e2d4a] rounded-lg px-2.5 py-1.5"
@@ -917,6 +949,11 @@ export default function AeroClubBar() {
                       <span className="text-xs text-amber-500 font-bold">
                         {formatPrice(item.product.price * item.qty)}
                       </span>
+                      {secs !== null && (
+                        <span className={`text-[10px] font-bold tabular-nums ${secs <= 5 ? "text-red-400" : "text-slate-500"}`}>
+                          {secs}s
+                        </span>
+                      )}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -927,7 +964,8 @@ export default function AeroClubBar() {
                         {"\u2715"}
                       </button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 <div className="flex items-center gap-3">
                   <button
@@ -1911,6 +1949,22 @@ export default function AeroClubBar() {
                         >
                           {"+"}
                         </button>
+                        {(p.stockReserve ?? 0) > 0 && (
+                          <button
+                            onClick={() =>
+                              setProducts((prev) =>
+                                prev.map((x) =>
+                                  x.id === p.id
+                                    ? { ...x, stock: x.stock + (x.stockReserve ?? 0), stockReserve: 0 }
+                                    : x,
+                                ),
+                              )
+                            }
+                            className="ml-1 px-2 h-8 rounded-lg border border-purple-700 bg-purple-900/30 text-purple-300 text-xs font-bold cursor-pointer hover:bg-purple-800/40"
+                          >
+                            {"\u2192 Frigo"}
+                          </button>
+                        )}
                       </div>
                     </div>
                     <button
@@ -2103,51 +2157,64 @@ export default function AeroClubBar() {
                 </div>
               </div>
 
-              <div className="rounded-xl p-4 border-2 bg-[#131b2e] border-amber-500">
-                <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                  {"Tresorerie totale"}
-                </span>
-                <span className="text-2xl font-extrabold text-amber-500">
-                  {formatPrice(
-                    (settings.cashInBox || 0) + (settings.cbReceived || 0),
-                  )}
-                </span>
-                <span className="text-[10px] text-slate-600 block mt-1">
-                  {"Especes + CB"}
-                </span>
-              </div>
+              {/* Recettes nettes */}
+              {(() => {
+                const cashNet = (settings.cashInBox || 0) - (settings.cashInitialFund || 0);
+                const cbNet = (settings.cbReceived || 0) - (settings.cbInitialFund || 0);
+                const totalNet = cashNet + cbNet;
+                return (
+                  <>
+                    <div className="rounded-xl p-4 border-2 bg-[#131b2e] border-amber-500">
+                      <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                        {"Recettes nettes"}
+                      </span>
+                      <span className="text-2xl font-extrabold text-amber-500">
+                        {formatPrice(totalNet)}
+                      </span>
+                      <span className="text-[10px] text-slate-600 block mt-1">
+                        {"Hors fonds initiaux"}
+                      </span>
+                    </div>
 
-              {/* Cash in box */}
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                      {"Fond de caisse"}
-                    </span>
-                    <span className="text-xl font-extrabold text-amber-500">
-                      {formatPrice(settings.cashInBox || 0)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                      {"Recu par CB"}
-                    </span>
-                    <span className="text-xl font-extrabold text-blue-400">
-                      {formatPrice(settings.cbReceived || 0)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                      {"Avoirs membres"}
-                    </span>
-                    <span className="text-xl font-extrabold text-emerald-400">
-                      {formatPrice(
-                        members.reduce((s, m) => s + Math.max(0, m.balance), 0),
-                      )}
-                    </span>
-                  </div>
-                </div>
-              </div>
+                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                            {"Especes"}
+                          </span>
+                          <span className="text-xl font-extrabold text-amber-500">
+                            {formatPrice(settings.cashInBox || 0)}
+                          </span>
+                          <span className="text-[10px] text-emerald-400 font-semibold block mt-0.5">
+                            {"+" + formatPrice(cashNet) + " net"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                            {"CB"}
+                          </span>
+                          <span className="text-xl font-extrabold text-blue-400">
+                            {formatPrice(settings.cbReceived || 0)}
+                          </span>
+                          <span className="text-[10px] text-emerald-400 font-semibold block mt-0.5">
+                            {"+" + formatPrice(cbNet) + " net"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                            {"Avoirs"}
+                          </span>
+                          <span className="text-xl font-extrabold text-emerald-400">
+                            {formatPrice(
+                              members.reduce((s, m) => s + Math.max(0, m.balance), 0),
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* Today */}
               <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4">
@@ -2284,7 +2351,7 @@ export default function AeroClubBar() {
                   {uniqueBuyers.slice(0, 10).map((b) => (
                     <button
                       key={b}
-                      onClick={() => setFilterBuyer(b)}
+                      onClick={() => setFilterBuyer(filterBuyer === b ? "" : b)}
                       className={
                         "text-[11px] px-2.5 py-1 rounded-full font-semibold transition cursor-pointer " +
                         (filterBuyer === b
@@ -2297,10 +2364,34 @@ export default function AeroClubBar() {
                   ))}
                 </div>
               )}
+              <div className="flex gap-1.5 flex-wrap">
+                {(["espèces", "carte", "avoir", "offert", "bureau"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setFilterMethod((prev) => (prev === m ? null : m))}
+                    className={
+                      "text-[11px] px-2.5 py-1 rounded-full font-semibold transition cursor-pointer capitalize " +
+                      (filterMethod === m
+                        ? "bg-blue-500 text-white"
+                        : "bg-[#1e2d4a] text-slate-400 hover:text-white")
+                    }
+                  >
+                    {m}
+                  </button>
+                ))}
+                {(filterBuyer || filterMethod) && (
+                  <button
+                    onClick={() => { setFilterBuyer(""); setFilterMethod(null); }}
+                    className="text-[11px] px-2.5 py-1 rounded-full font-semibold transition cursor-pointer bg-slate-700 text-slate-300 hover:text-white"
+                  >
+                    {"Tout"}
+                  </button>
+                )}
+              </div>
               {filteredTx.length === 0 ? (
                 <p className="text-slate-600 text-center py-10 text-sm">
-                  {filterBuyer
-                    ? "Aucune transaction pour ce nom"
+                  {filterBuyer || filterMethod
+                    ? "Aucune transaction pour ce filtre"
                     : "Aucune transaction"}
                 </p>
               ) : (
@@ -2424,6 +2515,60 @@ export default function AeroClubBar() {
                           setSettings((prev) => ({ ...prev, cbReceived: v }));
                           (e.target as HTMLInputElement).value = "";
                           showToast("CB mise a jour");
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-2">
+                <div className="bg-[#0f172a] border border-slate-700 rounded-xl p-4">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                    {"Fond initial especes"}
+                  </span>
+                  <span className="text-lg font-extrabold text-slate-300">
+                    {formatPrice(settings.cashInitialFund || 0)}
+                  </span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    placeholder="Fond de depart..."
+                    className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none mt-2"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const v = parseFloat(
+                          (e.target as HTMLInputElement).value,
+                        );
+                        if (!isNaN(v)) {
+                          setSettings((prev) => ({ ...prev, cashInitialFund: v }));
+                          (e.target as HTMLInputElement).value = "";
+                          showToast("Fond initial especes mis a jour");
+                        }
+                      }
+                    }}
+                  />
+                </div>
+                <div className="bg-[#0f172a] border border-slate-700 rounded-xl p-4">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                    {"Fond initial CB"}
+                  </span>
+                  <span className="text-lg font-extrabold text-slate-300">
+                    {formatPrice(settings.cbInitialFund || 0)}
+                  </span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    placeholder="Fond de depart..."
+                    className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none mt-2"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const v = parseFloat(
+                          (e.target as HTMLInputElement).value,
+                        );
+                        if (!isNaN(v)) {
+                          setSettings((prev) => ({ ...prev, cbInitialFund: v }));
+                          (e.target as HTMLInputElement).value = "";
+                          showToast("Fond initial CB mis a jour");
                         }
                       }
                     }}
@@ -2655,6 +2800,7 @@ export default function AeroClubBar() {
                   {"Code PIN admin"}
                 </label>
                 <input
+                  type="password"
                   value={settings.adminPin}
                   onChange={(e) =>
                     setSettings({ ...settings, adminPin: e.target.value })
@@ -2668,6 +2814,7 @@ export default function AeroClubBar() {
                   {"Code PIN Bureau"}
                 </label>
                 <input
+                  type="password"
                   value={settings.bureauPin || ""}
                   onChange={(e) =>
                     setSettings({ ...settings, bureauPin: e.target.value })
