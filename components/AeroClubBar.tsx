@@ -612,7 +612,7 @@ export default function AeroClubBar() {
       setCashAmountInput("");
       setLockRetriggerCountdown(null);
       if (lockRetriggerTimerRef.current) { clearInterval(lockRetriggerTimerRef.current); lockRetriggerTimerRef.current = null; }
-    }, 8000);
+    }, 20000);
   };
 
   const handleAdminLogin = () => {
