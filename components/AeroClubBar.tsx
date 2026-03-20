@@ -156,7 +156,10 @@ export default function AeroClubBar() {
     total: number;
     buyer: string;
     method: string;
+    lockType: "cafe" | "frigo" | "both";
   } | null>(null);
+  const [lockRetriggerCountdown, setLockRetriggerCountdown] = useState<number | null>(null);
+  const lockRetriggerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [sumupLoading, setSumupLoading] = useState(false);
   const [sumupError, setSumupError] = useState<string | null>(null);
   const [sumupCheckoutId, setSumupCheckoutId] = useState<string | null>(null);
@@ -259,6 +262,7 @@ export default function AeroClubBar() {
       if (sumupTimeoutRef.current) clearTimeout(sumupTimeoutRef.current);
       if (clearCartTimeoutRef.current) clearTimeout(clearCartTimeoutRef.current);
       if (cartTickRef.current) clearInterval(cartTickRef.current);
+      if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
     };
   }, []);
 
@@ -593,6 +597,7 @@ export default function AeroClubBar() {
       total: cartTotal,
       buyer: canonicalBuyer,
       method,
+      lockType: hasCafe && hasOther ? "both" : hasCafe ? "cafe" : "frigo",
     });
     setPaymentStatus("success");
     showToast("Merci " + canonicalBuyer.split(" ")[0] + " !");
@@ -605,6 +610,8 @@ export default function AeroClubBar() {
       setLastOrder(null);
       setShowCashFlow(false);
       setCashAmountInput("");
+      setLockRetriggerCountdown(null);
+      if (lockRetriggerTimerRef.current) { clearInterval(lockRetriggerTimerRef.current); lockRetriggerTimerRef.current = null; }
     }, 8000);
   };
 
@@ -690,7 +697,7 @@ export default function AeroClubBar() {
         return prev.map((m) =>
           normalizeNameFuzzy(m.name) === oldKey ? { ...m, name: trimmed } : m,
         );
-      return [...prev, { name: trimmed, balance: 0 }];
+      return prev; // présent uniquement dans les transactions → pas de nouveau membre
     });
     // Rename in ALL transactions (match toutes les variantes : casse, ordre tokens)
     setTransactions((prev) =>
@@ -1531,6 +1538,43 @@ export default function AeroClubBar() {
                       )}
                     </div>
 
+                    {/* Bandeau serrure */}
+                    <div className="w-full bg-emerald-900/30 border border-emerald-700/40 rounded-xl p-3 flex flex-col items-center gap-2">
+                      <p className="text-sm font-semibold text-emerald-400">
+                        {lastOrder.lockType === "cafe"
+                          ? "\u2615 Tiroir caf\u00e9 d\u00e9verrouill\u00e9 !"
+                          : lastOrder.lockType === "frigo"
+                            ? "\uD83C\uDF7A Frigo d\u00e9verrouill\u00e9 !"
+                            : "\u2615\uD83C\uDF7A Caf\u00e9 & Frigo d\u00e9verrouill\u00e9s !"}
+                      </p>
+                      {lockRetriggerCountdown === null ? (
+                        <button
+                          onClick={() => {
+                            fetch("/api/fridge?action=trigger&lock=" + lastOrder.lockType).catch(() => {});
+                            setLockRetriggerCountdown(5);
+                            if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
+                            lockRetriggerTimerRef.current = setInterval(() => {
+                              setLockRetriggerCountdown((prev) => {
+                                if (prev === null || prev <= 1) {
+                                  if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
+                                  lockRetriggerTimerRef.current = null;
+                                  return 0;
+                                }
+                                return prev - 1;
+                              });
+                            }, 1000);
+                          }}
+                          className="text-xs px-4 py-1.5 rounded-lg bg-emerald-700/40 text-emerald-300 font-semibold cursor-pointer hover:bg-emerald-700/60 active:scale-95"
+                        >
+                          {"\uD83D\uDD13 R\u00e9-ouvrir"}
+                        </button>
+                      ) : lockRetriggerCountdown > 0 ? (
+                        <p className="text-xs text-emerald-500 font-bold tabular-nums">
+                          {"Ferme dans " + lockRetriggerCountdown + "s\u2026"}
+                        </p>
+                      ) : null}
+                    </div>
+
                     <p className="text-slate-600 text-xs mt-2">
                       {"Bonne degustation ! \uD83D\uDE0A"}
                     </p>
@@ -1539,6 +1583,8 @@ export default function AeroClubBar() {
                         clearCart();
                         setBuyerName("");
                         setLastOrder(null);
+                        setLockRetriggerCountdown(null);
+                        if (lockRetriggerTimerRef.current) { clearInterval(lockRetriggerTimerRef.current); lockRetriggerTimerRef.current = null; }
                       }}
                       className="mt-2 px-6 py-2.5 rounded-xl bg-[#1e2d4a] text-amber-500 text-sm font-semibold cursor-pointer active:scale-95"
                     >
