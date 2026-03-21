@@ -321,7 +321,11 @@ export default function AeroClubBar() {
       if (!seen.has(key)) seen.set(key, n);
     }
     return [...seen.values()]
-      .filter((n) => tokens.some((tok) => n.toLowerCase().includes(tok)))
+      .filter((n) => {
+        const nameToks = n.toLowerCase().split(/\s+/);
+        // Chaque token de l'input doit correspondre au DÉBUT d'un token du nom
+        return tokens.every((tok) => nameToks.some((nt) => nt.startsWith(tok)));
+      })
       .slice(0, 5);
   };
 
