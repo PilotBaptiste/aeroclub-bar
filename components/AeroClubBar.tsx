@@ -966,16 +966,17 @@ export default function AeroClubBar() {
             </button>
           </div>
 
-          {/* Filtres catégorie — affichés uniquement si au moins 1 produit a une catégorie */}
+          {/* Filtres catégorie */}
           {products.some((p) => p.category) && (
-            <div className="flex gap-1.5 w-full max-w-lg mb-1">
+            <div className="flex items-center gap-0 w-full max-w-lg bg-[#0d1525] rounded-2xl p-1 mb-2 shadow-inner">
               {([null, "boissons", "cafe", "nourriture"] as const).map((cat) => {
                 const labels: Record<string, string> = { boissons: "🍺 Boissons", cafe: "☕ Café", nourriture: "🍫 Bouffe" };
+                const active = saleCategory === cat;
                 return (
                   <button
                     key={cat ?? "all"}
                     onClick={() => setSaleCategory(cat)}
-                    className={"flex-1 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer " + (saleCategory === cat ? "bg-amber-500 text-black" : "bg-[#131b2e] text-slate-400 border border-[#1e2d4a]")}
+                    className={"flex-1 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer " + (active ? "bg-amber-500 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}
                   >
                     {cat === null ? "Tout" : labels[cat]}
                   </button>
