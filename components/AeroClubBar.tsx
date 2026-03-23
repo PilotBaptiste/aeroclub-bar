@@ -170,8 +170,6 @@ export default function AeroClubBar() {
     method: string;
     lockType: "cafe" | "frigo" | "both";
   } | null>(null);
-  const [lockRetriggerCountdown, setLockRetriggerCountdown] = useState<number | null>(null);
-  const lockRetriggerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [sumupLoading, setSumupLoading] = useState(false);
   const [sumupError, setSumupError] = useState<string | null>(null);
   const [sumupCheckoutId, setSumupCheckoutId] = useState<string | null>(null);
