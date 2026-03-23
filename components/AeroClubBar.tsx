@@ -2002,9 +2002,9 @@ export default function AeroClubBar() {
                   <div
                     key={p.id}
                     className={
-                      "flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 border " +
+                      "flex flex-col rounded-xl border overflow-hidden " +
                       (p.archived
-                        ? "opacity-40 bg-[#0f172a] border-slate-800 grayscale"
+                        ? "opacity-50 bg-[#0f172a] border-slate-800 grayscale"
                         : p.stock <= 5 && (p.stockReserve ?? 0) === 0
                           ? "bg-red-950/40 border-red-800"
                           : p.stock <= 5
@@ -2012,194 +2012,70 @@ export default function AeroClubBar() {
                             : "bg-[#131b2e] border-[#1e2d4a]")
                     }
                   >
-                    <span className="text-2xl w-9 text-center flex items-center justify-center">{renderProductIcon(p.emoji, "text-2xl", "w-8 h-8")}</span>
-                    <div className="flex-1 flex flex-col">
-                      <span className="text-sm font-bold">{p.name}</span>
-                      <span className="text-xs text-amber-500 font-semibold">
-                        {formatPrice(p.price)}
-                        <span className="text-slate-600">
-                          {" / cout: " + formatPrice(p.cost || 0)}
-                        </span>
+                    {/* Ligne 1 : icône + infos + actions */}
+                    <div className="flex items-center gap-2.5 px-3 py-2.5">
+                      <span className="w-8 h-8 flex items-center justify-center shrink-0">
+                        {renderProductIcon(p.emoji, "text-2xl", "w-8 h-8")}
                       </span>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-slate-400">
-                          {"🧊 Frigo : "}
-                          <span
-                            className={
-                              p.stock <= 5
-                                ? "text-orange-400 font-bold"
-                                : "text-white"
-                            }
-                          >
-                            {p.stock}
-                          </span>
-                        </span>
-                        <span className="text-[10px] text-slate-600">
-                          {"•"}
-                        </span>
-                        <span className="text-[10px] text-slate-400">
-                          {"📦 Réserve : "}
-                          <span
-                            className={
-                              (p.stockReserve ?? 0) === 0 && p.stock <= 5
-                                ? "text-red-400 font-bold"
-                                : "text-purple-300"
-                            }
-                          >
-                            {p.stockReserve ?? 0}
-                          </span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-bold block truncate">{p.name}</span>
+                        <span className="text-xs text-amber-500 font-semibold">
+                          {formatPrice(p.price)}
+                          <span className="text-slate-600">{" · coût " + formatPrice(p.cost || 0)}</span>
                         </span>
                         {p.stock <= 5 && (p.stockReserve ?? 0) === 0 && (
-                          <span className="text-[10px] text-red-400 font-bold">
-                            {"⚠ Réappro!"}
-                          </span>
+                          <span className="text-[10px] text-red-400 font-bold block">{"⚠ Réappro nécessaire"}</span>
                         )}
                         {p.stock <= 5 && (p.stockReserve ?? 0) > 0 && (
-                          <span className="text-[10px] text-orange-400">
-                            {"↻ Réappro dispo"}
-                          </span>
+                          <span className="text-[10px] text-orange-400 block">{"↻ Réserve disponible"}</span>
+                        )}
+                        {p.archived && (
+                          <span className="text-[10px] text-slate-500 block">{"Archivé"}</span>
                         )}
                       </div>
-                    </div>
-                    <div className="flex flex-col gap-1 items-center">
-                      <span className="text-[9px] text-slate-600 uppercase font-semibold">
-                        Frigo
-                      </span>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
-                          onClick={() => adjustStock(p.id, -1)}
-                          className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-red-500 text-lg font-bold flex items-center justify-center cursor-pointer"
-                        >
-                          {"\u2212"}
-                        </button>
-                        <input
-                          type="number"
-                          value={p.stock}
-                          onChange={(e) => setStockDirect(p.id, e.target.value)}
-                          className="w-12 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-white text-sm font-bold text-center outline-none"
-                        />
-                        <button
-                          onClick={() => adjustStock(p.id, 1)}
-                          className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-emerald-500 text-lg font-bold flex items-center justify-center cursor-pointer"
-                        >
-                          {"+"}
-                        </button>
+                          onClick={() => { setRestockingProduct(p); setRestockForm({ qty: 1, newPrice: p.price, newCost: p.cost, method: "especes" }); }}
+                          className="text-[10px] px-2 py-1 rounded border border-emerald-700 bg-emerald-900/20 text-emerald-400 font-bold cursor-pointer"
+                          title="Réapprovisionner"
+                        >{"+ Réappro"}</button>
+                        <button onClick={() => setEditingProduct({ ...p })} className="text-base opacity-50 hover:opacity-100 cursor-pointer" title="Modifier">{"✏️"}</button>
+                        {p.stock === 0 && !p.archived && (
+                          <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, archived: true } : x))}
+                            className="text-base opacity-50 hover:opacity-100 cursor-pointer" title="Archiver">{"📦"}</button>
+                        )}
+                        {p.archived && (
+                          <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, archived: false } : x))}
+                            className="text-xs px-1.5 py-0.5 rounded border border-amber-700 text-amber-400 cursor-pointer" title="Réactiver">{"↩"}</button>
+                        )}
+                        <button onClick={() => removeProduct(p.id)} className="text-base opacity-30 hover:opacity-80 cursor-pointer" title="Supprimer">{"🗑"}</button>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-1 items-center">
-                      <span className="text-[9px] text-purple-400 uppercase font-semibold">
-                        Reserve
-                      </span>
+                    {/* Ligne 2 : contrôles stock */}
+                    <div className="flex items-center gap-3 px-3 py-2 bg-black/20 border-t border-white/5">
+                      <span className="text-[10px] text-slate-500 font-semibold w-10 shrink-0">{"🧊 Frigo"}</span>
                       <div className="flex items-center gap-1">
-                        <button
-                          onClick={() =>
-                            setProducts((prev) =>
-                              prev.map((x) =>
-                                x.id === p.id
-                                  ? {
-                                      ...x,
-                                      stockReserve: Math.max(
-                                        0,
-                                        (x.stockReserve ?? 0) - 1,
-                                      ),
-                                    }
-                                  : x,
-                              ),
-                            )
-                          }
-                          className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-red-500 text-lg font-bold flex items-center justify-center cursor-pointer"
-                        >
-                          {"\u2212"}
-                        </button>
-                        <input
-                          type="number"
-                          value={p.stockReserve ?? 0}
-                          onChange={(e) => {
-                            const n = parseInt(e.target.value, 10);
-                            if (!isNaN(n) && n >= 0)
-                              setProducts((prev) =>
-                                prev.map((x) =>
-                                  x.id === p.id ? { ...x, stockReserve: n } : x,
-                                ),
-                              );
-                          }}
-                          className="w-12 h-8 rounded-lg border border-purple-900 bg-[#0f172a] text-purple-300 text-sm font-bold text-center outline-none"
-                        />
-                        <button
-                          onClick={() =>
-                            setProducts((prev) =>
-                              prev.map((x) =>
-                                x.id === p.id
-                                  ? {
-                                      ...x,
-                                      stockReserve: (x.stockReserve ?? 0) + 1,
-                                    }
-                                  : x,
-                              ),
-                            )
-                          }
-                          className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-emerald-500 text-lg font-bold flex items-center justify-center cursor-pointer"
-                        >
-                          {"+"}
-                        </button>
+                        <button onClick={() => adjustStock(p.id, -1)} className="w-7 h-7 rounded border border-slate-700 bg-[#0f172a] text-red-500 font-bold flex items-center justify-center cursor-pointer">{"−"}</button>
+                        <input type="number" value={p.stock} onChange={(e) => setStockDirect(p.id, e.target.value)}
+                          className={"w-10 h-7 rounded border bg-[#0f172a] text-sm font-bold text-center outline-none " + (p.stock <= 5 ? "border-orange-700 text-orange-400" : "border-slate-700 text-white")} />
+                        <button onClick={() => adjustStock(p.id, 1)} className="w-7 h-7 rounded border border-slate-700 bg-[#0f172a] text-emerald-500 font-bold flex items-center justify-center cursor-pointer">{"+"}</button>
+                      </div>
+                      <span className="text-slate-700">{"·"}</span>
+                      <span className="text-[10px] text-purple-400 font-semibold w-12 shrink-0">{"📦 Rés."}</span>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, stockReserve: Math.max(0, (x.stockReserve ?? 0) - 1) } : x))}
+                          className="w-7 h-7 rounded border border-slate-700 bg-[#0f172a] text-red-500 font-bold flex items-center justify-center cursor-pointer">{"−"}</button>
+                        <input type="number" value={p.stockReserve ?? 0}
+                          onChange={(e) => { const n = parseInt(e.target.value, 10); if (!isNaN(n) && n >= 0) setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, stockReserve: n } : x)); }}
+                          className="w-10 h-7 rounded border border-purple-900 bg-[#0f172a] text-purple-300 text-sm font-bold text-center outline-none" />
+                        <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, stockReserve: (x.stockReserve ?? 0) + 1 } : x))}
+                          className="w-7 h-7 rounded border border-slate-700 bg-[#0f172a] text-emerald-500 font-bold flex items-center justify-center cursor-pointer">{"+"}</button>
                         {(p.stockReserve ?? 0) > 0 && (
-                          <button
-                            onClick={() =>
-                              setProducts((prev) =>
-                                prev.map((x) =>
-                                  x.id === p.id
-                                    ? { ...x, stock: x.stock + (x.stockReserve ?? 0), stockReserve: 0 }
-                                    : x,
-                                ),
-                              )
-                            }
-                            className="ml-1 px-2 h-8 rounded-lg border border-purple-700 bg-purple-900/30 text-purple-300 text-xs font-bold cursor-pointer hover:bg-purple-800/40"
-                          >
-                            {"\u2192 Frigo"}
-                          </button>
+                          <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, stock: x.stock + (x.stockReserve ?? 0), stockReserve: 0 } : x))}
+                            className="px-2 h-7 rounded border border-purple-700 bg-purple-900/30 text-purple-300 text-[11px] font-bold cursor-pointer">{"→ Frigo"}</button>
                         )}
                       </div>
                     </div>
-                    <button
-                      onClick={() => {
-                        setRestockingProduct(p);
-                        setRestockForm({ qty: 1, newPrice: p.price, newCost: p.cost, method: "especes" });
-                      }}
-                      className="text-[10px] px-2 py-1 rounded-lg border border-emerald-700 bg-emerald-900/20 text-emerald-400 font-bold cursor-pointer hover:bg-emerald-800/30"
-                      title="Réapprovisionner"
-                    >
-                      {"+ Réappro"}
-                    </button>
-                    <button
-                      onClick={() => setEditingProduct({ ...p })}
-                      className="opacity-50 hover:opacity-100 text-sm cursor-pointer"
-                    >
-                      {"\u270F\uFE0F"}
-                    </button>
-                    {p.stock === 0 && !p.archived && (
-                      <button
-                        onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, archived: true } : x))}
-                        className="text-[10px] px-1.5 py-1 rounded border border-slate-600 text-slate-500 cursor-pointer hover:text-orange-400 hover:border-orange-600"
-                        title="Archiver (masquer de la vente)"
-                      >
-                        {"📦"}
-                      </button>
-                    )}
-                    {p.archived && (
-                      <button
-                        onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, archived: false } : x))}
-                        className="text-[10px] px-1.5 py-1 rounded border border-amber-700 text-amber-500 font-bold cursor-pointer hover:bg-amber-900/20"
-                        title="Réactiver"
-                      >
-                        {"↩"}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => removeProduct(p.id)}
-                      className="opacity-40 hover:opacity-80 text-base cursor-pointer"
-                    >
-                      {"\uD83D\uDDD1"}
-                    </button>
                   </div>
                 );
               })}
