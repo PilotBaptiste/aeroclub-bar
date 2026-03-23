@@ -976,9 +976,9 @@ export default function AeroClubBar() {
                   <span className="text-sm font-extrabold text-amber-500">
                     {formatPrice(p.price)}
                   </span>
-                  {!out && p.stock <= 5 && (
-                    <span className="text-[9px] text-orange-400 font-semibold">
-                      {"+" + p.stock + " restants"}
+                  {!out && (
+                    <span className={"text-[9px] font-semibold " + (p.stock <= 5 ? "text-orange-400" : "text-slate-500")}>
+                      {p.stock <= 5 ? p.stock + " restants" : p.stock}
                     </span>
                   )}
                 </button>
@@ -2284,62 +2284,73 @@ export default function AeroClubBar() {
                 </div>
               </div>
 
-              {/* Recettes nettes */}
+              {/* Trésorerie actuelle */}
               {(() => {
-                const cashNet = (settings.cashInBox || 0) - (settings.cashInitialFund || 0);
-                const cbNet = (settings.cbReceived || 0) - (settings.cbInitialFund || 0);
-                const totalNet = cashNet + cbNet;
+                const totalTreasury = (settings.cashInBox || 0) + (settings.cbReceived || 0);
                 return (
-                  <>
-                    <div className="rounded-xl p-4 border-2 bg-[#131b2e] border-amber-500">
-                      <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                        {"Recettes nettes"}
-                      </span>
-                      <span className="text-2xl font-extrabold text-amber-500">
-                        {formatPrice(totalNet)}
-                      </span>
-                      <span className="text-[10px] text-slate-600 block mt-1">
-                        {"Hors fonds initiaux"}
+                  <div className="rounded-xl border-2 bg-[#131b2e] border-amber-500/60 overflow-hidden">
+                    <div className="px-4 pt-3 pb-2 border-b border-amber-500/20">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
+                          {"Trésorerie actuelle"}
+                        </span>
+                        <span className="text-2xl font-extrabold text-amber-500">
+                          {formatPrice(totalTreasury)}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-600 block mt-0.5">
+                        {"CA & bénéfice calculés depuis l'historique des ventes — non affectés par les corrections ci-dessous"}
                       </span>
                     </div>
-
-                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                            {"Especes"}
-                          </span>
-                          <span className="text-xl font-extrabold text-amber-500">
-                            {formatPrice(settings.cashInBox || 0)}
-                          </span>
-                          <span className="text-[10px] text-emerald-400 font-semibold block mt-0.5">
-                            {"+" + formatPrice(cashNet) + " net"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                            {"CB"}
-                          </span>
-                          <span className="text-xl font-extrabold text-blue-400">
-                            {formatPrice(settings.cbReceived || 0)}
-                          </span>
-                          <span className="text-[10px] text-emerald-400 font-semibold block mt-0.5">
-                            {"+" + formatPrice(cbNet) + " net"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                            {"Avoirs"}
-                          </span>
-                          <span className="text-xl font-extrabold text-emerald-400">
-                            {formatPrice(
-                              members.reduce((s, m) => s + Math.max(0, m.balance), 0),
-                            )}
-                          </span>
-                        </div>
+                    <div className="grid grid-cols-3 gap-0 divide-x divide-white/5">
+                      <div className="px-3 py-3">
+                        <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"Espèces"}</span>
+                        <span className="text-lg font-extrabold text-amber-500 block">
+                          {formatPrice(settings.cashInBox || 0)}
+                        </span>
+                        <input
+                          type="number" step="0.5" placeholder="Corriger..."
+                          className="w-full h-7 rounded border border-slate-700 bg-[#0f172a] text-white text-xs text-center outline-none mt-1.5"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              const v = parseFloat((e.target as HTMLInputElement).value);
+                              if (!isNaN(v)) {
+                                setSettings((prev) => ({ ...prev, cashInBox: v }));
+                                (e.target as HTMLInputElement).value = "";
+                                showToast("Caisse espèces mise à jour");
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                      <div className="px-3 py-3">
+                        <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"CB"}</span>
+                        <span className="text-lg font-extrabold text-blue-400 block">
+                          {formatPrice(settings.cbReceived || 0)}
+                        </span>
+                        <input
+                          type="number" step="0.5" placeholder="Corriger..."
+                          className="w-full h-7 rounded border border-slate-700 bg-[#0f172a] text-white text-xs text-center outline-none mt-1.5"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              const v = parseFloat((e.target as HTMLInputElement).value);
+                              if (!isNaN(v)) {
+                                setSettings((prev) => ({ ...prev, cbReceived: v }));
+                                (e.target as HTMLInputElement).value = "";
+                                showToast("Montant CB mis à jour");
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                      <div className="px-3 py-3">
+                        <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"Avoirs"}</span>
+                        <span className="text-lg font-extrabold text-emerald-400 block">
+                          {formatPrice(members.reduce((s, m) => s + Math.max(0, m.balance), 0))}
+                        </span>
                       </div>
                     </div>
-                  </>
+                  </div>
                 );
               })()}
 
