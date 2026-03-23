@@ -15,11 +15,14 @@ interface Product {
 }
 
 const EMOJI_CATEGORIES = [
-  { label: "🥤 Boissons", emojis: ["🥤","🧃","💧","🫙","🧋","🍵","☕","🫖","🍺","🍻","🥂","🍷","🥃","🍸","🍹","🧉","🫗","🧊","🍾","🥛"] },
-  { label: "🍦 Glaces", emojis: ["🍦","🍧","🍨","🍡","🧁","🍰","🎂","🍩","🍪","🥧","🍮","🍫","🍬","🍭","🍡"] },
-  { label: "🍫 Snacks", emojis: ["🍫","🍬","🍭","🍿","🥜","🌰","🥐","🥖","🥨","🥯","🧇","🍞","🥪","🌮","🌯","🥙","🧆","🫔"] },
-  { label: "🍎 Fruits", emojis: ["🍎","🍊","🍋","🍇","🍓","🫐","🍌","🍉","🍑","🍒","🥝","🍍","🥭","🍐"] },
-  { label: "📦 Divers", emojis: ["📦","🎁","⭐","🏷️","🛒","💊","🩺","🔑","🎫","🎟️","🪙","💵","🧴","🧻"] },
+  { label: "🥤", title: "Soft / eau", emojis: ["🥤","🧃","💧","🫙","🧋","🍵","☕","🫖","🥛","🫗","🧊","🍶","🍼"] },
+  { label: "🍺", title: "Alcool", emojis: ["🍺","🍻","🥂","🍷","🥃","🍸","🍹","🧉","🍾","🫗","🥴"] },
+  { label: "🍦", title: "Glaces", emojis: ["🍦","🍧","🍨","🍡","🍢","🍣","🧊","🫐","🍓"] },
+  { label: "🍫", title: "Choco & bonbons", emojis: ["🍫","🍬","🍭","🍮","🍯","🍩","🍪","🧁","🎂","🍰","🥧","🍮"] },
+  { label: "🥐", title: "Viennoiseries", emojis: ["🥐","🥖","🍞","🥨","🥯","🧇","🥞","🧆","🫓","🥚","🍳"] },
+  { label: "🍿", title: "Snacks salés", emojis: ["🍿","🥜","🌰","🧀","🥪","🌮","🌯","🥙","🫔","🍱","🥗","🍟","🍔","🌭"] },
+  { label: "🍎", title: "Fruits", emojis: ["🍎","🍊","🍋","🍇","🍓","🫐","🍌","🍉","🍑","🍒","🥝","🍍","🥭","🍐","🍈","🫒","🥥"] },
+  { label: "🧴", title: "Hygiène / divers", emojis: ["🧴","🧻","🪥","🧼","💊","🩺","🌡️","🔑","🎫","🪙","💵","🛒","📦","🎁","⭐","🏷️"] },
 ];
 interface Procurement {
   id: string;
@@ -338,6 +341,14 @@ export default function AeroClubBar() {
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
 
   // Normalize a full name by sorting tokens alphabetically so
+  // Rendu de l'icône produit : emoji texte OU image si l'emoji est une URL http
+  const renderProductIcon = (emoji: string, className: string, imgSize = "w-8 h-8") => {
+    if (emoji.startsWith("http")) {
+      return <img src={emoji} alt="" className={imgSize + " object-contain rounded"} />;
+    }
+    return <span className={className}>{emoji}</span>;
+  };
+
   // "DUPONT Jean", "Jean Dupont", "jean dupont" all map to the same key
   const normalizeNameFuzzy = (n: string) =>
     n.trim().toLowerCase().split(/\s+/).sort().join(" ");
@@ -960,7 +971,7 @@ export default function AeroClubBar() {
                       {String(qty)}
                     </div>
                   )}
-                  <span className="text-3xl">{p.emoji}</span>
+                  {renderProductIcon(p.emoji, "text-3xl", "w-8 h-8")}
                   <span className="text-[11px] font-bold text-center leading-tight">{p.name}</span>
                   <span className="text-sm font-extrabold text-amber-500">
                     {formatPrice(p.price)}
@@ -1850,25 +1861,41 @@ export default function AeroClubBar() {
                           </label>
                           <button
                             onClick={() => setEmojiPickerFor(emojiPickerFor === "edit" ? null : "edit")}
-                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-3xl cursor-pointer hover:border-amber-500"
+                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-3xl cursor-pointer hover:border-amber-500 flex items-center justify-center"
                           >
-                            {editingProduct.emoji}
+                            {renderProductIcon(editingProduct.emoji, "text-3xl", "w-8 h-8")}
                           </button>
                           {emojiPickerFor === "edit" && (
-                            <div className="absolute z-20 mt-1 bg-[#131b2e] border border-slate-700 rounded-xl p-2 shadow-2xl w-64">
+                            <div className="absolute z-20 mt-1 bg-[#131b2e] border border-slate-700 rounded-xl p-2 shadow-2xl w-72">
                               <div className="flex gap-1 mb-2 flex-wrap">
                                 {EMOJI_CATEGORIES.map((cat, i) => (
                                   <button key={i} onClick={() => setEmojiPickerCategory(i)}
-                                    className={"text-[10px] px-1.5 py-0.5 rounded font-semibold cursor-pointer " + (emojiPickerCategory === i ? "bg-amber-500 text-black" : "bg-[#0f172a] text-slate-400")}
+                                    className={"text-base px-1.5 py-0.5 rounded cursor-pointer " + (emojiPickerCategory === i ? "bg-amber-500" : "bg-[#0f172a] hover:bg-[#1e2d4a]")}
+                                    title={cat.title}
                                   >{cat.label}</button>
                                 ))}
                               </div>
-                              <div className="grid grid-cols-7 gap-1">
+                              <p className="text-[10px] text-slate-500 mb-1">{EMOJI_CATEGORIES[emojiPickerCategory].title}</p>
+                              <div className="grid grid-cols-8 gap-1 mb-2">
                                 {EMOJI_CATEGORIES[emojiPickerCategory].emojis.map((e) => (
                                   <button key={e} onClick={() => { setEditingProduct({ ...editingProduct, emoji: e }); setEmojiPickerFor(null); }}
                                     className="text-xl p-1 rounded hover:bg-[#1e2d4a] cursor-pointer"
                                   >{e}</button>
                                 ))}
+                              </div>
+                              <div className="border-t border-slate-700 pt-2 mt-1">
+                                <p className="text-[10px] text-slate-500 mb-1">{"🔗 URL d'image (logo, photo...)"}</p>
+                                <input
+                                  type="url"
+                                  placeholder="https://..."
+                                  className="w-full h-8 text-xs rounded-lg border border-slate-700 bg-[#0f172a] text-white px-2 outline-none"
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      const val = (e.target as HTMLInputElement).value.trim();
+                                      if (val.startsWith("http")) { setEditingProduct({ ...editingProduct, emoji: val }); setEmojiPickerFor(null); }
+                                    }
+                                  }}
+                                />
                               </div>
                             </div>
                           )}
@@ -1985,7 +2012,7 @@ export default function AeroClubBar() {
                             : "bg-[#131b2e] border-[#1e2d4a]")
                     }
                   >
-                    <span className="text-2xl w-9 text-center">{p.emoji}</span>
+                    <span className="text-2xl w-9 text-center flex items-center justify-center">{renderProductIcon(p.emoji, "text-2xl", "w-8 h-8")}</span>
                     <div className="flex-1 flex flex-col">
                       <span className="text-sm font-bold">{p.name}</span>
                       <span className="text-xs text-amber-500 font-semibold">
@@ -2195,25 +2222,41 @@ export default function AeroClubBar() {
                       </label>
                       <button
                         onClick={() => setEmojiPickerFor(emojiPickerFor === "new" ? null : "new")}
-                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-3xl cursor-pointer hover:border-amber-500"
+                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-3xl cursor-pointer hover:border-amber-500 flex items-center justify-center"
                       >
-                        {newProduct.emoji}
+                        {renderProductIcon(newProduct.emoji, "text-3xl", "w-8 h-8")}
                       </button>
                       {emojiPickerFor === "new" && (
-                        <div className="absolute z-20 mt-1 bg-[#131b2e] border border-slate-700 rounded-xl p-2 shadow-2xl w-64">
+                        <div className="absolute z-20 mt-1 bg-[#131b2e] border border-slate-700 rounded-xl p-2 shadow-2xl w-72">
                           <div className="flex gap-1 mb-2 flex-wrap">
                             {EMOJI_CATEGORIES.map((cat, i) => (
                               <button key={i} onClick={() => setEmojiPickerCategory(i)}
-                                className={"text-[10px] px-1.5 py-0.5 rounded font-semibold cursor-pointer " + (emojiPickerCategory === i ? "bg-amber-500 text-black" : "bg-[#0f172a] text-slate-400")}
+                                className={"text-base px-1.5 py-0.5 rounded cursor-pointer " + (emojiPickerCategory === i ? "bg-amber-500" : "bg-[#0f172a] hover:bg-[#1e2d4a]")}
+                                title={cat.title}
                               >{cat.label}</button>
                             ))}
                           </div>
-                          <div className="grid grid-cols-7 gap-1">
+                          <p className="text-[10px] text-slate-500 mb-1">{EMOJI_CATEGORIES[emojiPickerCategory].title}</p>
+                          <div className="grid grid-cols-8 gap-1 mb-2">
                             {EMOJI_CATEGORIES[emojiPickerCategory].emojis.map((e) => (
                               <button key={e} onClick={() => { setNewProduct({ ...newProduct, emoji: e }); setEmojiPickerFor(null); }}
                                 className="text-xl p-1 rounded hover:bg-[#1e2d4a] cursor-pointer"
                               >{e}</button>
                             ))}
+                          </div>
+                          <div className="border-t border-slate-700 pt-2 mt-1">
+                            <p className="text-[10px] text-slate-500 mb-1">{"🔗 URL d'image (logo, photo...)"}</p>
+                            <input
+                              type="url"
+                              placeholder="https://..."
+                              className="w-full h-8 text-xs rounded-lg border border-slate-700 bg-[#0f172a] text-white px-2 outline-none"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  const val = (e.target as HTMLInputElement).value.trim();
+                                  if (val.startsWith("http")) { setNewProduct({ ...newProduct, emoji: val }); setEmojiPickerFor(null); }
+                                }
+                              }}
+                            />
                           </div>
                         </div>
                       )}
@@ -2476,7 +2519,7 @@ export default function AeroClubBar() {
                       key={p.id}
                       className="flex items-center gap-2.5 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3.5 py-2"
                     >
-                      <span className="text-xl">{p.emoji}</span>
+                      {renderProductIcon(p.emoji, "text-xl", "w-6 h-6")}
                       <span className="text-sm font-semibold flex-1">
                         {p.name}
                       </span>
