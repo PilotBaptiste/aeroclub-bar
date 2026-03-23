@@ -67,6 +67,8 @@ interface Settings {
   cbReceived?: number;
   cashInitialFund?: number;
   cbInitialFund?: number;
+  cupCost?: number;
+  sumupFeeRate?: number;
 }
 
 const DEFAULT_PRODUCTS: Product[] = [
@@ -337,7 +339,7 @@ export default function AeroClubBar() {
 
   const cartTotal = cart.reduce((s, i) => s + getFifoTotal(i.product, i.qty), 0);
   const cartTotalCost = cart.reduce(
-    (s, i) => s + (i.product.cost || 0) * i.qty,
+    (s, i) => s + ((i.product.cost || 0) + (i.product.category === "cafe" ? (settings.cupCost || 0) : 0)) * i.qty,
     0,
   );
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
@@ -901,6 +903,9 @@ export default function AeroClubBar() {
   const totalRevenue = transactions.reduce((s, t) => s + t.total, 0);
   const totalCost = transactions.reduce((s, t) => s + (t.totalCost || 0), 0);
   const totalProfit = totalRevenue - totalCost;
+  const sumupRate = (settings.sumupFeeRate ?? 2.5) / 100;
+  const totalSumupFees = Math.round(transactions.filter((t) => t.method === "carte").reduce((s, t) => s + t.total * sumupRate, 0) * 100) / 100;
+  const totalProfitNet = Math.round((totalProfit - totalSumupFees) * 100) / 100;
   const marginPct =
     totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0;
   const todayCost = todayTx.reduce((s, t) => s + (t.totalCost || 0), 0);
@@ -2305,31 +2310,46 @@ export default function AeroClubBar() {
                 </div>
                 <div className="rounded-xl p-4 border bg-[#131b2e] border-emerald-800">
                   <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                    {"Benefice total"}
+                    {"Bénéfice brut"}
                   </span>
-                  <span
-                    className={
-                      "text-xl font-extrabold " +
-                      (totalProfit >= 0 ? "text-emerald-400" : "text-red-400")
-                    }
-                  >
+                  <span className={"text-xl font-extrabold " + (totalProfit >= 0 ? "text-emerald-400" : "text-red-400")}>
                     {formatPrice(totalProfit)}
                   </span>
                 </div>
                 <div className="rounded-xl p-4 border bg-[#131b2e] border-[#1e2d4a]">
-                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                    {"Marge"}
-                  </span>
-                  <span
-                    className={
-                      "text-xl font-extrabold " +
-                      (marginPct >= 0 ? "text-emerald-400" : "text-red-400")
-                    }
-                  >
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">{"Marge"}</span>
+                  <span className={"text-xl font-extrabold " + (marginPct >= 0 ? "text-emerald-400" : "text-red-400")}>
                     {marginPct + "%"}
                   </span>
                 </div>
               </div>
+              {/* Frais SumUp + bénéfice net */}
+              {totalSumupFees > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-xl p-4 border bg-[#131b2e] border-blue-900">
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                      {"Frais SumUp (" + (settings.sumupFeeRate ?? 2.5) + "%)"}
+                    </span>
+                    <span className="text-xl font-extrabold text-blue-400">
+                      {"- " + formatPrice(totalSumupFees)}
+                    </span>
+                    <span className="text-[10px] text-slate-600 block mt-0.5">
+                      {"Sur " + formatPrice(transactions.filter(t => t.method === "carte").reduce((s,t) => s + t.total, 0)) + " CB"}
+                    </span>
+                  </div>
+                  <div className="rounded-xl p-4 border-2 bg-[#0f172a] border-emerald-600">
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                      {"Bénéfice net réel"}
+                    </span>
+                    <span className={"text-xl font-extrabold " + (totalProfitNet >= 0 ? "text-emerald-400" : "text-red-400")}>
+                      {formatPrice(totalProfitNet)}
+                    </span>
+                    <span className="text-[10px] text-slate-600 block mt-0.5">
+                      {"Après frais SumUp"}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Trésorerie actuelle */}
               {(() => {
@@ -3046,6 +3066,40 @@ export default function AeroClubBar() {
                   className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
                   maxLength={6}
                 />
+              </div>
+              <div className="h-px bg-[#1e2d4a] my-3" />
+              <h3 className="text-base font-bold">{"☕ Café & Comptabilité"}</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    {"Coût gobelet (€)"}
+                  </label>
+                  <input
+                    type="number" step="0.01" min="0" placeholder="ex: 0.03"
+                    value={settings.cupCost ?? ""}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setSettings((prev) => ({ ...prev, cupCost: isNaN(v) ? undefined : v }));
+                    }}
+                    className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
+                  />
+                  <span className="text-[10px] text-slate-600">{"Ajouté au coût de chaque ☕ vendu"}</span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    {"Frais SumUp (%)"}
+                  </label>
+                  <input
+                    type="number" step="0.1" min="0" max="10" placeholder="2.5"
+                    value={settings.sumupFeeRate ?? ""}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setSettings((prev) => ({ ...prev, sumupFeeRate: isNaN(v) ? undefined : v }));
+                    }}
+                    className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
+                  />
+                  <span className="text-[10px] text-slate-600">{"Défaut : 2,5% — déduit du bénéfice CB"}</span>
+                </div>
               </div>
               <div className="h-px bg-[#1e2d4a] my-3" />
               <h3 className="text-base font-bold">
