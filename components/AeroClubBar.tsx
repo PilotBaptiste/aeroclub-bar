@@ -12,6 +12,7 @@ interface Product {
   legacyStock?: number;
   legacyPrice?: number;
   archived?: boolean;
+  category?: "boissons" | "cafe" | "nourriture";
 }
 
 const EMOJI_CATEGORIES = [
@@ -229,6 +230,7 @@ export default function AeroClubBar() {
   const [lockRetriggerCountdown, setLockRetriggerCountdown] = useState<number | null>(null);
   const [emojiPickerFor, setEmojiPickerFor] = useState<"new" | "edit" | null>(null);
   const [emojiPickerCategory, setEmojiPickerCategory] = useState(0);
+  const [saleCategory, setSaleCategory] = useState<"boissons" | "cafe" | "nourriture" | null>(null);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false);
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -776,6 +778,17 @@ export default function AeroClubBar() {
     setProducts((prev) => prev.filter((p) => p.id !== id));
     showToast("Produit supprime", "info");
   };
+  const moveProduct = (id: string, dir: -1 | 1) => {
+    setProducts((prev) => {
+      const idx = prev.findIndex((p) => p.id === id);
+      if (idx < 0) return prev;
+      const newIdx = idx + dir;
+      if (newIdx < 0 || newIdx >= prev.length) return prev;
+      const arr = [...prev];
+      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
+      return arr;
+    });
+  };
   const saveEditProduct = () => {
     if (!editingProduct || !editingProduct.name.trim()) return;
     setProducts((prev) =>
@@ -948,8 +961,25 @@ export default function AeroClubBar() {
             </button>
           </div>
 
+          {/* Filtres catégorie — affichés uniquement si au moins 1 produit a une catégorie */}
+          {products.some((p) => p.category) && (
+            <div className="flex gap-1.5 w-full max-w-lg mb-1">
+              {([null, "boissons", "cafe", "nourriture"] as const).map((cat) => {
+                const labels: Record<string, string> = { boissons: "🍺 Boissons", cafe: "☕ Café", nourriture: "🍫 Bouffe" };
+                return (
+                  <button
+                    key={cat ?? "all"}
+                    onClick={() => setSaleCategory(cat)}
+                    className={"flex-1 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer " + (saleCategory === cat ? "bg-amber-500 text-black" : "bg-[#131b2e] text-slate-400 border border-[#1e2d4a]")}
+                  >
+                    {cat === null ? "Tout" : labels[cat]}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div className="grid grid-cols-4 gap-2 w-full max-w-lg">
-            {products.filter((p) => !p.archived).map((p) => {
+            {products.filter((p) => !p.archived && (!saleCategory || p.category === saleCategory)).map((p) => {
               const out = p.stock <= 0;
               const qty = getCartQty(p.id);
               return (
@@ -2013,16 +2043,33 @@ export default function AeroClubBar() {
                     }
                   >
                     {/* Ligne 1 : icône + infos + actions */}
-                    <div className="flex items-center gap-2.5 px-3 py-2.5">
+                    <div className="flex items-center gap-2 px-2 py-2.5">
+                      {/* Boutons déplacement */}
+                      <div className="flex flex-col gap-0.5 shrink-0">
+                        <button onClick={() => moveProduct(p.id, -1)} className="w-5 h-5 rounded text-[10px] text-slate-500 hover:text-white bg-[#0f172a] flex items-center justify-center cursor-pointer leading-none">{"▲"}</button>
+                        <button onClick={() => moveProduct(p.id, 1)} className="w-5 h-5 rounded text-[10px] text-slate-500 hover:text-white bg-[#0f172a] flex items-center justify-center cursor-pointer leading-none">{"▼"}</button>
+                      </div>
                       <span className="w-8 h-8 flex items-center justify-center shrink-0">
                         {renderProductIcon(p.emoji, "text-2xl", "w-8 h-8")}
                       </span>
                       <div className="flex-1 min-w-0">
                         <span className="text-sm font-bold block truncate">{p.name}</span>
-                        <span className="text-xs text-amber-500 font-semibold">
-                          {formatPrice(p.price)}
-                          <span className="text-slate-600">{" · coût " + formatPrice(p.cost || 0)}</span>
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs text-amber-500 font-semibold">
+                            {formatPrice(p.price)}
+                            <span className="text-slate-600">{" · " + formatPrice(p.cost || 0)}</span>
+                          </span>
+                          {/* Sélecteur catégorie */}
+                          {(["boissons","cafe","nourriture"] as const).map((cat) => (
+                            <button
+                              key={cat}
+                              onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, category: x.category === cat ? undefined : cat } : x))}
+                              className={"text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer " + (p.category === cat ? "bg-blue-600 text-white" : "bg-[#0f172a] text-slate-500 hover:text-slate-300")}
+                            >
+                              {cat === "boissons" ? "🍺" : cat === "cafe" ? "☕" : "🍫"}
+                            </button>
+                          ))}
+                        </div>
                         {p.stock <= 5 && (p.stockReserve ?? 0) === 0 && (
                           <span className="text-[10px] text-red-400 font-bold block">{"⚠ Réappro nécessaire"}</span>
                         )}
