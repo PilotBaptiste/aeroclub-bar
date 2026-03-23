@@ -9,6 +9,18 @@ interface Product {
   cost: number;
   stock: number;
   stockReserve?: number;
+  legacyStock?: number;
+  legacyPrice?: number;
+}
+interface Procurement {
+  id: string;
+  date: string;
+  productId: string;
+  productName: string;
+  qty: number;
+  unitCost: number;
+  totalCost: number;
+  method: "especes" | "carte";
 }
 interface CartItem {
   product: Product;
@@ -201,11 +213,16 @@ export default function AeroClubBar() {
   const [bureauPinError, setBureauPinError] = useState(false);
   const [bureauUnlocked, setBureauUnlocked] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error">("idle");
+  const [procurements, setProcurements] = useState<Procurement[]>([]);
+  const [restockingProduct, setRestockingProduct] = useState<Product | null>(null);
+  const [restockForm, setRestockForm] = useState<{ qty: number; newPrice: number; newCost: number; method: "especes" | "carte" }>({ qty: 1, newPrice: 0, newCost: 0, method: "especes" });
+  const [lockRetriggerCountdown, setLockRetriggerCountdown] = useState<number | null>(null);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
-  const hasLoaded = useRef(false); // ← AJOUTER CETTE LIGNE
+  const hasLoaded = useRef(false);
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sumupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearCartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lockRetriggerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Debounced save to avoid too many API calls
   const debouncedSave = useCallback((key: string, value: unknown) => {
@@ -228,6 +245,7 @@ export default function AeroClubBar() {
         if (data.settings) setSettings(data.settings);
         if (data.suggestions) setSuggestions(data.suggestions);
         if (data.members) setMembers(data.members);
+        if (data.procurements) setProcurements(data.procurements);
       }
       setLoading(false);
       if (data) {
@@ -254,6 +272,9 @@ export default function AeroClubBar() {
   useEffect(() => {
     if (!loading) debouncedSave("aeroclub-members", members);
   }, [members, loading, debouncedSave]);
+  useEffect(() => {
+    if (!loading) debouncedSave("aeroclub-procurements", procurements);
+  }, [procurements, loading, debouncedSave]);
 
   // Nettoyer les timers SumUp et le clearCart au démontage du composant
   useEffect(() => {
@@ -293,7 +314,14 @@ export default function AeroClubBar() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const cartTotal = cart.reduce((s, i) => s + i.product.price * i.qty, 0);
+  // FIFO : vend l'ancien stock au legacyPrice d'abord, puis au price courant
+  const getFifoTotal = (product: Product, qty: number): number => {
+    const legacyQty = Math.min(product.legacyStock || 0, qty);
+    const regularQty = qty - legacyQty;
+    return legacyQty * (product.legacyPrice || product.price) + regularQty * product.price;
+  };
+
+  const cartTotal = cart.reduce((s, i) => s + getFifoTotal(i.product, i.qty), 0);
   const cartTotalCost = cart.reduce(
     (s, i) => s + (i.product.cost || 0) * i.qty,
     0,
@@ -442,6 +470,65 @@ export default function AeroClubBar() {
     return i ? i.qty : 0;
   };
 
+  const confirmRestock = () => {
+    if (!restockingProduct || restockForm.qty <= 0) return;
+    const p = restockingProduct;
+    const totalCost = Math.round(restockForm.qty * restockForm.newCost * 100) / 100;
+    const priceChanged = restockForm.newPrice !== p.price;
+
+    setProducts((prev) =>
+      prev.map((x) => {
+        if (x.id !== p.id) return x;
+        const existingLegacy = x.legacyStock || 0;
+        const existingLegacyPrice = x.legacyPrice;
+        // Si le prix change : tout le stock courant + legacy devient legacy au prix courant
+        const newLegacyStock = priceChanged
+          ? x.stock + existingLegacy
+          : existingLegacy;
+        const newLegacyPrice = priceChanged
+          ? x.price
+          : existingLegacyPrice;
+        return {
+          ...x,
+          stock: x.stock + restockForm.qty,
+          cost: restockForm.newCost,
+          price: restockForm.newPrice,
+          legacyStock: newLegacyStock || undefined,
+          legacyPrice: newLegacyPrice || undefined,
+        };
+      }),
+    );
+
+    const entry: Procurement = {
+      id: Date.now().toString(36),
+      date: new Date().toISOString(),
+      productId: p.id,
+      productName: p.name,
+      qty: restockForm.qty,
+      unitCost: restockForm.newCost,
+      totalCost,
+      method: restockForm.method,
+    };
+    setProcurements((prev) => [entry, ...prev]);
+
+    if (restockForm.method === "especes") {
+      setSettings((prev) => ({
+        ...prev,
+        cashInBox: Math.round(((prev.cashInBox || 0) - totalCost) * 100) / 100,
+      }));
+    } else {
+      setSettings((prev) => ({
+        ...prev,
+        cbReceived: Math.round(((prev.cbReceived || 0) - totalCost) * 100) / 100,
+      }));
+    }
+
+    showToast(
+      "Réappro " + p.name + " : +" + restockForm.qty + " unités — " + formatPrice(totalCost) + " débité",
+    );
+    setRestockingProduct(null);
+  };
+
   const createSumUpCheckout = async () => {
     if (!buyerName.trim() || cartTotal <= 0) return;
     setSumupLoading(true);
@@ -517,14 +604,18 @@ export default function AeroClubBar() {
     const canonicalBuyer = canonicalMember
       ? canonicalMember.name
       : buyerName.trim();
-    // Calculer les produits mis à jour AVANT setProducts pour éviter la race condition
+    // Calculer les produits mis à jour AVANT setProducts pour éviter la race condition (dépletion FIFO)
     let updatedProducts = [...products];
     for (const item of cart) {
-      updatedProducts = updatedProducts.map((p) =>
-        p.id === item.product.id
-          ? { ...p, stock: Math.max(0, p.stock - item.qty) }
-          : p,
-      );
+      updatedProducts = updatedProducts.map((p) => {
+        if (p.id !== item.product.id) return p;
+        let remaining = item.qty;
+        let newLegacyStock = p.legacyStock || 0;
+        const fromLegacy = Math.min(newLegacyStock, remaining);
+        newLegacyStock = Math.max(0, newLegacyStock - fromLegacy);
+        remaining -= fromLegacy;
+        return { ...p, stock: Math.max(0, p.stock - remaining), legacyStock: newLegacyStock };
+      });
     }
     setProducts(updatedProducts);
     // Send Telegram alerts ONLY for products in this cart that drop to low stock
@@ -2028,6 +2119,16 @@ export default function AeroClubBar() {
                       </div>
                     </div>
                     <button
+                      onClick={() => {
+                        setRestockingProduct(p);
+                        setRestockForm({ qty: 1, newPrice: p.price, newCost: p.cost, method: "especes" });
+                      }}
+                      className="text-[10px] px-2 py-1 rounded-lg border border-emerald-700 bg-emerald-900/20 text-emerald-400 font-bold cursor-pointer hover:bg-emerald-800/30"
+                      title="Réapprovisionner"
+                    >
+                      {"+ Réappro"}
+                    </button>
+                    <button
                       onClick={() => setEditingProduct({ ...p })}
                       className="opacity-50 hover:opacity-100 text-sm cursor-pointer"
                     >
@@ -2352,6 +2453,45 @@ export default function AeroClubBar() {
                   );
                 })}
               </div>
+
+              {/* Achats fournisseurs */}
+              {procurements.length > 0 && (() => {
+                const totalSpent = procurements.reduce((s, p) => s + p.totalCost, 0);
+                const shown = procurements.slice(0, 10);
+                return (
+                  <div className="bg-[#0f172a] border border-red-900/40 rounded-xl p-4 mt-2 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        {"Achats fournisseurs"}
+                      </span>
+                      <span className="text-sm font-extrabold text-red-400">
+                        {"- " + formatPrice(totalSpent)}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1 mt-1">
+                      {shown.map((pr) => {
+                        const prod = products.find((p) => p.id === pr.productId);
+                        return (
+                          <div key={pr.id} className="flex items-center justify-between text-xs text-slate-400">
+                            <span>
+                              {(prod?.emoji || "📦") + " " + pr.productName + " ×" + pr.qty}
+                            </span>
+                            <span className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-600">
+                                {new Date(pr.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}
+                              </span>
+                              <span className={pr.method === "especes" ? "text-emerald-400" : "text-blue-400"}>
+                                {pr.method === "especes" ? "💵" : "💳"}
+                              </span>
+                              <span className="font-bold text-red-400">{"- " + formatPrice(pr.totalCost)}</span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Stock value */}
               <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4 mt-2">
@@ -2954,6 +3094,102 @@ export default function AeroClubBar() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Modale réapprovisionnement */}
+      {restockingProduct && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end justify-center p-4"
+          onClick={() => setRestockingProduct(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-[#131b2e] rounded-2xl p-5 flex flex-col gap-4 border border-slate-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-white text-base">
+              {restockingProduct.emoji + " " + restockingProduct.name + " — Réappro"}
+            </h3>
+
+            <div className="flex flex-col gap-3">
+              {/* Quantité */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-slate-400 font-semibold">{"Quantité achetée"}</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={restockForm.qty}
+                  onChange={(e) => setRestockForm((f) => ({ ...f, qty: Math.max(1, parseInt(e.target.value) || 1) }))}
+                  className="h-11 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-center text-base outline-none"
+                />
+              </div>
+
+              {/* Prix de vente */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-slate-400 font-semibold">
+                  {"Prix de vente (actuel : " + formatPrice(restockingProduct.price) + ")"}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={restockForm.newPrice}
+                  onChange={(e) => setRestockForm((f) => ({ ...f, newPrice: Math.max(0, parseFloat(e.target.value) || 0) }))}
+                  className={"h-11 rounded-xl border text-white text-center text-base outline-none bg-[#0f172a] " + (restockForm.newPrice !== restockingProduct.price ? "border-amber-500" : "border-slate-700")}
+                />
+                {restockForm.newPrice !== restockingProduct.price && (
+                  <span className="text-[10px] text-amber-400">{"⚠ Prix modifié — l'ancien stock sera vendu à " + formatPrice(restockingProduct.price)}</span>
+                )}
+              </div>
+
+              {/* Coût d'achat unitaire */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-slate-400 font-semibold">{"Coût d'achat unitaire"}</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={restockForm.newCost}
+                  onChange={(e) => setRestockForm((f) => ({ ...f, newCost: Math.max(0, parseFloat(e.target.value) || 0) }))}
+                  className="h-11 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-center text-base outline-none"
+                />
+              </div>
+
+              {/* Méthode de paiement */}
+              <div className="flex gap-2">
+                {(["especes", "carte"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setRestockForm((f) => ({ ...f, method: m }))}
+                    className={"flex-1 py-2 rounded-xl text-sm font-semibold cursor-pointer transition " + (restockForm.method === m ? "bg-amber-500 text-black" : "bg-[#0f172a] text-slate-400 border border-slate-700")}
+                  >
+                    {m === "especes" ? "💵 Espèces" : "💳 Carte"}
+                  </button>
+                ))}
+              </div>
+
+              {/* Total */}
+              <div className="bg-[#0f172a] rounded-xl p-3 flex justify-between items-center border border-slate-700">
+                <span className="text-sm text-slate-400">{"Total achat"}</span>
+                <span className="text-base font-extrabold text-red-400">{formatPrice(restockForm.qty * restockForm.newCost)}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setRestockingProduct(null)}
+                className="flex-1 py-2.5 rounded-xl bg-[#1e2d4a] text-slate-300 text-sm font-semibold cursor-pointer"
+              >
+                {"Annuler"}
+              </button>
+              <button
+                onClick={confirmRestock}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold cursor-pointer active:scale-95"
+              >
+                {"✓ Confirmer"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

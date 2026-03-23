@@ -8,12 +8,14 @@ export async function GET() {
     const settings = await kv.get("aeroclub-settings");
     const suggestions = await kv.get("aeroclub-suggestions");
     const members = await kv.get("aeroclub-members");
+    const procurements = await kv.get("aeroclub-procurements");
     return NextResponse.json({
       products: products || null,
       transactions: transactions || null,
       settings: settings || null,
       suggestions: suggestions || null,
       members: members || null,
+      procurements: procurements || null,
     });
   } catch (e) {
     console.error("KV read error:", e);
@@ -27,6 +29,7 @@ const ALLOWED_KEYS = [
   "aeroclub-settings",
   "aeroclub-suggestions",
   "aeroclub-members",
+  "aeroclub-procurements",
 ];
 
 export async function POST(request: Request) {
