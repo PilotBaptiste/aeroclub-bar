@@ -12,7 +12,14 @@ interface Product {
   legacyStock?: number;
   legacyPrice?: number;
   archived?: boolean;
-  category?: "boissons" | "cafe" | "nourriture";
+  category?: string;
+}
+
+interface Category {
+  id: string;
+  label: string;
+  emoji: string;
+  hasCupCost?: boolean;
 }
 
 const EMOJI_CATEGORIES = [
@@ -69,6 +76,7 @@ interface Settings {
   cbInitialFund?: number;
   cupCost?: number;
   sumupFeeRate?: number;
+  categories?: Category[];
 }
 
 const DEFAULT_PRODUCTS: Product[] = [
@@ -128,6 +136,11 @@ const DEFAULT_PRODUCTS: Product[] = [
   },
 ];
 
+const DEFAULT_CATEGORIES: Category[] = [
+  { id: "boissons", label: "Boissons", emoji: "🍺" },
+  { id: "cafe", label: "Café", emoji: "☕", hasCupCost: true },
+  { id: "nourriture", label: "Bouffe", emoji: "🍫" },
+];
 const DEFAULT_SETTINGS: Settings = { clubName: "Aero-Club", adminPin: "1234", bureauPin: "1215" };
 
 function formatPrice(p: number) {
@@ -232,7 +245,9 @@ export default function AeroClubBar() {
   const [lockRetriggerCountdown, setLockRetriggerCountdown] = useState<number | null>(null);
   const [emojiPickerFor, setEmojiPickerFor] = useState<"new" | "edit" | null>(null);
   const [emojiPickerCategory, setEmojiPickerCategory] = useState(0);
-  const [saleCategory, setSaleCategory] = useState<"boissons" | "cafe" | "nourriture" | null>(null);
+  const [saleCategory, setSaleCategory] = useState<string | null>(null);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [newCategoryForm, setNewCategoryForm] = useState<{ label: string; emoji: string; hasCupCost: boolean } | null>(null);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false);
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -337,9 +352,13 @@ export default function AeroClubBar() {
     return legacyQty * (product.legacyPrice || product.price) + regularQty * product.price;
   };
 
+  const getCategories = () => settings.categories || DEFAULT_CATEGORIES;
   const cartTotal = cart.reduce((s, i) => s + getFifoTotal(i.product, i.qty), 0);
   const cartTotalCost = cart.reduce(
-    (s, i) => s + ((i.product.cost || 0) + (i.product.category === "cafe" ? (settings.cupCost || 0) : 0)) * i.qty,
+    (s, i) => {
+      const cat = getCategories().find((c) => c.id === i.product.category);
+      return s + ((i.product.cost || 0) + (cat?.hasCupCost ? (settings.cupCost || 0) : 0)) * i.qty;
+    },
     0,
   );
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
@@ -969,19 +988,19 @@ export default function AeroClubBar() {
           {/* Filtres catégorie */}
           {products.some((p) => p.category) && (
             <div className="flex items-center gap-0 w-full max-w-lg bg-[#0d1525] rounded-2xl p-1 mb-2 shadow-inner">
-              {([null, "boissons", "cafe", "nourriture"] as const).map((cat) => {
-                const labels: Record<string, string> = { boissons: "🍺 Boissons", cafe: "☕ Café", nourriture: "🍫 Bouffe" };
-                const active = saleCategory === cat;
-                return (
-                  <button
-                    key={cat ?? "all"}
-                    onClick={() => setSaleCategory(cat)}
-                    className={"flex-1 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer " + (active ? "bg-amber-500 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}
-                  >
-                    {cat === null ? "Tout" : labels[cat]}
-                  </button>
-                );
-              })}
+              <button
+                onClick={() => setSaleCategory(null)}
+                className={"flex-1 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer " + (saleCategory === null ? "bg-amber-500 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}
+              >{"Tout"}</button>
+              {getCategories().filter((c) => products.some((p) => !p.archived && p.category === c.id)).map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setSaleCategory(cat.id)}
+                  className={"flex-1 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer " + (saleCategory === cat.id ? "bg-amber-500 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}
+                >
+                  {cat.emoji + " " + cat.label}
+                </button>
+              ))}
             </div>
           )}
           <div className="grid grid-cols-4 gap-2 w-full max-w-lg">
@@ -2066,13 +2085,14 @@ export default function AeroClubBar() {
                             <span className="text-slate-600">{" · " + formatPrice(p.cost || 0)}</span>
                           </span>
                           {/* Sélecteur catégorie */}
-                          {(["boissons","cafe","nourriture"] as const).map((cat) => (
+                          {getCategories().map((cat) => (
                             <button
-                              key={cat}
-                              onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, category: x.category === cat ? undefined : cat } : x))}
-                              className={"text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer " + (p.category === cat ? "bg-blue-600 text-white" : "bg-[#0f172a] text-slate-500 hover:text-slate-300")}
+                              key={cat.id}
+                              onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, category: x.category === cat.id ? undefined : cat.id } : x))}
+                              className={"text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer " + (p.category === cat.id ? "bg-blue-600 text-white" : "bg-[#0f172a] text-slate-500 hover:text-slate-300")}
+                              title={cat.label}
                             >
-                              {cat === "boissons" ? "🍺" : cat === "cafe" ? "☕" : "🍫"}
+                              {cat.emoji}
                             </button>
                           ))}
                         </div>
@@ -3067,6 +3087,117 @@ export default function AeroClubBar() {
                   className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
                   maxLength={6}
                 />
+              </div>
+              <div className="h-px bg-[#1e2d4a] my-3" />
+              <h3 className="text-base font-bold">{"🏷️ Catégories"}</h3>
+              <div className="flex flex-col gap-2">
+                {getCategories().map((cat) => (
+                  editingCategory?.id === cat.id ? (
+                    <div key={cat.id} className="bg-[#0f172a] border border-blue-700 rounded-xl p-3 flex flex-col gap-2">
+                      <div className="flex gap-2">
+                        <input
+                          value={editingCategory.emoji}
+                          onChange={(e) => setEditingCategory((prev) => prev && ({ ...prev, emoji: e.target.value }))}
+                          className="w-14 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
+                          placeholder="emoji"
+                        />
+                        <input
+                          value={editingCategory.label}
+                          onChange={(e) => setEditingCategory((prev) => prev && ({ ...prev, label: e.target.value }))}
+                          className="flex-1 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm px-3 outline-none"
+                          placeholder="Nom"
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={editingCategory.hasCupCost || false}
+                          onChange={(e) => setEditingCategory((prev) => prev && ({ ...prev, hasCupCost: e.target.checked }))}
+                          className="w-4 h-4 accent-amber-500"
+                        />
+                        {"Utilise le coût gobelet (☕)"}
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            if (!editingCategory.label.trim()) return;
+                            setSettings((prev) => ({ ...prev, categories: getCategories().map((c) => c.id === editingCategory.id ? editingCategory : c) }));
+                            setEditingCategory(null);
+                          }}
+                          className="flex-1 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold cursor-pointer"
+                        >{"✓ Enregistrer"}</button>
+                        <button onClick={() => setEditingCategory(null)} className="flex-1 py-1.5 rounded-lg border border-slate-700 text-slate-400 text-xs font-bold cursor-pointer">{"Annuler"}</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={cat.id} className="flex items-center gap-3 bg-[#0f172a] border border-[#1e2d4a] rounded-xl px-3 py-2.5">
+                      <span className="text-xl w-7 text-center">{cat.emoji}</span>
+                      <span className="flex-1 text-sm font-semibold text-white">{cat.label}</span>
+                      {cat.hasCupCost && <span className="text-[10px] text-amber-500 font-semibold">{"+ gobelet"}</span>}
+                      <button onClick={() => setEditingCategory({ ...cat })} className="text-slate-500 hover:text-white text-sm cursor-pointer px-1">{"✏️"}</button>
+                      <button
+                        onClick={() => {
+                          if (products.some((p) => p.category === cat.id)) {
+                            showToast("Retirez d'abord cette catégorie des produits", "error");
+                            return;
+                          }
+                          setSettings((prev) => ({ ...prev, categories: getCategories().filter((c) => c.id !== cat.id) }));
+                        }}
+                        className="text-slate-600 hover:text-red-400 text-sm cursor-pointer px-1"
+                      >{"🗑"}</button>
+                    </div>
+                  )
+                ))}
+                {newCategoryForm ? (
+                  <div className="bg-[#0f172a] border border-emerald-700 rounded-xl p-3 flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <input
+                        value={newCategoryForm.emoji}
+                        onChange={(e) => setNewCategoryForm((prev) => prev && ({ ...prev, emoji: e.target.value }))}
+                        className="w-14 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
+                        placeholder="emoji"
+                      />
+                      <input
+                        value={newCategoryForm.label}
+                        onChange={(e) => setNewCategoryForm((prev) => prev && ({ ...prev, label: e.target.value }))}
+                        className="flex-1 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm px-3 outline-none"
+                        placeholder="Nom de la catégorie"
+                        autoFocus
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newCategoryForm.hasCupCost}
+                        onChange={(e) => setNewCategoryForm((prev) => prev && ({ ...prev, hasCupCost: e.target.checked }))}
+                        className="w-4 h-4 accent-amber-500"
+                      />
+                      {"Utilise le coût gobelet (☕)"}
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          if (!newCategoryForm.label.trim()) return;
+                          const newCat: Category = {
+                            id: Date.now().toString(36),
+                            label: newCategoryForm.label.trim(),
+                            emoji: newCategoryForm.emoji || "📁",
+                            hasCupCost: newCategoryForm.hasCupCost,
+                          };
+                          setSettings((prev) => ({ ...prev, categories: [...getCategories(), newCat] }));
+                          setNewCategoryForm(null);
+                        }}
+                        className="flex-1 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold cursor-pointer"
+                      >{"+ Créer"}</button>
+                      <button onClick={() => setNewCategoryForm(null)} className="flex-1 py-1.5 rounded-lg border border-slate-700 text-slate-400 text-xs font-bold cursor-pointer">{"Annuler"}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setNewCategoryForm({ label: "", emoji: "📁", hasCupCost: false })}
+                    className="py-2 border-2 border-dashed border-[#1e2d4a] text-slate-500 rounded-xl text-sm font-semibold hover:border-slate-600 cursor-pointer"
+                  >{"+ Nouvelle catégorie"}</button>
+                )}
               </div>
               <div className="h-px bg-[#1e2d4a] my-3" />
               <h3 className="text-base font-bold">{"☕ Café & Comptabilité"}</h3>
