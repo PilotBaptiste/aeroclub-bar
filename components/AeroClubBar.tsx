@@ -11,7 +11,16 @@ interface Product {
   stockReserve?: number;
   legacyStock?: number;
   legacyPrice?: number;
+  archived?: boolean;
 }
+
+const EMOJI_CATEGORIES = [
+  { label: "🥤 Boissons", emojis: ["🥤","🧃","💧","🫙","🧋","🍵","☕","🫖","🍺","🍻","🥂","🍷","🥃","🍸","🍹","🧉","🫗","🧊","🍾","🥛"] },
+  { label: "🍦 Glaces", emojis: ["🍦","🍧","🍨","🍡","🧁","🍰","🎂","🍩","🍪","🥧","🍮","🍫","🍬","🍭","🍡"] },
+  { label: "🍫 Snacks", emojis: ["🍫","🍬","🍭","🍿","🥜","🌰","🥐","🥖","🥨","🥯","🧇","🍞","🥪","🌮","🌯","🥙","🧆","🫔"] },
+  { label: "🍎 Fruits", emojis: ["🍎","🍊","🍋","🍇","🍓","🫐","🍌","🍉","🍑","🍒","🥝","🍍","🥭","🍐"] },
+  { label: "📦 Divers", emojis: ["📦","🎁","⭐","🏷️","🛒","💊","🩺","🔑","🎫","🎟️","🪙","💵","🧴","🧻"] },
+];
 interface Procurement {
   id: string;
   date: string;
@@ -215,6 +224,8 @@ export default function AeroClubBar() {
   const [restockingProduct, setRestockingProduct] = useState<Product | null>(null);
   const [restockForm, setRestockForm] = useState<{ qty: number; newPrice: number; newCost: number; method: "especes" | "carte" }>({ qty: 1, newPrice: 0, newCost: 0, method: "especes" });
   const [lockRetriggerCountdown, setLockRetriggerCountdown] = useState<number | null>(null);
+  const [emojiPickerFor, setEmojiPickerFor] = useState<"new" | "edit" | null>(null);
+  const [emojiPickerCategory, setEmojiPickerCategory] = useState(0);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false);
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -926,8 +937,8 @@ export default function AeroClubBar() {
             </button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-lg">
-            {products.map((p) => {
+          <div className="grid grid-cols-4 gap-2 w-full max-w-lg">
+            {products.filter((p) => !p.archived).map((p) => {
               const out = p.stock <= 0;
               const qty = getCartQty(p.id);
               return (
@@ -936,7 +947,7 @@ export default function AeroClubBar() {
                   onClick={() => addToCart(p)}
                   disabled={out}
                   className={
-                    "bg-[#131b2e] border rounded-2xl py-5 px-3 flex flex-col items-center gap-1 transition-all duration-200 relative " +
+                    "bg-[#131b2e] border rounded-xl py-3 px-1.5 flex flex-col items-center gap-0.5 transition-all duration-200 relative " +
                     (out
                       ? "opacity-40 cursor-not-allowed border-[#1e2d4a]"
                       : qty > 0
@@ -945,28 +956,18 @@ export default function AeroClubBar() {
                   }
                 >
                   {qty > 0 && (
-                    <div className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-amber-500 text-black text-sm font-extrabold flex items-center justify-center shadow-lg">
+                    <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-amber-500 text-black text-[11px] font-extrabold flex items-center justify-center shadow-lg">
                       {String(qty)}
                     </div>
                   )}
-                  <span className="text-4xl">{p.emoji}</span>
-                  <span className="text-sm font-bold">{p.name}</span>
-                  <span className="text-lg font-extrabold text-amber-500">
+                  <span className="text-3xl">{p.emoji}</span>
+                  <span className="text-[11px] font-bold text-center leading-tight">{p.name}</span>
+                  <span className="text-sm font-extrabold text-amber-500">
                     {formatPrice(p.price)}
                   </span>
-                  {out && (
-                    <span className="text-[10px] text-red-500 font-bold uppercase">
-                      {"Epuise"}
-                    </span>
-                  )}
                   {!out && p.stock <= 5 && (
-                    <span className="text-[10px] text-orange-400 bg-orange-950 px-2 py-0.5 rounded-full font-semibold">
-                      {"Plus que " + p.stock}
-                    </span>
-                  )}
-                  {!out && p.stock > 5 && (
-                    <span className="text-[10px] text-slate-500 font-medium">
-                      {"Stock : " + p.stock}
+                    <span className="text-[9px] text-orange-400 font-semibold">
+                      {"+" + p.stock + " restants"}
                     </span>
                   )}
                 </button>
@@ -1847,16 +1848,30 @@ export default function AeroClubBar() {
                           <label className="text-[10px] text-slate-500 font-semibold uppercase">
                             {"Emoji"}
                           </label>
-                          <input
-                            value={editingProduct.emoji}
-                            onChange={(e) =>
-                              setEditingProduct({
-                                ...editingProduct,
-                                emoji: e.target.value,
-                              })
-                            }
-                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-center text-3xl outline-none"
-                          />
+                          <button
+                            onClick={() => setEmojiPickerFor(emojiPickerFor === "edit" ? null : "edit")}
+                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-3xl cursor-pointer hover:border-amber-500"
+                          >
+                            {editingProduct.emoji}
+                          </button>
+                          {emojiPickerFor === "edit" && (
+                            <div className="absolute z-20 mt-1 bg-[#131b2e] border border-slate-700 rounded-xl p-2 shadow-2xl w-64">
+                              <div className="flex gap-1 mb-2 flex-wrap">
+                                {EMOJI_CATEGORIES.map((cat, i) => (
+                                  <button key={i} onClick={() => setEmojiPickerCategory(i)}
+                                    className={"text-[10px] px-1.5 py-0.5 rounded font-semibold cursor-pointer " + (emojiPickerCategory === i ? "bg-amber-500 text-black" : "bg-[#0f172a] text-slate-400")}
+                                  >{cat.label}</button>
+                                ))}
+                              </div>
+                              <div className="grid grid-cols-7 gap-1">
+                                {EMOJI_CATEGORIES[emojiPickerCategory].emojis.map((e) => (
+                                  <button key={e} onClick={() => { setEditingProduct({ ...editingProduct, emoji: e }); setEmojiPickerFor(null); }}
+                                    className="text-xl p-1 rounded hover:bg-[#1e2d4a] cursor-pointer"
+                                  >{e}</button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                         <div className="flex flex-col gap-1">
                           <label className="text-[10px] text-slate-500 font-semibold uppercase">
@@ -1961,11 +1976,13 @@ export default function AeroClubBar() {
                     key={p.id}
                     className={
                       "flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 border " +
-                      (p.stock <= 5 && (p.stockReserve ?? 0) === 0
-                        ? "bg-red-950/40 border-red-800"
-                        : p.stock <= 5
-                          ? "bg-orange-950/30 border-orange-800"
-                          : "bg-[#131b2e] border-[#1e2d4a]")
+                      (p.archived
+                        ? "opacity-40 bg-[#0f172a] border-slate-800 grayscale"
+                        : p.stock <= 5 && (p.stockReserve ?? 0) === 0
+                          ? "bg-red-950/40 border-red-800"
+                          : p.stock <= 5
+                            ? "bg-orange-950/30 border-orange-800"
+                            : "bg-[#131b2e] border-[#1e2d4a]")
                     }
                   >
                     <span className="text-2xl w-9 text-center">{p.emoji}</span>
@@ -2132,6 +2149,24 @@ export default function AeroClubBar() {
                     >
                       {"\u270F\uFE0F"}
                     </button>
+                    {p.stock === 0 && !p.archived && (
+                      <button
+                        onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, archived: true } : x))}
+                        className="text-[10px] px-1.5 py-1 rounded border border-slate-600 text-slate-500 cursor-pointer hover:text-orange-400 hover:border-orange-600"
+                        title="Archiver (masquer de la vente)"
+                      >
+                        {"📦"}
+                      </button>
+                    )}
+                    {p.archived && (
+                      <button
+                        onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, archived: false } : x))}
+                        className="text-[10px] px-1.5 py-1 rounded border border-amber-700 text-amber-500 font-bold cursor-pointer hover:bg-amber-900/20"
+                        title="Réactiver"
+                      >
+                        {"↩"}
+                      </button>
+                    )}
                     <button
                       onClick={() => removeProduct(p.id)}
                       className="opacity-40 hover:opacity-80 text-base cursor-pointer"
@@ -2158,16 +2193,30 @@ export default function AeroClubBar() {
                       <label className="text-[10px] text-slate-500 font-semibold uppercase">
                         {"Emoji"}
                       </label>
-                      <input
-                        value={newProduct.emoji}
-                        onChange={(e) =>
-                          setNewProduct({
-                            ...newProduct,
-                            emoji: e.target.value,
-                          })
-                        }
-                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-center text-3xl outline-none"
-                      />
+                      <button
+                        onClick={() => setEmojiPickerFor(emojiPickerFor === "new" ? null : "new")}
+                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-3xl cursor-pointer hover:border-amber-500"
+                      >
+                        {newProduct.emoji}
+                      </button>
+                      {emojiPickerFor === "new" && (
+                        <div className="absolute z-20 mt-1 bg-[#131b2e] border border-slate-700 rounded-xl p-2 shadow-2xl w-64">
+                          <div className="flex gap-1 mb-2 flex-wrap">
+                            {EMOJI_CATEGORIES.map((cat, i) => (
+                              <button key={i} onClick={() => setEmojiPickerCategory(i)}
+                                className={"text-[10px] px-1.5 py-0.5 rounded font-semibold cursor-pointer " + (emojiPickerCategory === i ? "bg-amber-500 text-black" : "bg-[#0f172a] text-slate-400")}
+                              >{cat.label}</button>
+                            ))}
+                          </div>
+                          <div className="grid grid-cols-7 gap-1">
+                            {EMOJI_CATEGORIES[emojiPickerCategory].emojis.map((e) => (
+                              <button key={e} onClick={() => { setNewProduct({ ...newProduct, emoji: e }); setEmojiPickerFor(null); }}
+                                className="text-xl p-1 rounded hover:bg-[#1e2d4a] cursor-pointer"
+                              >{e}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] text-slate-500 font-semibold uppercase">
