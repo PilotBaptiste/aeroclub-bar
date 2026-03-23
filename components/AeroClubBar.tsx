@@ -3130,7 +3130,11 @@ export default function AeroClubBar() {
                       </div>
                     </div>
                   ) : (
-                    <div key={cat.id} className="flex items-center gap-3 bg-[#0f172a] border border-[#1e2d4a] rounded-xl px-3 py-2.5">
+                    <div key={cat.id} className="flex items-center gap-2 bg-[#0f172a] border border-[#1e2d4a] rounded-xl px-3 py-2.5">
+                      <div className="flex flex-col gap-0.5 shrink-0">
+                        <button onClick={() => { const cats = getCategories(); const i = cats.findIndex(c => c.id === cat.id); if (i > 0) { const a = [...cats]; [a[i-1],a[i]]=[a[i],a[i-1]]; setSettings(prev => ({...prev, categories: a})); } }} className="w-5 h-4 rounded text-[9px] text-slate-500 hover:text-white bg-[#131b2e] flex items-center justify-center cursor-pointer">{"▲"}</button>
+                        <button onClick={() => { const cats = getCategories(); const i = cats.findIndex(c => c.id === cat.id); if (i < cats.length-1) { const a = [...cats]; [a[i],a[i+1]]=[a[i+1],a[i]]; setSettings(prev => ({...prev, categories: a})); } }} className="w-5 h-4 rounded text-[9px] text-slate-500 hover:text-white bg-[#131b2e] flex items-center justify-center cursor-pointer">{"▼"}</button>
+                      </div>
                       <span className="text-xl w-7 text-center">{cat.emoji}</span>
                       <span className="flex-1 text-sm font-semibold text-white">{cat.label}</span>
                       {cat.hasCupCost && <span className="text-[10px] text-amber-500 font-semibold">{"+ gobelet"}</span>}
