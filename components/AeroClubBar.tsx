@@ -279,11 +279,9 @@ export default function AeroClubBar() {
         if (data.procurements) setProcurements(data.procurements);
       }
       setLoading(false);
-      if (data) {
-        setTimeout(() => {
-          hasLoaded.current = true;
-        }, 2000);
-      }
+      setTimeout(() => {
+        hasLoaded.current = true;
+      }, 2000);
     })();
   }, []);
 
@@ -3055,7 +3053,7 @@ export default function AeroClubBar() {
                 <input
                   value={settings.clubName}
                   onChange={(e) =>
-                    setSettings({ ...settings, clubName: e.target.value })
+                    setSettings((prev) => ({ ...prev, clubName: e.target.value }))
                   }
                   className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
                 />
@@ -3068,7 +3066,7 @@ export default function AeroClubBar() {
                   type="password"
                   value={settings.adminPin}
                   onChange={(e) =>
-                    setSettings({ ...settings, adminPin: e.target.value })
+                    setSettings((prev) => ({ ...prev, adminPin: e.target.value }))
                   }
                   className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
                   maxLength={6}
@@ -3082,7 +3080,7 @@ export default function AeroClubBar() {
                   type="password"
                   value={settings.bureauPin || ""}
                   onChange={(e) =>
-                    setSettings({ ...settings, bureauPin: e.target.value })
+                    setSettings((prev) => ({ ...prev, bureauPin: e.target.value }))
                   }
                   className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
                   maxLength={6}
@@ -3121,7 +3119,7 @@ export default function AeroClubBar() {
                         <button
                           onClick={() => {
                             if (!editingCategory.label.trim()) return;
-                            setSettings((prev) => ({ ...prev, categories: getCategories().map((c) => c.id === editingCategory.id ? editingCategory : c) }));
+                            setSettings((prev) => ({ ...prev, categories: (prev.categories || DEFAULT_CATEGORIES).map((c) => c.id === editingCategory.id ? editingCategory : c) }));
                             setEditingCategory(null);
                           }}
                           className="flex-1 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold cursor-pointer"
@@ -3132,8 +3130,8 @@ export default function AeroClubBar() {
                   ) : (
                     <div key={cat.id} className="flex items-center gap-2 bg-[#0f172a] border border-[#1e2d4a] rounded-xl px-3 py-2.5">
                       <div className="flex flex-col gap-0.5 shrink-0">
-                        <button onClick={() => { const cats = getCategories(); const i = cats.findIndex(c => c.id === cat.id); if (i > 0) { const a = [...cats]; [a[i-1],a[i]]=[a[i],a[i-1]]; setSettings(prev => ({...prev, categories: a})); } }} className="w-5 h-4 rounded text-[9px] text-slate-500 hover:text-white bg-[#131b2e] flex items-center justify-center cursor-pointer">{"▲"}</button>
-                        <button onClick={() => { const cats = getCategories(); const i = cats.findIndex(c => c.id === cat.id); if (i < cats.length-1) { const a = [...cats]; [a[i],a[i+1]]=[a[i+1],a[i]]; setSettings(prev => ({...prev, categories: a})); } }} className="w-5 h-4 rounded text-[9px] text-slate-500 hover:text-white bg-[#131b2e] flex items-center justify-center cursor-pointer">{"▼"}</button>
+                        <button onClick={() => setSettings((prev) => { const cats = [...(prev.categories || DEFAULT_CATEGORIES)]; const i = cats.findIndex(c => c.id === cat.id); if (i > 0) { [cats[i-1],cats[i]]=[cats[i],cats[i-1]]; } return {...prev, categories: cats}; })} className="w-5 h-4 rounded text-[9px] text-slate-500 hover:text-white bg-[#131b2e] flex items-center justify-center cursor-pointer">{"▲"}</button>
+                        <button onClick={() => setSettings((prev) => { const cats = [...(prev.categories || DEFAULT_CATEGORIES)]; const i = cats.findIndex(c => c.id === cat.id); if (i < cats.length-1) { [cats[i],cats[i+1]]=[cats[i+1],cats[i]]; } return {...prev, categories: cats}; })} className="w-5 h-4 rounded text-[9px] text-slate-500 hover:text-white bg-[#131b2e] flex items-center justify-center cursor-pointer">{"▼"}</button>
                       </div>
                       <span className="text-xl w-7 text-center">{cat.emoji}</span>
                       <span className="flex-1 text-sm font-semibold text-white">{cat.label}</span>
@@ -3145,7 +3143,7 @@ export default function AeroClubBar() {
                             showToast("Retirez d'abord cette catégorie des produits", "error");
                             return;
                           }
-                          setSettings((prev) => ({ ...prev, categories: getCategories().filter((c) => c.id !== cat.id) }));
+                          setSettings((prev) => ({ ...prev, categories: (prev.categories || DEFAULT_CATEGORIES).filter((c) => c.id !== cat.id) }));
                         }}
                         className="text-slate-600 hover:text-red-400 text-sm cursor-pointer px-1"
                       >{"🗑"}</button>
@@ -3188,7 +3186,7 @@ export default function AeroClubBar() {
                             emoji: newCategoryForm.emoji || "📁",
                             hasCupCost: newCategoryForm.hasCupCost,
                           };
-                          setSettings((prev) => ({ ...prev, categories: [...getCategories(), newCat] }));
+                          setSettings((prev) => ({ ...prev, categories: [...(prev.categories || DEFAULT_CATEGORIES), newCat] }));
                           setNewCategoryForm(null);
                         }}
                         className="flex-1 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold cursor-pointer"
