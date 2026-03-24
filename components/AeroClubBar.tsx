@@ -2568,10 +2568,12 @@ export default function AeroClubBar() {
                     </span>
                     <span className="text-sm font-bold text-red-400">
                       {formatPrice(
-                        products.reduce(
-                          (s, p) => s + (p.cost || 0) * p.stock,
-                          0,
-                        ),
+                        products.reduce((s, p) => {
+                          const total = p.stock + (p.stockReserve || 0);
+                          const legacy = Math.min(p.legacyStock || 0, total);
+                          const regular = total - legacy;
+                          return s + legacy * (p.legacyPrice || p.cost || 0) + regular * (p.cost || 0);
+                        }, 0),
                       )}
                     </span>
                   </div>
@@ -2581,7 +2583,7 @@ export default function AeroClubBar() {
                     </span>
                     <span className="text-sm font-bold text-amber-500">
                       {formatPrice(
-                        products.reduce((s, p) => s + p.price * p.stock, 0),
+                        products.reduce((s, p) => s + p.price * (p.stock + (p.stockReserve || 0)), 0),
                       )}
                     </span>
                   </div>
