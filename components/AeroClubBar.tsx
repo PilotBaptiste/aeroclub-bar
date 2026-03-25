@@ -1153,7 +1153,7 @@ export default function AeroClubBar() {
                       key={item.product.id}
                       className="flex items-center gap-1.5 bg-[#0f172a] border border-[#1e2d4a] rounded-lg px-2.5 py-1.5"
                     >
-                      <span className="text-lg">{item.product.emoji}</span>
+                      {renderProductIcon(item.product.emoji, "text-lg", "w-6 h-6")}
                       <span className="text-xs font-semibold">
                         {(item.qty > 1 ? item.qty + "x " : "") +
                           item.product.name}
@@ -1236,9 +1236,7 @@ export default function AeroClubBar() {
                           className="flex items-center justify-between bg-[#0f172a] rounded-lg px-3 py-2"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-xl">
-                              {item.product.emoji}
-                            </span>
+                            {renderProductIcon(item.product.emoji, "text-xl", "w-7 h-7")}
                             <span className="text-sm font-semibold">
                               {item.product.name}
                             </span>
@@ -1753,9 +1751,7 @@ export default function AeroClubBar() {
                             className="flex items-center justify-between"
                           >
                             <div className="flex items-center gap-2">
-                              <span className="text-lg">
-                                {item.product.emoji}
-                              </span>
+                              {renderProductIcon(item.product.emoji, "text-lg", "w-6 h-6")}
                               <span className="text-sm">
                                 {item.qty > 1 ? item.qty + "x " : ""}
                                 {item.product.name}
