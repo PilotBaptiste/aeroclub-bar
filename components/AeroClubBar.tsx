@@ -9,6 +9,7 @@ interface Product {
   cost: number;
   stock: number;
   stockReserve?: number;
+  coffeeServings?: number;
   legacyStock?: number;
   legacyPrice?: number;
   archived?: boolean;
@@ -205,7 +206,7 @@ export default function AeroClubBar() {
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
   const [showAddProduct, setShowAddProduct] = useState(false);
-  const [newProduct, setNewProduct] = useState({
+  const [newProduct, setNewProduct] = useState<{ name: string; emoji: string; price: number; cost: number; stock: number; stockReserve: number; coffeeServings?: number }>({
     name: "",
     emoji: "\uD83E\uDD64",
     price: 1.0,
@@ -248,6 +249,8 @@ export default function AeroClubBar() {
   const [saleCategory, setSaleCategory] = useState<string | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [newCategoryForm, setNewCategoryForm] = useState<{ label: string; emoji: string; hasCupCost: boolean } | null>(null);
+  const [coffeeCredits, setCoffeeCredits] = useState<Record<string, number>>({});
+  const [coffeeModal, setCoffeeModal] = useState<{ buyer: string; totalServings: number; lockType: "cafe" | "both" } | null>(null);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false);
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -277,6 +280,7 @@ export default function AeroClubBar() {
         if (data.suggestions) setSuggestions(data.suggestions);
         if (data.members) setMembers(data.members);
         if (data.procurements) setProcurements(data.procurements);
+        if (data.coffeeCredits) setCoffeeCredits(data.coffeeCredits);
       }
       setLoading(false);
       setTimeout(() => {
@@ -304,6 +308,9 @@ export default function AeroClubBar() {
   useEffect(() => {
     if (!loading) debouncedSave("aeroclub-procurements", procurements);
   }, [procurements, loading, debouncedSave]);
+  useEffect(() => {
+    if (!loading) debouncedSave("aeroclub-coffee-credits", coffeeCredits);
+  }, [coffeeCredits, loading, debouncedSave]);
 
   // Nettoyer les timers SumUp et le clearCart au démontage du composant
   useEffect(() => {
@@ -711,11 +718,25 @@ export default function AeroClubBar() {
         !c.product.name.toLowerCase().includes("cafe") &&
         !c.product.name.toLowerCase().includes("café"),
     );
-    if (hasCafe && hasOther)
-      fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
-    else if (hasCafe)
-      fetch("/api/fridge?action=trigger&lock=cafe").catch(() => {});
-    else fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
+    const lockType: "cafe" | "frigo" | "both" = hasCafe && hasOther ? "both" : hasCafe ? "cafe" : "frigo";
+
+    // Détecter produits multi-portions café (ex: "2x Cafés")
+    const totalCoffeeServings = cart.reduce(
+      (s, c) => s + ((c.product.coffeeServings && c.product.coffeeServings > 1) ? c.qty * c.product.coffeeServings : 0),
+      0,
+    );
+    if (totalCoffeeServings > 0) {
+      // Déclencher le frigo immédiatement si panier mixte, mais bloquer le café
+      if (hasOther) fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
+      // Afficher le modal café pour choisir combien utiliser maintenant
+      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType: hasCafe ? lockType === "both" ? "both" : "cafe" : "cafe" });
+    } else {
+      if (hasCafe && hasOther)
+        fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
+      else if (hasCafe)
+        fetch("/api/fridge?action=trigger&lock=cafe").catch(() => {});
+      else fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
+    }
 
     const tx: Transaction = {
       id: Date.now().toString(36),
@@ -733,7 +754,7 @@ export default function AeroClubBar() {
       total: cartTotal,
       buyer: canonicalBuyer,
       method,
-      lockType: hasCafe && hasOther ? "both" : hasCafe ? "cafe" : "frigo",
+      lockType,
     });
     setPaymentStatus("success");
     showToast("Merci " + canonicalBuyer.split(" ")[0] + " !");
@@ -749,6 +770,20 @@ export default function AeroClubBar() {
       setLockRetriggerCountdown(null);
       if (lockRetriggerTimerRef.current) { clearInterval(lockRetriggerTimerRef.current); lockRetriggerTimerRef.current = null; }
     }, 20000);
+  };
+
+  const handleCoffeeChoice = (usedNow: number) => {
+    if (!coffeeModal) return;
+    const remaining = coffeeModal.totalServings - usedNow;
+    if (remaining > 0) {
+      setCoffeeCredits((prev) => ({
+        ...prev,
+        [coffeeModal.buyer]: (prev[coffeeModal.buyer] || 0) + remaining,
+      }));
+      showToast(coffeeModal.buyer.split(" ")[0] + " a " + ((coffeeCredits[coffeeModal.buyer] || 0) + remaining) + " avoir(s) café ☕");
+    }
+    fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
+    setCoffeeModal(null);
   };
 
   const handleAdminLogin = () => {
@@ -1306,6 +1341,33 @@ export default function AeroClubBar() {
                             {"Pas d\u0027avoir pour ce nom"}
                           </span>
                         )}
+                      {(() => {
+                        const buyerKey = normalizeNameFuzzy(buyerName.trim());
+                        const canonical = members.find((m) => normalizeNameFuzzy(m.name) === buyerKey)?.name || buyerName.trim();
+                        const cafCredit = coffeeCredits[canonical] || 0;
+                        if (!buyerName.trim() || cafCredit <= 0) return null;
+                        return (
+                          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-2 flex items-center justify-between gap-2">
+                            <span className="text-sm text-amber-400 font-semibold">
+                              {"☕ " + cafCredit + " avoir(s) café"}
+                            </span>
+                            <button
+                              onClick={() => {
+                                fetch("/api/fridge?action=trigger&lock=cafe").catch(() => {});
+                                setCoffeeCredits((prev) => {
+                                  const next = { ...prev, [canonical]: cafCredit - 1 };
+                                  if (next[canonical] <= 0) delete next[canonical];
+                                  return next;
+                                });
+                                showToast("☕ Avoir café utilisé — tiroir déverrouillé !");
+                              }}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white font-bold cursor-pointer active:scale-95"
+                            >
+                              {"Utiliser 1"}
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-3">
@@ -2035,6 +2097,20 @@ export default function AeroClubBar() {
                           />
                         </div>
                       </div>
+                      <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={(editingProduct.coffeeServings || 1) >= 2}
+                          onChange={(e) =>
+                            setEditingProduct({
+                              ...editingProduct,
+                              coffeeServings: e.target.checked ? 2 : undefined,
+                            })
+                          }
+                          className="w-4 h-4 accent-amber-500"
+                        />
+                        <span className="text-xs text-amber-400 font-semibold">{"☕ Double portion café (2 tasses — modal après paiement)"}</span>
+                      </label>
                       <div className="flex gap-2">
                         <button
                           onClick={saveEditProduct}
@@ -2288,6 +2364,20 @@ export default function AeroClubBar() {
                       />
                     </div>
                   </div>
+                  <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={(newProduct.coffeeServings || 1) >= 2}
+                      onChange={(e) =>
+                        setNewProduct({
+                          ...newProduct,
+                          coffeeServings: e.target.checked ? 2 : undefined,
+                        })
+                      }
+                      className="w-4 h-4 accent-amber-500"
+                    />
+                    <span className="text-xs text-amber-400 font-semibold">{"☕ Double portion café (2 tasses — modal après paiement)"}</span>
+                  </label>
                   <div className="flex gap-2">
                     <button
                       onClick={addProduct}
@@ -2921,10 +3011,26 @@ export default function AeroClubBar() {
                               {formatPrice(bal)}
                             </span>
                           )}
-                          {bal === 0 && (
+                          {bal === 0 && (coffeeCredits[name] || 0) === 0 && (
                             <span className="text-xs text-slate-600">
                               {"Pas d\u0027avoir"}
                             </span>
+                          )}
+                          {(coffeeCredits[name] || 0) > 0 && (
+                            <button
+                              onClick={() => {
+                                setCoffeeCredits((prev) => {
+                                  const next = { ...prev, [name]: (prev[name] || 1) - 1 };
+                                  if (next[name] <= 0) delete next[name];
+                                  return next;
+                                });
+                                showToast("Avoir café utilisé pour " + name.split(" ")[0]);
+                              }}
+                              className="flex items-center gap-1 text-xs bg-amber-900/30 border border-amber-700/40 text-amber-400 font-semibold px-2 py-1 rounded-lg cursor-pointer hover:bg-amber-700/40"
+                              title="Utiliser 1 avoir café"
+                            >
+                              {"☕ " + (coffeeCredits[name] || 0)}
+                            </button>
                           )}
                           <button
                             onClick={() => renameMember(name)}
@@ -3402,6 +3508,53 @@ export default function AeroClubBar() {
               >
                 {"✓ Confirmer"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal café : choisir combien de portions utiliser ── */}
+      {coffeeModal && (
+        <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#131b2e] border border-amber-700/40 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-2xl">
+            <div className="text-4xl text-center">{"☕"}</div>
+            <h2 className="text-lg font-bold text-white text-center">
+              {"Combien de cafés maintenant ?"}
+            </h2>
+            <p className="text-sm text-slate-400 text-center">
+              {coffeeModal.buyer.split(" ")[0]}
+              {" a acheté "}
+              <span className="text-amber-400 font-bold">{coffeeModal.totalServings + " café" + (coffeeModal.totalServings > 1 ? "s" : "")}</span>
+              {"."}
+              {(coffeeCredits[coffeeModal.buyer] || 0) > 0 && (
+                <span className="block mt-1 text-emerald-400 font-semibold">
+                  {"☕ " + (coffeeCredits[coffeeModal.buyer] || 0) + " avoir(s) café existant(s)"}
+                </span>
+              )}
+            </p>
+            <div className="flex flex-col gap-2">
+              {Array.from({ length: coffeeModal.totalServings }, (_, i) => i + 1).map((n) => {
+                const leftover = coffeeModal.totalServings - n;
+                return (
+                  <button
+                    key={n}
+                    onClick={() => handleCoffeeChoice(n)}
+                    className={
+                      "w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 flex items-center justify-between px-5 " +
+                      (n === coffeeModal.totalServings
+                        ? "bg-emerald-600 text-white"
+                        : "border border-amber-600 bg-amber-900/20 text-amber-300")
+                    }
+                  >
+                    <span>{n === coffeeModal.totalServings ? "☕".repeat(n) + " Les " + n + " cafés" : "☕".repeat(n) + " " + n + " café" + (n > 1 ? "s" : "") + " maintenant"}</span>
+                    {leftover > 0 && (
+                      <span className="text-xs text-slate-400 font-normal">
+                        {"→ +" + leftover + " avoir"}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

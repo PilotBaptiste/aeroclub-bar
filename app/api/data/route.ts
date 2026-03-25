@@ -9,6 +9,7 @@ export async function GET() {
     const suggestions = await kv.get("aeroclub-suggestions");
     const members = await kv.get("aeroclub-members");
     const procurements = await kv.get("aeroclub-procurements");
+    const coffeeCredits = await kv.get("aeroclub-coffee-credits");
     return NextResponse.json({
       products: products || null,
       transactions: transactions || null,
@@ -16,6 +17,7 @@ export async function GET() {
       suggestions: suggestions || null,
       members: members || null,
       procurements: procurements || null,
+      coffeeCredits: coffeeCredits || null,
     });
   } catch (e) {
     console.error("KV read error:", e);
@@ -30,6 +32,7 @@ const ALLOWED_KEYS = [
   "aeroclub-suggestions",
   "aeroclub-members",
   "aeroclub-procurements",
+  "aeroclub-coffee-credits",
 ];
 
 export async function POST(request: Request) {
