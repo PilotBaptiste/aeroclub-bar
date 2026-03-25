@@ -251,6 +251,7 @@ export default function AeroClubBar() {
   const [newCategoryForm, setNewCategoryForm] = useState<{ label: string; emoji: string; hasCupCost: boolean } | null>(null);
   const [coffeeCredits, setCoffeeCredits] = useState<Record<string, number>>({});
   const [coffeeModal, setCoffeeModal] = useState<{ buyer: string; totalServings: number; lockType: "cafe" | "both" } | null>(null);
+  const [coffeeAvoirUsedInCheckout, setCoffeeAvoirUsedInCheckout] = useState(false);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false);
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -512,6 +513,7 @@ export default function AeroClubBar() {
     setBureauUnlocked(false);
     setShowBureauPin(false);
     setBureauPinInput("");
+    setCoffeeAvoirUsedInCheckout(false);
   };
   const getCartQty = (pid: string) => {
     const i = cart.find((c) => c.product.id === pid);
@@ -1341,16 +1343,34 @@ export default function AeroClubBar() {
                             {"Pas d\u0027avoir pour ce nom"}
                           </span>
                         )}
-                      {(() => {
-                        const buyerKey = normalizeNameFuzzy(buyerName.trim());
-                        const canonical = members.find((m) => normalizeNameFuzzy(m.name) === buyerKey)?.name || buyerName.trim();
-                        const cafCredit = coffeeCredits[canonical] || 0;
-                        if (!buyerName.trim() || cafCredit <= 0) return null;
+                    </div>
+
+                    {/* ── Bloc paiement : avoir café prioritaire ou paiement normal ── */}
+                    {(() => {
+                      const buyerKey = normalizeNameFuzzy(buyerName.trim());
+                      const canonical = buyerName.trim() ? (members.find((m) => normalizeNameFuzzy(m.name) === buyerKey)?.name || buyerName.trim()) : "";
+                      const cafCredit = canonical ? (coffeeCredits[canonical] || 0) : 0;
+                      const cartHasFrigo = cart.some((c) =>
+                        !c.product.name.toLowerCase().includes("café") &&
+                        !c.product.name.toLowerCase().includes("cafe"),
+                      );
+
+                      // ── Étape avoir café (prioritaire) ──
+                      if (cafCredit > 0 && buyerName.trim() && !coffeeAvoirUsedInCheckout) {
                         return (
-                          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-2 flex items-center justify-between gap-2">
-                            <span className="text-sm text-amber-400 font-semibold">
-                              {"☕ " + cafCredit + " avoir(s) café"}
-                            </span>
+                          <div className="flex flex-col gap-3">
+                            {cartHasFrigo && cart.length > 0 && (
+                              <div className="flex items-center gap-2">
+                                <span className="flex-1 h-px bg-[#1e2d4a]" />
+                                <span className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">
+                                  {"Étape 1/2 — Café"}
+                                </span>
+                                <span className="flex-1 h-px bg-[#1e2d4a]" />
+                              </div>
+                            )}
+                            <p className="text-xs text-amber-400 font-semibold text-center">
+                              {"☕ " + canonical.split(" ")[0] + " a " + cafCredit + " avoir" + (cafCredit > 1 ? "s" : "") + " café"}
+                            </p>
                             <button
                               onClick={() => {
                                 fetch("/api/fridge?action=trigger&lock=cafe").catch(() => {});
@@ -1359,20 +1379,42 @@ export default function AeroClubBar() {
                                   if (next[canonical] <= 0) delete next[canonical];
                                   return next;
                                 });
-                                showToast("☕ Avoir café utilisé — tiroir déverrouillé !");
+                                if (cartHasFrigo && cart.length > 0) {
+                                  setCoffeeAvoirUsedInCheckout(true);
+                                  showToast("☕ Café déverrouillé — passez au paiement");
+                                } else {
+                                  showToast("☕ Tiroir café déverrouillé !");
+                                  clearCart();
+                                  setBuyerName("");
+                                }
                               }}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white font-bold cursor-pointer active:scale-95"
+                              className="w-full py-4 rounded-xl font-extrabold text-lg bg-amber-500 text-black active:scale-95 cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.3)]"
                             >
-                              {"Utiliser 1"}
+                              {"☕ Utiliser mon avoir café"}
+                              {cafCredit > 1 && <span className="block text-sm font-semibold opacity-70 mt-0.5">{"(" + cafCredit + " restant" + (cafCredit > 1 ? "s" : "") + ")"}</span>}
                             </button>
+                            {cart.length === 0 && (
+                              <p className="text-[11px] text-slate-600 text-center">{"Ouvre le tiroir café sans paiement"}</p>
+                            )}
                           </div>
                         );
-                      })()}
-                    </div>
+                      }
 
-                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-3">
-                      {"Comment payer ?"}
-                    </p>
+                      // ── Paiement normal (ou étape 2/2) ──
+                      return (
+                        <div className="flex flex-col gap-0">
+                          {coffeeAvoirUsedInCheckout && cartHasFrigo && (
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="flex-1 h-px bg-[#1e2d4a]" />
+                              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                {"Étape 2/2 — Paiement"}
+                              </span>
+                              <span className="flex-1 h-px bg-[#1e2d4a]" />
+                            </div>
+                          )}
+                          <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-3">
+                            {"Comment payer ?"}
+                          </p>
 
                     {/* Pay with avoir */}
                     {buyerName.trim() &&
@@ -1675,14 +1717,15 @@ export default function AeroClubBar() {
                       </button>
                     )}
 
-                    <button
-                      onClick={() => {
-                        clearCart();
-                      }}
-                      className="mt-3 px-5 py-2.5 rounded-lg border border-slate-700 text-slate-400 text-sm font-semibold hover:border-slate-500 transition cursor-pointer"
-                    >
-                      {"Retour"}
-                    </button>
+                          <button
+                            onClick={() => { clearCart(); }}
+                            className="mt-3 px-5 py-2.5 rounded-lg border border-slate-700 text-slate-400 text-sm font-semibold hover:border-slate-500 transition cursor-pointer"
+                          >
+                            {"Retour"}
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
                 {paymentStatus === "success" && lastOrder && (
