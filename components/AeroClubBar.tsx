@@ -1379,7 +1379,12 @@ export default function AeroClubBar() {
                                   if (next[canonical] <= 0) delete next[canonical];
                                   return next;
                                 });
-                                if (cartHasFrigo && cart.length > 0) {
+                                // Retirer les produits café du panier — couverts par l'avoir
+                                const isCafe = (name: string) =>
+                                  name.toLowerCase().includes("café") || name.toLowerCase().includes("cafe");
+                                const remaining = cart.filter((c) => !isCafe(c.product.name));
+                                setCart(remaining);
+                                if (remaining.length > 0) {
                                   setCoffeeAvoirUsedInCheckout(true);
                                   showToast("☕ Café déverrouillé — passez au paiement");
                                 } else {
