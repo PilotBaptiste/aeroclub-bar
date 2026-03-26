@@ -359,6 +359,7 @@ export default function AeroClubBar() {
   };
 
   const getCategories = () => settings.categories || DEFAULT_CATEGORIES;
+  const effectiveStock = (p: Product) => Math.floor(p.stock / (p.coffeeServings || 1));
   const cartTotal = cart.reduce((s, i) => s + getFifoTotal(i.product, i.qty), 0);
   const cartTotalCost = cart.reduce(
     (s, i) => {
@@ -441,11 +442,11 @@ export default function AeroClubBar() {
   };
 
   const addToCart = (p: Product) => {
-    if (p.stock <= 0) return;
+    if (effectiveStock(p) <= 0) return;
     setCart((prev) => {
       const ex = prev.find((c) => c.product.id === p.id);
       if (ex) {
-        if (ex.qty >= p.stock) return prev;
+        if (ex.qty >= effectiveStock(p)) return prev;
         return prev.map((c) =>
           c.product.id === p.id ? { ...c, qty: c.qty + 1 } : c,
         );
@@ -662,7 +663,8 @@ export default function AeroClubBar() {
         let newLegacyStock = p.legacyStock || 0;
         const fromLegacy = Math.min(newLegacyStock, item.qty);
         newLegacyStock = Math.max(0, newLegacyStock - fromLegacy);
-        return { ...p, stock: Math.max(0, p.stock - item.qty), legacyStock: newLegacyStock };
+        const totalDeduct = item.qty * (item.product.coffeeServings || 1);
+        return { ...p, stock: Math.max(0, p.stock - totalDeduct), legacyStock: newLegacyStock };
       });
     }
     setProducts(updatedProducts);
@@ -962,7 +964,7 @@ export default function AeroClubBar() {
     totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0;
   const todayCost = todayTx.reduce((s, t) => s + (t.totalCost || 0), 0);
   const todayProfit = todayRevenue - todayCost;
-  const lowStock = products.filter((p) => p.stock <= 5);
+  const lowStock = products.filter((p) => effectiveStock(p) <= 5);
   const filteredTx = transactions
     .filter((t) => !filterBuyer || (t.buyer || "").toLowerCase().includes(filterBuyer.toLowerCase()))
     .filter((t) => !filterMethod || t.method === filterMethod);
@@ -1038,7 +1040,7 @@ export default function AeroClubBar() {
           )}
           <div className="grid grid-cols-4 gap-2 w-full max-w-lg">
             {products.filter((p) => !p.archived && (!saleCategory || p.category === saleCategory)).map((p) => {
-              const out = p.stock <= 0;
+              const out = effectiveStock(p) <= 0;
               const qty = getCartQty(p.id);
               return (
                 <button
@@ -1065,8 +1067,8 @@ export default function AeroClubBar() {
                     {formatPrice(p.price)}
                   </span>
                   {!out && (
-                    <span className={"text-[9px] font-semibold " + (p.stock <= 5 ? "text-orange-400" : "text-slate-500")}>
-                      {p.stock <= 5 ? p.stock + " restants" : p.stock}
+                    <span className={"text-[9px] font-semibold " + (effectiveStock(p) <= 5 ? "text-orange-400" : "text-slate-500")}>
+                      {effectiveStock(p) <= 5 ? effectiveStock(p) + " restants" : effectiveStock(p)}
                     </span>
                   )}
                 </button>
@@ -2701,7 +2703,7 @@ export default function AeroClubBar() {
                     <span className="text-sm font-bold text-red-400">
                       {formatPrice(
                         products.reduce((s, p) => {
-                          const total = p.stock + (p.stockReserve || 0);
+                          const total = effectiveStock(p) + Math.floor((p.stockReserve || 0) / (p.coffeeServings || 1));
                           const legacy = Math.min(p.legacyStock || 0, total);
                           const regular = total - legacy;
                           return s + legacy * (p.legacyPrice || p.cost || 0) + regular * (p.cost || 0);
@@ -2715,7 +2717,7 @@ export default function AeroClubBar() {
                     </span>
                     <span className="text-sm font-bold text-amber-500">
                       {formatPrice(
-                        products.reduce((s, p) => s + p.price * (p.stock + (p.stockReserve || 0)), 0),
+                        products.reduce((s, p) => s + p.price * (effectiveStock(p) + Math.floor((p.stockReserve || 0) / (p.coffeeServings || 1))), 0),
                       )}
                     </span>
                   </div>
