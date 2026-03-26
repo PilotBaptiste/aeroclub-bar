@@ -659,12 +659,10 @@ export default function AeroClubBar() {
     for (const item of cart) {
       updatedProducts = updatedProducts.map((p) => {
         if (p.id !== item.product.id) return p;
-        let remaining = item.qty;
         let newLegacyStock = p.legacyStock || 0;
-        const fromLegacy = Math.min(newLegacyStock, remaining);
+        const fromLegacy = Math.min(newLegacyStock, item.qty);
         newLegacyStock = Math.max(0, newLegacyStock - fromLegacy);
-        remaining -= fromLegacy;
-        return { ...p, stock: Math.max(0, p.stock - remaining), legacyStock: newLegacyStock };
+        return { ...p, stock: Math.max(0, p.stock - item.qty), legacyStock: newLegacyStock };
       });
     }
     setProducts(updatedProducts);
