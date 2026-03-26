@@ -250,7 +250,7 @@ export default function AeroClubBar() {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [newCategoryForm, setNewCategoryForm] = useState<{ label: string; emoji: string; hasCupCost: boolean } | null>(null);
   const [coffeeCredits, setCoffeeCredits] = useState<Record<string, number>>({});
-  const [coffeeModal, setCoffeeModal] = useState<{ buyer: string; totalServings: number; lockType: "cafe" | "both" } | null>(null);
+  const [coffeeModal, setCoffeeModal] = useState<{ buyer: string; totalServings: number; lockType: "cafe" | "both"; productId: string } | null>(null);
   const [coffeeAvoirUsedInCheckout, setCoffeeAvoirUsedInCheckout] = useState(false);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false);
@@ -660,11 +660,12 @@ export default function AeroClubBar() {
     for (const item of cart) {
       updatedProducts = updatedProducts.map((p) => {
         if (p.id !== item.product.id) return p;
+        // Produits café : la déduction est reportée dans handleCoffeeChoice (selon servings utilisés)
+        if (item.product.coffeeServings && item.product.coffeeServings > 1) return p;
         let newLegacyStock = p.legacyStock || 0;
         const fromLegacy = Math.min(newLegacyStock, item.qty);
         newLegacyStock = Math.max(0, newLegacyStock - fromLegacy);
-        const totalDeduct = item.qty * (item.product.coffeeServings || 1);
-        return { ...p, stock: Math.max(0, p.stock - totalDeduct), legacyStock: newLegacyStock };
+        return { ...p, stock: Math.max(0, p.stock - item.qty), legacyStock: newLegacyStock };
       });
     }
     setProducts(updatedProducts);
@@ -731,7 +732,8 @@ export default function AeroClubBar() {
       // Déclencher le frigo immédiatement si panier mixte, mais bloquer le café
       if (hasOther) fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
       // Afficher le modal café pour choisir combien utiliser maintenant
-      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType: hasCafe ? lockType === "both" ? "both" : "cafe" : "cafe" });
+      const coffeeCartItem = cart.find((c) => c.product.coffeeServings && c.product.coffeeServings > 1);
+      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType: hasCafe ? lockType === "both" ? "both" : "cafe" : "cafe", productId: coffeeCartItem?.product.id || "" });
     } else {
       if (hasCafe && hasOther)
         fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
@@ -783,6 +785,14 @@ export default function AeroClubBar() {
         [coffeeModal.buyer]: (prev[coffeeModal.buyer] || 0) + remaining,
       }));
       showToast(coffeeModal.buyer.split(" ")[0] + " a " + ((coffeeCredits[coffeeModal.buyer] || 0) + remaining) + " avoir(s) café ☕");
+    }
+    // Déduire uniquement les capsules réellement consommées maintenant
+    if (coffeeModal.productId) {
+      setProducts((prev) => prev.map((p) => {
+        if (p.id !== coffeeModal.productId) return p;
+        const fromLegacy = Math.min(p.legacyStock || 0, usedNow);
+        return { ...p, stock: Math.max(0, p.stock - usedNow), legacyStock: Math.max(0, (p.legacyStock || 0) - fromLegacy) };
+      }));
     }
     fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
     setCoffeeModal(null);
@@ -1376,6 +1386,15 @@ export default function AeroClubBar() {
                                   const next = { ...prev, [canonical]: cafCredit - 1 };
                                   if (next[canonical] <= 0) delete next[canonical];
                                   return next;
+                                });
+                                // Déduire 1 capsule du produit café
+                                setProducts((prev) => {
+                                  const cp = prev.find((p) => p.coffeeServings && p.coffeeServings > 1);
+                                  if (!cp) return prev;
+                                  return prev.map((p) => p.id !== cp.id ? p : {
+                                    ...p, stock: Math.max(0, p.stock - 1),
+                                    legacyStock: Math.max(0, (p.legacyStock || 0) - Math.min(p.legacyStock || 0, 1)),
+                                  });
                                 });
                                 // Retirer les produits café du panier — couverts par l'avoir
                                 const isCafe = (name: string) =>
