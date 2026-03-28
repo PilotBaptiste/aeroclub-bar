@@ -734,7 +734,8 @@ export default function AeroClubBar() {
       if (hasOther) fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
       // Afficher le modal café pour choisir combien utiliser maintenant
       const coffeeCartItem = cart.find((c) => c.product.coffeeServings && c.product.coffeeServings > 1);
-      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType: hasCafe ? lockType === "both" ? "both" : "cafe" : "cafe", productId: coffeeCartItem?.product.id || "" });
+      // Le frigo a déjà été ouvert ci-dessus si mixte → le modal café ouvre uniquement le café
+      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType: "cafe", productId: coffeeCartItem?.product.id || "" });
     } else {
       if (hasCafe && hasOther)
         fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
@@ -900,6 +901,15 @@ export default function AeroClubBar() {
         normalizeNameFuzzy(t.buyer) === oldKey ? { ...t, buyer: trimmed } : t,
       ),
     );
+    // Transférer les avoirs café vers le nouveau nom
+    setCoffeeCredits((prev) => {
+      const credit = prev[oldName];
+      if (!credit) return prev;
+      const next = { ...prev };
+      delete next[oldName];
+      next[trimmed] = (next[trimmed] || 0) + credit;
+      return next;
+    });
     showToast("Membre renomme : " + trimmed);
   };
 
@@ -933,9 +943,12 @@ export default function AeroClubBar() {
         if (match) {
           const qty = parseInt(match[1], 10);
           const name = match[2];
-          u = u.map((p) =>
-            p.name === name ? { ...p, stock: p.stock + qty } : p,
-          );
+          u = u.map((p) => {
+            if (p.name !== name) return p;
+            // Pour les produits café (coffeeServings > 1), la déduction était en capsules
+            const restoreQty = qty * (p.coffeeServings || 1);
+            return { ...p, stock: p.stock + restoreQty };
+          });
         }
       }
       return u;
@@ -1170,7 +1183,7 @@ export default function AeroClubBar() {
                           item.product.name}
                       </span>
                       <span className="text-xs text-amber-500 font-bold">
-                        {formatPrice(item.product.price * item.qty)}
+                        {formatPrice(getFifoTotal(item.product, item.qty))}
                       </span>
                       {secs !== null && (
                         <span className={`text-[10px] font-bold tabular-nums ${secs <= 5 ? "text-red-400" : "text-slate-500"}`}>
@@ -1254,7 +1267,10 @@ export default function AeroClubBar() {
                           </div>
                           <div className="flex items-center gap-2">
                             <button
-                              onClick={() => removeFromCart(item.product.id)}
+                              onClick={() => {
+                                removeFromCart(item.product.id);
+                                if (cart.length === 1 && item.qty === 1) clearCart();
+                              }}
                               className="w-7 h-7 rounded-lg bg-[#131b2e] border border-slate-700 text-red-500 font-bold flex items-center justify-center cursor-pointer text-sm"
                             >
                               {"\u2212"}
@@ -1269,7 +1285,7 @@ export default function AeroClubBar() {
                               {"+"}
                             </button>
                             <span className="text-sm font-bold text-amber-500 ml-2 min-w-[50px] text-right">
-                              {formatPrice(item.product.price * item.qty)}
+                              {formatPrice(getFifoTotal(item.product, item.qty))}
                             </span>
                           </div>
                         </div>
@@ -1783,7 +1799,7 @@ export default function AeroClubBar() {
                               </span>
                             </div>
                             <span className="text-sm font-bold text-amber-500">
-                              {formatPrice(item.product.price * item.qty)}
+                              {formatPrice(getFifoTotal(item.product, item.qty))}
                             </span>
                           </div>
                         ))}
