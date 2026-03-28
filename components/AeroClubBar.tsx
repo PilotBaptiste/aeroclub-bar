@@ -78,6 +78,7 @@ interface Settings {
   cupCost?: number;
   sumupFeeRate?: number;
   categories?: Category[];
+  supportPhone?: string;
 }
 
 const DEFAULT_PRODUCTS: Product[] = [
@@ -1358,13 +1359,18 @@ export default function AeroClubBar() {
                       const buyerKey = normalizeNameFuzzy(buyerName.trim());
                       const canonical = buyerName.trim() ? (members.find((m) => normalizeNameFuzzy(m.name) === buyerKey)?.name || buyerName.trim()) : "";
                       const cafCredit = canonical ? (coffeeCredits[canonical] || 0) : 0;
+                      const cartHasCafe = cart.some((c) =>
+                        c.product.name.toLowerCase().includes("café") ||
+                        c.product.name.toLowerCase().includes("cafe") ||
+                        !!(c.product.coffeeServings && c.product.coffeeServings > 1),
+                      );
                       const cartHasFrigo = cart.some((c) =>
                         !c.product.name.toLowerCase().includes("café") &&
                         !c.product.name.toLowerCase().includes("cafe"),
                       );
 
-                      // ── Étape avoir café (prioritaire) ──
-                      if (cafCredit > 0 && buyerName.trim() && !coffeeAvoirUsedInCheckout) {
+                      // ── Étape avoir café — uniquement si le panier contient un produit café ──
+                      if (cafCredit > 0 && buyerName.trim() && !coffeeAvoirUsedInCheckout && cartHasCafe) {
                         return (
                           <div className="flex flex-col gap-3">
                             {cartHasFrigo && cart.length > 0 && (
@@ -3256,6 +3262,39 @@ export default function AeroClubBar() {
                   className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
                   maxLength={6}
                 />
+              </div>
+              <div className="h-px bg-[#1e2d4a] my-3" />
+              {/* Support WhatsApp */}
+              <div className="flex flex-col gap-2">
+                <h3 className="text-base font-bold">{"📞 Support WhatsApp"}</h3>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{"Numéro (format international, ex: 33756919167)"}</label>
+                  <input
+                    value={settings.supportPhone || ""}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, supportPhone: e.target.value.replace(/\D/g, "") }))}
+                    placeholder="33756919167"
+                    className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
+                  />
+                </div>
+                {settings.supportPhone && (() => {
+                  const msg = "Bonjour j'ai un problème avec le bar de l'aéroclub.";
+                  const waUrl = `https://wa.me/${settings.supportPhone}?text=${encodeURIComponent(msg)}`;
+                  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&bgcolor=ffffff&color=000000&data=${encodeURIComponent(waUrl)}`;
+                  return (
+                    <div className="flex flex-col items-center gap-3 bg-white rounded-2xl p-4">
+                      <img src={qrUrl} alt="QR Code WhatsApp Support" className="w-48 h-48 rounded-xl" />
+                      <p className="text-[11px] text-slate-600 text-center font-semibold">{"Scanner pour contacter le support"}</p>
+                      <p className="text-[10px] text-slate-400 text-center break-all">{waUrl}</p>
+                      <a
+                        href={qrUrl}
+                        download="support-qr.png"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-2 rounded-xl bg-green-600 text-white text-xs font-bold text-center cursor-pointer"
+                      >{"⬇️ Télécharger le QR code"}</a>
+                    </div>
+                  );
+                })()}
               </div>
               <div className="h-px bg-[#1e2d4a] my-3" />
               <h3 className="text-base font-bold">{"🏷️ Catégories"}</h3>
