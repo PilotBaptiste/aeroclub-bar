@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const runtime = "edge";
+
 // GET : polling — interroge directement l'API SumUp pour le statut du reader
 export async function GET(request: Request) {
   try {
