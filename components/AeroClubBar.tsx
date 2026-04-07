@@ -216,6 +216,7 @@ export default function AeroClubBar() {
     stockReserve: 0,
   });
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editingTxFull, setEditingTxFull] = useState<{ tx: Transaction; lines: { productId: string; qty: number }[] } | null>(null);
   const [activeAdminTab, setActiveAdminTab] = useState("stock");
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(
     null,
@@ -957,22 +958,86 @@ export default function AeroClubBar() {
     showToast("Vente supprimee, stock restaure", "info");
   };
 
+  const parseTxItems = (itemsStr: string): { productId: string; qty: number }[] => {
+    return itemsStr
+      .split(", ")
+      .map((part) => {
+        const m = part.match(/^(\d+)x (.+)$/);
+        if (!m) return null;
+        const qty = parseInt(m[1], 10);
+        const name = m[2];
+        const product = products.find((p) => p.name === name);
+        return product ? { productId: product.id, qty } : null;
+      })
+      .filter((x): x is { productId: string; qty: number } => x !== null);
+  };
+
   const editTransaction = (tx: Transaction) => {
-    const newAmount = prompt(
-      "Nouveau montant pour cette vente (actuel: " + tx.total + ") :",
-      String(tx.total),
+    setEditingTxFull({ tx, lines: parseTxItems(tx.items) });
+  };
+
+  const saveTxEdit = () => {
+    if (!editingTxFull) return;
+    const { tx, lines } = editingTxFull;
+    const validLines = lines.filter((l) => l.qty > 0);
+    if (validLines.length === 0) {
+      showToast("Au moins une ligne requise", "error");
+      return;
+    }
+    // Calcul du delta de stock : restore l'ancien, déduit le nouveau
+    const oldLines = parseTxItems(tx.items);
+    const stockDelta: Record<string, number> = {};
+    for (const old of oldLines) {
+      const p = products.find((pr) => pr.id === old.productId);
+      if (!p) continue;
+      stockDelta[old.productId] = (stockDelta[old.productId] || 0) + old.qty * (p.coffeeServings || 1);
+    }
+    for (const nl of validLines) {
+      const p = products.find((pr) => pr.id === nl.productId);
+      if (!p) continue;
+      stockDelta[nl.productId] = (stockDelta[nl.productId] || 0) - nl.qty * (p.coffeeServings || 1);
+    }
+    setProducts((prev) =>
+      prev.map((p) => {
+        const d = stockDelta[p.id] || 0;
+        if (d === 0) return p;
+        return { ...p, stock: Math.max(0, p.stock + d) };
+      }),
     );
-    if (newAmount === null) return;
-    const amount = parseFloat(newAmount);
-    if (isNaN(amount) || amount < 0) return;
+    // Recalcul items, total, totalCost
+    const newItemsStr = validLines
+      .map((l) => {
+        const p = products.find((pr) => pr.id === l.productId);
+        return p ? l.qty + "x " + p.name : "";
+      })
+      .filter(Boolean)
+      .join(", ");
+    const newTotal = validLines.reduce((s, l) => {
+      const p = products.find((pr) => pr.id === l.productId);
+      return s + (p ? getFifoTotal(p, l.qty) : 0);
+    }, 0);
+    const newTotalCost = validLines.reduce((s, l) => {
+      const p = products.find((pr) => pr.id === l.productId);
+      if (!p) return s;
+      const cat = (settings.categories || DEFAULT_CATEGORIES).find((c) => c.id === p.category);
+      const cupCost = cat?.hasCupCost ? settings.cupCost || 0 : 0;
+      return s + l.qty * ((p.cost || 0) + cupCost);
+    }, 0);
     setTransactions((prev) =>
       prev.map((t) =>
         t.id === tx.id
-          ? { ...t, total: amount, method: amount === 0 ? "offert" : t.method }
+          ? {
+              ...t,
+              items: newItemsStr,
+              total: Math.round(newTotal * 100) / 100,
+              totalCost: Math.round(newTotalCost * 100) / 100,
+              method: newTotal === 0 ? "offert" : t.method,
+            }
           : t,
       ),
     );
-    showToast("Transaction modifiee : " + formatPrice(amount));
+    setEditingTxFull(null);
+    showToast("Transaction modifiée, stock ajusté");
   };
 
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -3536,6 +3601,133 @@ export default function AeroClubBar() {
       )}
 
       {/* Modale réapprovisionnement */}
+      {editingTxFull && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setEditingTxFull(null)}
+        >
+          <div
+            className="w-full max-w-md bg-[#131b2e] rounded-2xl p-5 flex flex-col gap-3 border border-slate-700 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-white text-base">{"Modifier la vente"}</h3>
+            <p className="text-[11px] text-slate-500">{"Le stock sera ajusté automatiquement (ancien restauré, nouveau déduit)."}</p>
+            <div className="flex flex-col gap-2">
+              {editingTxFull.lines.map((line, idx) => {
+                const prod = products.find((p) => p.id === line.productId);
+                return (
+                  <div key={idx} className="flex items-center gap-2 bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-2">
+                    <select
+                      value={line.productId}
+                      onChange={(e) =>
+                        setEditingTxFull((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                lines: prev.lines.map((l, i) => (i === idx ? { ...l, productId: e.target.value } : l)),
+                              }
+                            : prev,
+                        )
+                      }
+                      className="flex-1 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-xs px-2 outline-none cursor-pointer"
+                    >
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.emoji.startsWith("http") ? "🖼" : p.emoji} {p.name} ({formatPrice(p.price)})
+                        </option>
+                      ))}
+                    </select>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() =>
+                          setEditingTxFull((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  lines: prev.lines.map((l, i) => (i === idx ? { ...l, qty: Math.max(0, l.qty - 1) } : l)),
+                                }
+                              : prev,
+                          )
+                        }
+                        className="w-7 h-7 rounded-lg bg-[#131b2e] border border-slate-700 text-red-500 font-bold cursor-pointer text-sm"
+                      >
+                        {"−"}
+                      </button>
+                      <span className="text-sm font-bold text-white w-6 text-center">{line.qty}</span>
+                      <button
+                        onClick={() =>
+                          setEditingTxFull((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  lines: prev.lines.map((l, i) => (i === idx ? { ...l, qty: l.qty + 1 } : l)),
+                                }
+                              : prev,
+                          )
+                        }
+                        className="w-7 h-7 rounded-lg bg-[#131b2e] border border-slate-700 text-emerald-500 font-bold cursor-pointer text-sm"
+                      >
+                        {"+"}
+                      </button>
+                    </div>
+                    <span className="text-xs font-bold text-amber-500 min-w-[50px] text-right">
+                      {prod ? formatPrice(getFifoTotal(prod, line.qty)) : "—"}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setEditingTxFull((prev) =>
+                          prev ? { ...prev, lines: prev.lines.filter((_, i) => i !== idx) } : prev,
+                        )
+                      }
+                      className="text-red-500 text-base cursor-pointer px-1"
+                    >
+                      {"🗑"}
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                onClick={() =>
+                  setEditingTxFull((prev) =>
+                    prev && products[0]
+                      ? { ...prev, lines: [...prev.lines, { productId: products[0].id, qty: 1 }] }
+                      : prev,
+                  )
+                }
+                className="text-xs py-2 rounded-lg border border-dashed border-slate-700 text-slate-400 font-semibold cursor-pointer"
+              >
+                {"+ Ajouter une ligne"}
+              </button>
+            </div>
+            <div className="bg-[#0f172a] rounded-xl p-3 flex justify-between items-center border border-amber-700">
+              <span className="text-sm text-slate-400 font-bold">{"Nouveau total"}</span>
+              <span className="text-base font-extrabold text-amber-500">
+                {formatPrice(
+                  editingTxFull.lines.reduce((s, l) => {
+                    const p = products.find((pr) => pr.id === l.productId);
+                    return s + (p ? getFifoTotal(p, l.qty) : 0);
+                  }, 0),
+                )}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEditingTxFull(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-400 text-sm font-bold cursor-pointer"
+              >
+                {"Annuler"}
+              </button>
+              <button
+                onClick={saveTxEdit}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold cursor-pointer"
+              >
+                {"✓ Enregistrer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {restockingProduct && (
         <div
           className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end justify-center p-4"
