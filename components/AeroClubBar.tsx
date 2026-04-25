@@ -1993,6 +1993,38 @@ export default function AeroClubBar() {
                         )}
                       </div>
                     </div>
+                    <div className="flex flex-col gap-0.5">
+                      <button
+                        disabled={products.indexOf(p) === 0}
+                        onClick={() =>
+                          setProducts((prev) => {
+                            const i = prev.findIndex((x) => x.id === p.id);
+                            if (i <= 0) return prev;
+                            const n = [...prev];
+                            [n[i - 1], n[i]] = [n[i], n[i - 1]];
+                            return n;
+                          })
+                        }
+                        className="w-6 h-6 flex items-center justify-center rounded bg-[#0f172a] border border-slate-700 text-slate-400 text-xs font-bold cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed hover:text-white hover:border-slate-500"
+                      >
+                        {"\u25B2"}
+                      </button>
+                      <button
+                        disabled={products.indexOf(p) === products.length - 1}
+                        onClick={() =>
+                          setProducts((prev) => {
+                            const i = prev.findIndex((x) => x.id === p.id);
+                            if (i < 0 || i >= prev.length - 1) return prev;
+                            const n = [...prev];
+                            [n[i], n[i + 1]] = [n[i + 1], n[i]];
+                            return n;
+                          })
+                        }
+                        className="w-6 h-6 flex items-center justify-center rounded bg-[#0f172a] border border-slate-700 text-slate-400 text-xs font-bold cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed hover:text-white hover:border-slate-500"
+                      >
+                        {"\u25BC"}
+                      </button>
+                    </div>
                     <button
                       onClick={() => setEditingProduct({ ...p })}
                       className="opacity-50 hover:opacity-100 text-sm cursor-pointer"
