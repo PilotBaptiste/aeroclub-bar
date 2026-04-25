@@ -840,7 +840,7 @@ export default function AeroClubBar() {
             </button>
           </div>
 
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5 w-full max-w-2xl">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 w-full max-w-3xl">
             {products.map((p) => {
               const out = p.stock <= 0;
               const qty = getCartQty(p.id);
@@ -850,7 +850,7 @@ export default function AeroClubBar() {
                   onClick={() => addToCart(p)}
                   disabled={out}
                   className={
-                    "bg-[#131b2e] border rounded-2xl py-5 px-3 flex flex-col items-center gap-1 transition-all duration-200 relative " +
+                    "bg-[#131b2e] border rounded-xl py-2.5 px-1.5 flex flex-col items-center gap-0.5 transition-all duration-200 relative " +
                     (out
                       ? "opacity-40 cursor-not-allowed border-[#1e2d4a]"
                       : qty > 0
@@ -859,27 +859,27 @@ export default function AeroClubBar() {
                   }
                 >
                   {qty > 0 && (
-                    <div className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-amber-500 text-black text-sm font-extrabold flex items-center justify-center shadow-lg">
+                    <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-amber-500 text-black text-[10px] font-extrabold flex items-center justify-center shadow-lg">
                       {String(qty)}
                     </div>
                   )}
-                  {renderProductIcon(p.emoji, "text-3xl", "w-10 h-10 object-contain")}
-                  <span className="text-sm font-bold">{p.name}</span>
-                  <span className="text-lg font-extrabold text-amber-500">
+                  {renderProductIcon(p.emoji, "text-2xl", "w-8 h-8 object-contain")}
+                  <span className="text-[11px] font-bold leading-tight text-center">{p.name}</span>
+                  <span className="text-sm font-extrabold text-amber-500">
                     {formatPrice(p.price)}
                   </span>
                   {out && (
-                    <span className="text-[10px] text-red-500 font-bold uppercase">
+                    <span className="text-[9px] text-red-500 font-bold uppercase">
                       {"Epuise"}
                     </span>
                   )}
                   {!out && p.stock <= 5 && (
-                    <span className="text-[10px] text-orange-400 bg-orange-950 px-2 py-0.5 rounded-full font-semibold">
+                    <span className="text-[9px] text-orange-400 bg-orange-950 px-1.5 py-0.5 rounded-full font-semibold">
                       {"Plus que " + p.stock}
                     </span>
                   )}
                   {!out && p.stock > 5 && (
-                    <span className="text-[10px] text-slate-500 font-medium">
+                    <span className="text-[9px] text-slate-500 font-medium">
                       {"Stock : " + p.stock}
                     </span>
                   )}
