@@ -1,6 +1,30 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
 
+/* ---------- helper: emoji ou image URL ---------- */
+function renderProductIcon(
+  emoji: string,
+  textClass = "text-4xl",
+  imgClass = "w-10 h-10 object-contain",
+) {
+  if (
+    emoji &&
+    (emoji.startsWith("http://") ||
+      emoji.startsWith("https://") ||
+      emoji.startsWith("data:image"))
+  ) {
+    return (
+      <img
+        src={emoji}
+        alt=""
+        className={imgClass + " rounded"}
+        draggable={false}
+      />
+    );
+  }
+  return <span className={textClass}>{emoji}</span>;
+}
+
 interface Product {
   id: string;
   name: string;
@@ -816,7 +840,7 @@ export default function AeroClubBar() {
             </button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-lg">
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5 w-full max-w-2xl">
             {products.map((p) => {
               const out = p.stock <= 0;
               const qty = getCartQty(p.id);
@@ -839,7 +863,7 @@ export default function AeroClubBar() {
                       {String(qty)}
                     </div>
                   )}
-                  <span className="text-4xl">{p.emoji}</span>
+                  {renderProductIcon(p.emoji, "text-3xl", "w-10 h-10 object-contain")}
                   <span className="text-sm font-bold">{p.name}</span>
                   <span className="text-lg font-extrabold text-amber-500">
                     {formatPrice(p.price)}
@@ -941,7 +965,7 @@ export default function AeroClubBar() {
                       key={item.product.id}
                       className="flex items-center gap-1.5 bg-[#0f172a] border border-[#1e2d4a] rounded-lg px-2.5 py-1.5"
                     >
-                      <span className="text-lg">{item.product.emoji}</span>
+                      {renderProductIcon(item.product.emoji, "text-lg", "w-5 h-5 object-contain")}
                       <span className="text-xs font-semibold">
                         {(item.qty > 1 ? item.qty + "x " : "") +
                           item.product.name}
@@ -1024,9 +1048,7 @@ export default function AeroClubBar() {
                           className="flex items-center justify-between bg-[#0f172a] rounded-lg px-3 py-2"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-xl">
-                              {item.product.emoji}
-                            </span>
+                            {renderProductIcon(item.product.emoji, "text-xl", "w-6 h-6 object-contain")}
                             <span className="text-sm font-semibold">
                               {item.product.name}
                             </span>
@@ -1468,9 +1490,7 @@ export default function AeroClubBar() {
                             className="flex items-center justify-between"
                           >
                             <div className="flex items-center gap-2">
-                              <span className="text-lg">
-                                {item.product.emoji}
-                              </span>
+                              {renderProductIcon(item.product.emoji, "text-lg", "w-5 h-5 object-contain")}
                               <span className="text-sm">
                                 {item.qty > 1 ? item.qty + "x " : ""}
                                 {item.product.name}
@@ -1696,18 +1716,24 @@ export default function AeroClubBar() {
                       <div className="grid grid-cols-2 gap-2 mb-3">
                         <div className="flex flex-col gap-1">
                           <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                            {"Emoji"}
+                            {"Emoji / URL image"}
                           </label>
-                          <input
-                            value={editingProduct.emoji}
-                            onChange={(e) =>
-                              setEditingProduct({
-                                ...editingProduct,
-                                emoji: e.target.value,
-                              })
-                            }
-                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-center text-3xl outline-none"
-                          />
+                          <div className="flex items-center gap-2">
+                            <input
+                              placeholder={"🥤 ou https://..."}
+                              value={editingProduct.emoji}
+                              onChange={(e) =>
+                                setEditingProduct({
+                                  ...editingProduct,
+                                  emoji: e.target.value,
+                                })
+                              }
+                              className="h-12 flex-1 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-center text-sm outline-none px-2"
+                            />
+                            <div className="w-10 h-10 flex items-center justify-center bg-[#131b2e] rounded-lg border border-slate-700">
+                              {renderProductIcon(editingProduct.emoji, "text-2xl", "w-8 h-8 object-contain")}
+                            </div>
+                          </div>
                         </div>
                         <div className="flex flex-col gap-1">
                           <label className="text-[10px] text-slate-500 font-semibold uppercase">
@@ -1819,7 +1845,7 @@ export default function AeroClubBar() {
                           : "bg-[#131b2e] border-[#1e2d4a]")
                     }
                   >
-                    <span className="text-2xl w-9 text-center">{p.emoji}</span>
+                    <span className="w-9 text-center flex items-center justify-center">{renderProductIcon(p.emoji, "text-2xl", "w-7 h-7 object-contain")}</span>
                     <div className="flex-1 flex flex-col">
                       <span className="text-sm font-bold">{p.name}</span>
                       <span className="text-xs text-amber-500 font-semibold">
@@ -1997,18 +2023,24 @@ export default function AeroClubBar() {
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                        {"Emoji"}
+                        {"Emoji / URL image"}
                       </label>
-                      <input
-                        value={newProduct.emoji}
-                        onChange={(e) =>
-                          setNewProduct({
-                            ...newProduct,
-                            emoji: e.target.value,
-                          })
-                        }
-                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-center text-3xl outline-none"
-                      />
+                      <div className="flex items-center gap-2">
+                        <input
+                          placeholder={"🥤 ou https://..."}
+                          value={newProduct.emoji}
+                          onChange={(e) =>
+                            setNewProduct({
+                              ...newProduct,
+                              emoji: e.target.value,
+                            })
+                          }
+                          className="h-12 flex-1 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-center text-sm outline-none px-2"
+                        />
+                        <div className="w-10 h-10 flex items-center justify-center bg-[#131b2e] rounded-lg border border-slate-700">
+                          {renderProductIcon(newProduct.emoji, "text-2xl", "w-8 h-8 object-contain")}
+                        </div>
+                      </div>
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] text-slate-500 font-semibold uppercase">
@@ -2268,7 +2300,7 @@ export default function AeroClubBar() {
                       key={p.id}
                       className="flex items-center gap-2.5 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3.5 py-2"
                     >
-                      <span className="text-xl">{p.emoji}</span>
+                      {renderProductIcon(p.emoji, "text-xl", "w-6 h-6 object-contain")}
                       <span className="text-sm font-semibold flex-1">
                         {p.name}
                       </span>
