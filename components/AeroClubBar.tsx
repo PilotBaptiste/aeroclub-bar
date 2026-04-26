@@ -1,30 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
 
-/* ---------- helper: emoji ou image URL ---------- */
-function renderProductIcon(
-  emoji: string,
-  textClass = "text-4xl",
-  imgClass = "w-10 h-10 object-contain",
-) {
-  if (
-    emoji &&
-    (emoji.startsWith("http://") ||
-      emoji.startsWith("https://") ||
-      emoji.startsWith("data:image"))
-  ) {
-    return (
-      <img
-        src={emoji}
-        alt=""
-        className={imgClass + " rounded"}
-        draggable={false}
-      />
-    );
-  }
-  return <span className={textClass}>{emoji}</span>;
-}
-
 interface Product {
   id: string;
   name: string;
@@ -33,6 +9,39 @@ interface Product {
   cost: number;
   stock: number;
   stockReserve?: number;
+  coffeeServings?: number;
+  legacyStock?: number;
+  legacyPrice?: number;
+  archived?: boolean;
+  category?: string;
+}
+
+interface Category {
+  id: string;
+  label: string;
+  emoji: string;
+  hasCupCost?: boolean;
+}
+
+const EMOJI_CATEGORIES = [
+  { label: "🥤", title: "Soft / eau", emojis: ["🥤","🧃","💧","🫙","🧋","🍵","☕","🫖","🥛","🫗","🧊","🍶","🍼"] },
+  { label: "🍺", title: "Alcool", emojis: ["🍺","🍻","🥂","🍷","🥃","🍸","🍹","🧉","🍾","🫗","🥴"] },
+  { label: "🍦", title: "Glaces", emojis: ["🍦","🍧","🍨","🍡","🍢","🍣","🧊","🫐","🍓"] },
+  { label: "🍫", title: "Choco & bonbons", emojis: ["🍫","🍬","🍭","🍮","🍯","🍩","🍪","🧁","🎂","🍰","🥧","🍮"] },
+  { label: "🥐", title: "Viennoiseries", emojis: ["🥐","🥖","🍞","🥨","🥯","🧇","🥞","🧆","🫓","🥚","🍳"] },
+  { label: "🍿", title: "Snacks salés", emojis: ["🍿","🥜","🌰","🧀","🥪","🌮","🌯","🥙","🫔","🍱","🥗","🍟","🍔","🌭"] },
+  { label: "🍎", title: "Fruits", emojis: ["🍎","🍊","🍋","🍇","🍓","🫐","🍌","🍉","🍑","🍒","🥝","🍍","🥭","🍐","🍈","🫒","🥥"] },
+  { label: "🧴", title: "Hygiène / divers", emojis: ["🧴","🧻","🪥","🧼","💊","🩺","🌡️","🔑","🎫","🪙","💵","🛒","📦","🎁","⭐","🏷️"] },
+];
+interface Procurement {
+  id: string;
+  date: string;
+  productId: string;
+  productName: string;
+  qty: number;
+  unitCost: number;
+  totalCost: number;
+  method: "especes" | "carte";
 }
 interface CartItem {
   product: Product;
@@ -66,6 +75,10 @@ interface Settings {
   cbReceived?: number;
   cashInitialFund?: number;
   cbInitialFund?: number;
+  cupCost?: number;
+  sumupFeeRate?: number;
+  categories?: Category[];
+  supportPhone?: string;
 }
 
 const DEFAULT_PRODUCTS: Product[] = [
@@ -125,6 +138,11 @@ const DEFAULT_PRODUCTS: Product[] = [
   },
 ];
 
+const DEFAULT_CATEGORIES: Category[] = [
+  { id: "boissons", label: "Boissons", emoji: "🍺" },
+  { id: "cafe", label: "Café", emoji: "☕", hasCupCost: true },
+  { id: "nourriture", label: "Bouffe", emoji: "🍫" },
+];
 const DEFAULT_SETTINGS: Settings = { clubName: "Aero-Club", adminPin: "1234", bureauPin: "1215" };
 
 function formatPrice(p: number) {
@@ -180,6 +198,7 @@ export default function AeroClubBar() {
     total: number;
     buyer: string;
     method: string;
+    lockType: "cafe" | "frigo" | "both";
   } | null>(null);
   const [sumupLoading, setSumupLoading] = useState(false);
   const [sumupError, setSumupError] = useState<string | null>(null);
@@ -188,7 +207,7 @@ export default function AeroClubBar() {
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
   const [showAddProduct, setShowAddProduct] = useState(false);
-  const [newProduct, setNewProduct] = useState({
+  const [newProduct, setNewProduct] = useState<{ name: string; emoji: string; price: number; cost: number; stock: number; stockReserve: number; coffeeServings?: number }>({
     name: "",
     emoji: "\uD83E\uDD64",
     price: 1.0,
@@ -197,6 +216,7 @@ export default function AeroClubBar() {
     stockReserve: 0,
   });
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editingTxFull, setEditingTxFull] = useState<{ tx: Transaction; lines: { productId: string; qty: number }[] } | null>(null);
   const [activeAdminTab, setActiveAdminTab] = useState("stock");
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(
     null,
@@ -222,11 +242,24 @@ export default function AeroClubBar() {
   const [bureauPinError, setBureauPinError] = useState(false);
   const [bureauUnlocked, setBureauUnlocked] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error">("idle");
+  const [procurements, setProcurements] = useState<Procurement[]>([]);
+  const [restockingProduct, setRestockingProduct] = useState<Product | null>(null);
+  const [restockForm, setRestockForm] = useState<{ qty: number; newPrice: number; newCost: number; method: "especes" | "carte" }>({ qty: 1, newPrice: 0, newCost: 0, method: "especes" });
+  const [lockRetriggerCountdown, setLockRetriggerCountdown] = useState<number | null>(null);
+  const [emojiPickerFor, setEmojiPickerFor] = useState<"new" | "edit" | null>(null);
+  const [emojiPickerCategory, setEmojiPickerCategory] = useState(0);
+  const [saleCategory, setSaleCategory] = useState<string | null>(null);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [newCategoryForm, setNewCategoryForm] = useState<{ label: string; emoji: string; hasCupCost: boolean } | null>(null);
+  const [coffeeCredits, setCoffeeCredits] = useState<Record<string, number>>({});
+  const [coffeeModal, setCoffeeModal] = useState<{ buyer: string; totalServings: number; lockType: "cafe" | "both"; productId: string } | null>(null);
+  const [coffeeAvoirUsedInCheckout, setCoffeeAvoirUsedInCheckout] = useState(false);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
-  const hasLoaded = useRef(false); // ← AJOUTER CETTE LIGNE
+  const hasLoaded = useRef(false);
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sumupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearCartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lockRetriggerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Debounced save to avoid too many API calls
   const debouncedSave = useCallback((key: string, value: unknown) => {
@@ -249,13 +282,13 @@ export default function AeroClubBar() {
         if (data.settings) setSettings(data.settings);
         if (data.suggestions) setSuggestions(data.suggestions);
         if (data.members) setMembers(data.members);
+        if (data.procurements) setProcurements(data.procurements);
+        if (data.coffeeCredits) setCoffeeCredits(data.coffeeCredits);
       }
       setLoading(false);
-      if (data) {
-        setTimeout(() => {
-          hasLoaded.current = true;
-        }, 2000);
-      }
+      setTimeout(() => {
+        hasLoaded.current = true;
+      }, 2000);
     })();
   }, []);
 
@@ -275,6 +308,12 @@ export default function AeroClubBar() {
   useEffect(() => {
     if (!loading) debouncedSave("aeroclub-members", members);
   }, [members, loading, debouncedSave]);
+  useEffect(() => {
+    if (!loading) debouncedSave("aeroclub-procurements", procurements);
+  }, [procurements, loading, debouncedSave]);
+  useEffect(() => {
+    if (!loading) debouncedSave("aeroclub-coffee-credits", coffeeCredits);
+  }, [coffeeCredits, loading, debouncedSave]);
 
   // Nettoyer les timers SumUp et le clearCart au démontage du composant
   useEffect(() => {
@@ -283,8 +322,19 @@ export default function AeroClubBar() {
       if (sumupTimeoutRef.current) clearTimeout(sumupTimeoutRef.current);
       if (clearCartTimeoutRef.current) clearTimeout(clearCartTimeoutRef.current);
       if (cartTickRef.current) clearInterval(cartTickRef.current);
+      if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
     };
   }, []);
+
+  // Auto-reload toutes les 10 min si l'app est idle (iPad non surveillé)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (cart.length === 0 && !showCheckout && view !== "admin") {
+        window.location.reload();
+      }
+    }, 10 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [cart.length, showCheckout, view]);
 
   // Tick interval pour le countdown du panier
   useEffect(() => {
@@ -303,14 +353,34 @@ export default function AeroClubBar() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const cartTotal = cart.reduce((s, i) => s + i.product.price * i.qty, 0);
+  // FIFO : vend l'ancien stock au legacyPrice d'abord, puis au price courant
+  const getFifoTotal = (product: Product, qty: number): number => {
+    const legacyQty = Math.min(product.legacyStock || 0, qty);
+    const regularQty = qty - legacyQty;
+    return legacyQty * (product.legacyPrice || product.price) + regularQty * product.price;
+  };
+
+  const getCategories = () => settings.categories || DEFAULT_CATEGORIES;
+  const effectiveStock = (p: Product) => Math.floor(p.stock / (p.coffeeServings || 1));
+  const cartTotal = cart.reduce((s, i) => s + getFifoTotal(i.product, i.qty), 0);
   const cartTotalCost = cart.reduce(
-    (s, i) => s + (i.product.cost || 0) * i.qty,
+    (s, i) => {
+      const cat = getCategories().find((c) => c.id === i.product.category);
+      return s + ((i.product.cost || 0) + (cat?.hasCupCost ? (settings.cupCost || 0) : 0)) * i.qty;
+    },
     0,
   );
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
 
   // Normalize a full name by sorting tokens alphabetically so
+  // Rendu de l'icône produit : emoji texte OU image si l'emoji est une URL http
+  const renderProductIcon = (emoji: string, className: string, imgSize = "w-8 h-8") => {
+    if (emoji.startsWith("http")) {
+      return <img src={emoji} alt="" className={imgSize + " object-contain rounded"} />;
+    }
+    return <span className={className}>{emoji}</span>;
+  };
+
   // "DUPONT Jean", "Jean Dupont", "jean dupont" all map to the same key
   const normalizeNameFuzzy = (n: string) =>
     n.trim().toLowerCase().split(/\s+/).sort().join(" ");
@@ -331,7 +401,11 @@ export default function AeroClubBar() {
       if (!seen.has(key)) seen.set(key, n);
     }
     return [...seen.values()]
-      .filter((n) => tokens.some((tok) => n.toLowerCase().includes(tok)))
+      .filter((n) => {
+        const nameToks = n.toLowerCase().split(/\s+/);
+        // Chaque token de l'input doit correspondre au DÉBUT d'un token du nom
+        return tokens.every((tok) => nameToks.some((nt) => nt.startsWith(tok)));
+      })
       .slice(0, 5);
   };
 
@@ -370,11 +444,11 @@ export default function AeroClubBar() {
   };
 
   const addToCart = (p: Product) => {
-    if (p.stock <= 0) return;
+    if (effectiveStock(p) <= 0) return;
     setCart((prev) => {
       const ex = prev.find((c) => c.product.id === p.id);
       if (ex) {
-        if (ex.qty >= p.stock) return prev;
+        if (ex.qty >= effectiveStock(p)) return prev;
         return prev.map((c) =>
           c.product.id === p.id ? { ...c, qty: c.qty + 1 } : c,
         );
@@ -442,10 +516,70 @@ export default function AeroClubBar() {
     setBureauUnlocked(false);
     setShowBureauPin(false);
     setBureauPinInput("");
+    setCoffeeAvoirUsedInCheckout(false);
   };
   const getCartQty = (pid: string) => {
     const i = cart.find((c) => c.product.id === pid);
     return i ? i.qty : 0;
+  };
+
+  const confirmRestock = () => {
+    if (!restockingProduct || restockForm.qty <= 0) return;
+    const p = restockingProduct;
+    const totalCost = Math.round(restockForm.qty * restockForm.newCost * 100) / 100;
+    const priceChanged = restockForm.newPrice !== p.price;
+
+    setProducts((prev) =>
+      prev.map((x) => {
+        if (x.id !== p.id) return x;
+        const existingLegacy = x.legacyStock || 0;
+        const existingLegacyPrice = x.legacyPrice;
+        // Si le prix change : tout le stock courant + legacy devient legacy au prix courant
+        const newLegacyStock = priceChanged
+          ? x.stock + existingLegacy
+          : existingLegacy;
+        const newLegacyPrice = priceChanged
+          ? x.price
+          : existingLegacyPrice;
+        return {
+          ...x,
+          stock: x.stock + restockForm.qty,
+          cost: restockForm.newCost,
+          price: restockForm.newPrice,
+          legacyStock: newLegacyStock || undefined,
+          legacyPrice: newLegacyPrice || undefined,
+        };
+      }),
+    );
+
+    const entry: Procurement = {
+      id: Date.now().toString(36),
+      date: new Date().toISOString(),
+      productId: p.id,
+      productName: p.name,
+      qty: restockForm.qty,
+      unitCost: restockForm.newCost,
+      totalCost,
+      method: restockForm.method,
+    };
+    setProcurements((prev) => [entry, ...prev]);
+
+    if (restockForm.method === "especes") {
+      setSettings((prev) => ({
+        ...prev,
+        cashInBox: Math.round(((prev.cashInBox || 0) - totalCost) * 100) / 100,
+      }));
+    } else {
+      setSettings((prev) => ({
+        ...prev,
+        cbReceived: Math.round(((prev.cbReceived || 0) - totalCost) * 100) / 100,
+      }));
+    }
+
+    showToast(
+      "Réappro " + p.name + " : +" + restockForm.qty + " unités — " + formatPrice(totalCost) + " débité",
+    );
+    setRestockingProduct(null);
   };
 
   const createSumUpCheckout = async () => {
@@ -523,14 +657,18 @@ export default function AeroClubBar() {
     const canonicalBuyer = canonicalMember
       ? canonicalMember.name
       : buyerName.trim();
-    // Calculer les produits mis à jour AVANT setProducts pour éviter la race condition
+    // Calculer les produits mis à jour AVANT setProducts pour éviter la race condition (dépletion FIFO)
     let updatedProducts = [...products];
     for (const item of cart) {
-      updatedProducts = updatedProducts.map((p) =>
-        p.id === item.product.id
-          ? { ...p, stock: Math.max(0, p.stock - item.qty) }
-          : p,
-      );
+      updatedProducts = updatedProducts.map((p) => {
+        if (p.id !== item.product.id) return p;
+        // Produits café : la déduction est reportée dans handleCoffeeChoice (selon servings utilisés)
+        if (item.product.coffeeServings && item.product.coffeeServings > 1) return p;
+        let newLegacyStock = p.legacyStock || 0;
+        const fromLegacy = Math.min(newLegacyStock, item.qty);
+        newLegacyStock = Math.max(0, newLegacyStock - fromLegacy);
+        return { ...p, stock: Math.max(0, p.stock - item.qty), legacyStock: newLegacyStock };
+      });
     }
     setProducts(updatedProducts);
     // Send Telegram alerts ONLY for products in this cart that drop to low stock
@@ -585,11 +723,27 @@ export default function AeroClubBar() {
         !c.product.name.toLowerCase().includes("cafe") &&
         !c.product.name.toLowerCase().includes("café"),
     );
-    if (hasCafe && hasOther)
-      fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
-    else if (hasCafe)
-      fetch("/api/fridge?action=trigger&lock=cafe").catch(() => {});
-    else fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
+    const lockType: "cafe" | "frigo" | "both" = hasCafe && hasOther ? "both" : hasCafe ? "cafe" : "frigo";
+
+    // Détecter produits multi-portions café (ex: "2x Cafés")
+    const totalCoffeeServings = cart.reduce(
+      (s, c) => s + ((c.product.coffeeServings && c.product.coffeeServings > 1) ? c.qty * c.product.coffeeServings : 0),
+      0,
+    );
+    if (totalCoffeeServings > 0) {
+      // Déclencher le frigo immédiatement si panier mixte, mais bloquer le café
+      if (hasOther) fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
+      // Afficher le modal café pour choisir combien utiliser maintenant
+      const coffeeCartItem = cart.find((c) => c.product.coffeeServings && c.product.coffeeServings > 1);
+      // Le frigo a déjà été ouvert ci-dessus si mixte → le modal café ouvre uniquement le café
+      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType: "cafe", productId: coffeeCartItem?.product.id || "" });
+    } else {
+      if (hasCafe && hasOther)
+        fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
+      else if (hasCafe)
+        fetch("/api/fridge?action=trigger&lock=cafe").catch(() => {});
+      else fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
+    }
 
     const tx: Transaction = {
       id: Date.now().toString(36),
@@ -607,6 +761,7 @@ export default function AeroClubBar() {
       total: cartTotal,
       buyer: canonicalBuyer,
       method,
+      lockType,
     });
     setPaymentStatus("success");
     showToast("Merci " + canonicalBuyer.split(" ")[0] + " !");
@@ -619,7 +774,31 @@ export default function AeroClubBar() {
       setLastOrder(null);
       setShowCashFlow(false);
       setCashAmountInput("");
-    }, 8000);
+      setLockRetriggerCountdown(null);
+      if (lockRetriggerTimerRef.current) { clearInterval(lockRetriggerTimerRef.current); lockRetriggerTimerRef.current = null; }
+    }, 20000);
+  };
+
+  const handleCoffeeChoice = (usedNow: number) => {
+    if (!coffeeModal) return;
+    const remaining = coffeeModal.totalServings - usedNow;
+    if (remaining > 0) {
+      setCoffeeCredits((prev) => ({
+        ...prev,
+        [coffeeModal.buyer]: (prev[coffeeModal.buyer] || 0) + remaining,
+      }));
+      showToast(coffeeModal.buyer.split(" ")[0] + " a " + ((coffeeCredits[coffeeModal.buyer] || 0) + remaining) + " avoir(s) café ☕");
+    }
+    // Déduire uniquement les capsules réellement consommées maintenant
+    if (coffeeModal.productId) {
+      setProducts((prev) => prev.map((p) => {
+        if (p.id !== coffeeModal.productId) return p;
+        const fromLegacy = Math.min(p.legacyStock || 0, usedNow);
+        return { ...p, stock: Math.max(0, p.stock - usedNow), legacyStock: Math.max(0, (p.legacyStock || 0) - fromLegacy) };
+      }));
+    }
+    fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
+    setCoffeeModal(null);
   };
 
   const handleAdminLogin = () => {
@@ -668,6 +847,17 @@ export default function AeroClubBar() {
     setProducts((prev) => prev.filter((p) => p.id !== id));
     showToast("Produit supprime", "info");
   };
+  const moveProduct = (id: string, dir: -1 | 1) => {
+    setProducts((prev) => {
+      const idx = prev.findIndex((p) => p.id === id);
+      if (idx < 0) return prev;
+      const newIdx = idx + dir;
+      if (newIdx < 0 || newIdx >= prev.length) return prev;
+      const arr = [...prev];
+      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
+      return arr;
+    });
+  };
   const saveEditProduct = () => {
     if (!editingProduct || !editingProduct.name.trim()) return;
     setProducts((prev) =>
@@ -704,7 +894,7 @@ export default function AeroClubBar() {
         return prev.map((m) =>
           normalizeNameFuzzy(m.name) === oldKey ? { ...m, name: trimmed } : m,
         );
-      return [...prev, { name: trimmed, balance: 0 }];
+      return prev; // présent uniquement dans les transactions → pas de nouveau membre
     });
     // Rename in ALL transactions (match toutes les variantes : casse, ordre tokens)
     setTransactions((prev) =>
@@ -712,6 +902,15 @@ export default function AeroClubBar() {
         normalizeNameFuzzy(t.buyer) === oldKey ? { ...t, buyer: trimmed } : t,
       ),
     );
+    // Transférer les avoirs café vers le nouveau nom
+    setCoffeeCredits((prev) => {
+      const credit = prev[oldName];
+      if (!credit) return prev;
+      const next = { ...prev };
+      delete next[oldName];
+      next[trimmed] = (next[trimmed] || 0) + credit;
+      return next;
+    });
     showToast("Membre renomme : " + trimmed);
   };
 
@@ -745,9 +944,12 @@ export default function AeroClubBar() {
         if (match) {
           const qty = parseInt(match[1], 10);
           const name = match[2];
-          u = u.map((p) =>
-            p.name === name ? { ...p, stock: p.stock + qty } : p,
-          );
+          u = u.map((p) => {
+            if (p.name !== name) return p;
+            // Pour les produits café (coffeeServings > 1), la déduction était en capsules
+            const restoreQty = qty * (p.coffeeServings || 1);
+            return { ...p, stock: p.stock + restoreQty };
+          });
         }
       }
       return u;
@@ -756,22 +958,86 @@ export default function AeroClubBar() {
     showToast("Vente supprimee, stock restaure", "info");
   };
 
+  const parseTxItems = (itemsStr: string): { productId: string; qty: number }[] => {
+    return itemsStr
+      .split(", ")
+      .map((part) => {
+        const m = part.match(/^(\d+)x (.+)$/);
+        if (!m) return null;
+        const qty = parseInt(m[1], 10);
+        const name = m[2];
+        const product = products.find((p) => p.name === name);
+        return product ? { productId: product.id, qty } : null;
+      })
+      .filter((x): x is { productId: string; qty: number } => x !== null);
+  };
+
   const editTransaction = (tx: Transaction) => {
-    const newAmount = prompt(
-      "Nouveau montant pour cette vente (actuel: " + tx.total + ") :",
-      String(tx.total),
+    setEditingTxFull({ tx, lines: parseTxItems(tx.items) });
+  };
+
+  const saveTxEdit = () => {
+    if (!editingTxFull) return;
+    const { tx, lines } = editingTxFull;
+    const validLines = lines.filter((l) => l.qty > 0);
+    if (validLines.length === 0) {
+      showToast("Au moins une ligne requise", "error");
+      return;
+    }
+    // Calcul du delta de stock : restore l'ancien, déduit le nouveau
+    const oldLines = parseTxItems(tx.items);
+    const stockDelta: Record<string, number> = {};
+    for (const old of oldLines) {
+      const p = products.find((pr) => pr.id === old.productId);
+      if (!p) continue;
+      stockDelta[old.productId] = (stockDelta[old.productId] || 0) + old.qty * (p.coffeeServings || 1);
+    }
+    for (const nl of validLines) {
+      const p = products.find((pr) => pr.id === nl.productId);
+      if (!p) continue;
+      stockDelta[nl.productId] = (stockDelta[nl.productId] || 0) - nl.qty * (p.coffeeServings || 1);
+    }
+    setProducts((prev) =>
+      prev.map((p) => {
+        const d = stockDelta[p.id] || 0;
+        if (d === 0) return p;
+        return { ...p, stock: Math.max(0, p.stock + d) };
+      }),
     );
-    if (newAmount === null) return;
-    const amount = parseFloat(newAmount);
-    if (isNaN(amount) || amount < 0) return;
+    // Recalcul items, total, totalCost
+    const newItemsStr = validLines
+      .map((l) => {
+        const p = products.find((pr) => pr.id === l.productId);
+        return p ? l.qty + "x " + p.name : "";
+      })
+      .filter(Boolean)
+      .join(", ");
+    const newTotal = validLines.reduce((s, l) => {
+      const p = products.find((pr) => pr.id === l.productId);
+      return s + (p ? getFifoTotal(p, l.qty) : 0);
+    }, 0);
+    const newTotalCost = validLines.reduce((s, l) => {
+      const p = products.find((pr) => pr.id === l.productId);
+      if (!p) return s;
+      const cat = (settings.categories || DEFAULT_CATEGORIES).find((c) => c.id === p.category);
+      const cupCost = cat?.hasCupCost ? settings.cupCost || 0 : 0;
+      return s + l.qty * ((p.cost || 0) + cupCost);
+    }, 0);
     setTransactions((prev) =>
       prev.map((t) =>
         t.id === tx.id
-          ? { ...t, total: amount, method: amount === 0 ? "offert" : t.method }
+          ? {
+              ...t,
+              items: newItemsStr,
+              total: Math.round(newTotal * 100) / 100,
+              totalCost: Math.round(newTotalCost * 100) / 100,
+              method: newTotal === 0 ? "offert" : t.method,
+            }
           : t,
       ),
     );
-    showToast("Transaction modifiee : " + formatPrice(amount));
+    setEditingTxFull(null);
+    showToast("Transaction modifiée, stock ajusté");
   };
 
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -780,11 +1046,14 @@ export default function AeroClubBar() {
   const totalRevenue = transactions.reduce((s, t) => s + t.total, 0);
   const totalCost = transactions.reduce((s, t) => s + (t.totalCost || 0), 0);
   const totalProfit = totalRevenue - totalCost;
+  const sumupRate = (settings.sumupFeeRate ?? 2.5) / 100;
+  const totalSumupFees = Math.round(transactions.filter((t) => t.method === "carte").reduce((s, t) => s + t.total * sumupRate, 0) * 100) / 100;
+  const totalProfitNet = Math.round((totalProfit - totalSumupFees) * 100) / 100;
   const marginPct =
     totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0;
   const todayCost = todayTx.reduce((s, t) => s + (t.totalCost || 0), 0);
   const todayProfit = todayRevenue - todayCost;
-  const lowStock = products.filter((p) => p.stock <= 5);
+  const lowStock = products.filter((p) => effectiveStock(p) <= 5);
   const filteredTx = transactions
     .filter((t) => !filterBuyer || (t.buyer || "").toLowerCase().includes(filterBuyer.toLowerCase()))
     .filter((t) => !filterMethod || t.method === filterMethod);
@@ -840,9 +1109,27 @@ export default function AeroClubBar() {
             </button>
           </div>
 
+          {/* Filtres catégorie */}
+          {products.some((p) => p.category) && (
+            <div className="flex items-center gap-0 w-full max-w-lg bg-[#0d1525] rounded-2xl p-1 mb-2 shadow-inner">
+              <button
+                onClick={() => setSaleCategory(null)}
+                className={"flex-1 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer " + (saleCategory === null ? "bg-amber-500 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}
+              >{"Tout"}</button>
+              {getCategories().filter((c) => products.some((p) => !p.archived && p.category === c.id)).map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setSaleCategory(cat.id)}
+                  className={"flex-1 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer " + (saleCategory === cat.id ? "bg-amber-500 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}
+                >
+                  {cat.emoji + " " + cat.label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 w-full max-w-3xl">
-            {products.map((p) => {
-              const out = p.stock <= 0;
+            {products.filter((p) => !p.archived && (!saleCategory || p.category === saleCategory)).map((p) => {
+              const out = effectiveStock(p) <= 0;
               const qty = getCartQty(p.id);
               return (
                 <button
@@ -850,7 +1137,7 @@ export default function AeroClubBar() {
                   onClick={() => addToCart(p)}
                   disabled={out}
                   className={
-                    "bg-[#131b2e] border rounded-xl py-2.5 px-1.5 flex flex-col items-center gap-0.5 transition-all duration-200 relative " +
+                    "bg-[#131b2e] border rounded-xl py-3 px-1.5 flex flex-col items-center gap-0.5 transition-all duration-200 relative " +
                     (out
                       ? "opacity-40 cursor-not-allowed border-[#1e2d4a]"
                       : qty > 0
@@ -859,28 +1146,18 @@ export default function AeroClubBar() {
                   }
                 >
                   {qty > 0 && (
-                    <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-amber-500 text-black text-[10px] font-extrabold flex items-center justify-center shadow-lg">
+                    <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-amber-500 text-black text-[11px] font-extrabold flex items-center justify-center shadow-lg">
                       {String(qty)}
                     </div>
                   )}
-                  {renderProductIcon(p.emoji, "text-2xl", "w-8 h-8 object-contain")}
-                  <span className="text-[11px] font-bold leading-tight text-center">{p.name}</span>
+                  {renderProductIcon(p.emoji, "text-3xl", "w-8 h-8")}
+                  <span className="text-[11px] font-bold text-center leading-tight">{p.name}</span>
                   <span className="text-sm font-extrabold text-amber-500">
                     {formatPrice(p.price)}
                   </span>
-                  {out && (
-                    <span className="text-[9px] text-red-500 font-bold uppercase">
-                      {"Epuise"}
-                    </span>
-                  )}
-                  {!out && p.stock <= 5 && (
-                    <span className="text-[9px] text-orange-400 bg-orange-950 px-1.5 py-0.5 rounded-full font-semibold">
-                      {"Plus que " + p.stock}
-                    </span>
-                  )}
-                  {!out && p.stock > 5 && (
-                    <span className="text-[9px] text-slate-500 font-medium">
-                      {"Stock : " + p.stock}
+                  {!out && (
+                    <span className={"text-[9px] font-semibold " + (effectiveStock(p) <= 5 ? "text-orange-400" : "text-slate-500")}>
+                      {effectiveStock(p) <= 5 ? effectiveStock(p) + " restants" : effectiveStock(p)}
                     </span>
                   )}
                 </button>
@@ -965,13 +1242,13 @@ export default function AeroClubBar() {
                       key={item.product.id}
                       className="flex items-center gap-1.5 bg-[#0f172a] border border-[#1e2d4a] rounded-lg px-2.5 py-1.5"
                     >
-                      {renderProductIcon(item.product.emoji, "text-lg", "w-5 h-5 object-contain")}
+                      {renderProductIcon(item.product.emoji, "text-lg", "w-6 h-6")}
                       <span className="text-xs font-semibold">
                         {(item.qty > 1 ? item.qty + "x " : "") +
                           item.product.name}
                       </span>
                       <span className="text-xs text-amber-500 font-bold">
-                        {formatPrice(item.product.price * item.qty)}
+                        {formatPrice(getFifoTotal(item.product, item.qty))}
                       </span>
                       {secs !== null && (
                         <span className={`text-[10px] font-bold tabular-nums ${secs <= 5 ? "text-red-400" : "text-slate-500"}`}>
@@ -1048,14 +1325,17 @@ export default function AeroClubBar() {
                           className="flex items-center justify-between bg-[#0f172a] rounded-lg px-3 py-2"
                         >
                           <div className="flex items-center gap-2">
-                            {renderProductIcon(item.product.emoji, "text-xl", "w-6 h-6 object-contain")}
+                            {renderProductIcon(item.product.emoji, "text-xl", "w-7 h-7")}
                             <span className="text-sm font-semibold">
                               {item.product.name}
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
                             <button
-                              onClick={() => removeFromCart(item.product.id)}
+                              onClick={() => {
+                                removeFromCart(item.product.id);
+                                if (cart.length === 1 && item.qty === 1) clearCart();
+                              }}
                               className="w-7 h-7 rounded-lg bg-[#131b2e] border border-slate-700 text-red-500 font-bold flex items-center justify-center cursor-pointer text-sm"
                             >
                               {"\u2212"}
@@ -1070,7 +1350,7 @@ export default function AeroClubBar() {
                               {"+"}
                             </button>
                             <span className="text-sm font-bold text-amber-500 ml-2 min-w-[50px] text-right">
-                              {formatPrice(item.product.price * item.qty)}
+                              {formatPrice(getFifoTotal(item.product, item.qty))}
                             </span>
                           </div>
                         </div>
@@ -1155,9 +1435,95 @@ export default function AeroClubBar() {
                         )}
                     </div>
 
-                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-3">
-                      {"Comment payer ?"}
-                    </p>
+                    {/* ── Bloc paiement : avoir café prioritaire ou paiement normal ── */}
+                    {(() => {
+                      const buyerKey = normalizeNameFuzzy(buyerName.trim());
+                      const canonical = buyerName.trim() ? (members.find((m) => normalizeNameFuzzy(m.name) === buyerKey)?.name || buyerName.trim()) : "";
+                      const cafCredit = canonical ? (coffeeCredits[canonical] || 0) : 0;
+                      const cartHasCafe = cart.some((c) =>
+                        c.product.name.toLowerCase().includes("café") ||
+                        c.product.name.toLowerCase().includes("cafe") ||
+                        !!(c.product.coffeeServings && c.product.coffeeServings > 1),
+                      );
+                      const cartHasFrigo = cart.some((c) =>
+                        !c.product.name.toLowerCase().includes("café") &&
+                        !c.product.name.toLowerCase().includes("cafe"),
+                      );
+
+                      // ── Étape avoir café — uniquement si le panier contient un produit café ──
+                      if (cafCredit > 0 && buyerName.trim() && !coffeeAvoirUsedInCheckout && cartHasCafe) {
+                        return (
+                          <div className="flex flex-col gap-3">
+                            {cartHasFrigo && cart.length > 0 && (
+                              <div className="flex items-center gap-2">
+                                <span className="flex-1 h-px bg-[#1e2d4a]" />
+                                <span className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">
+                                  {"Étape 1/2 — Café"}
+                                </span>
+                                <span className="flex-1 h-px bg-[#1e2d4a]" />
+                              </div>
+                            )}
+                            <p className="text-xs text-amber-400 font-semibold text-center">
+                              {"☕ " + canonical.split(" ")[0] + " a " + cafCredit + " avoir" + (cafCredit > 1 ? "s" : "") + " café"}
+                            </p>
+                            <button
+                              onClick={() => {
+                                fetch("/api/fridge?action=trigger&lock=cafe").catch(() => {});
+                                setCoffeeCredits((prev) => {
+                                  const next = { ...prev, [canonical]: cafCredit - 1 };
+                                  if (next[canonical] <= 0) delete next[canonical];
+                                  return next;
+                                });
+                                // Déduire 1 capsule du produit café
+                                setProducts((prev) => {
+                                  const cp = prev.find((p) => p.coffeeServings && p.coffeeServings > 1);
+                                  if (!cp) return prev;
+                                  return prev.map((p) => p.id !== cp.id ? p : {
+                                    ...p, stock: Math.max(0, p.stock - 1),
+                                    legacyStock: Math.max(0, (p.legacyStock || 0) - Math.min(p.legacyStock || 0, 1)),
+                                  });
+                                });
+                                // Retirer les produits café du panier — couverts par l'avoir
+                                const isCafe = (name: string) =>
+                                  name.toLowerCase().includes("café") || name.toLowerCase().includes("cafe");
+                                const remaining = cart.filter((c) => !isCafe(c.product.name));
+                                setCart(remaining);
+                                if (remaining.length > 0) {
+                                  setCoffeeAvoirUsedInCheckout(true);
+                                  showToast("☕ Café déverrouillé — passez au paiement");
+                                } else {
+                                  showToast("☕ Tiroir café déverrouillé !");
+                                  clearCart();
+                                  setBuyerName("");
+                                }
+                              }}
+                              className="w-full py-4 rounded-xl font-extrabold text-lg bg-amber-500 text-black active:scale-95 cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.3)]"
+                            >
+                              {"☕ Utiliser mon avoir café"}
+                              {cafCredit > 1 && <span className="block text-sm font-semibold opacity-70 mt-0.5">{"(" + cafCredit + " restant" + (cafCredit > 1 ? "s" : "") + ")"}</span>}
+                            </button>
+                            {cart.length === 0 && (
+                              <p className="text-[11px] text-slate-600 text-center">{"Ouvre le tiroir café sans paiement"}</p>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      // ── Paiement normal (ou étape 2/2) ──
+                      return (
+                        <div className="flex flex-col gap-0">
+                          {coffeeAvoirUsedInCheckout && cartHasFrigo && (
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="flex-1 h-px bg-[#1e2d4a]" />
+                              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                {"Étape 2/2 — Paiement"}
+                              </span>
+                              <span className="flex-1 h-px bg-[#1e2d4a]" />
+                            </div>
+                          )}
+                          <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-3">
+                            {"Comment payer ?"}
+                          </p>
 
                     {/* Pay with avoir */}
                     {buyerName.trim() &&
@@ -1460,14 +1826,15 @@ export default function AeroClubBar() {
                       </button>
                     )}
 
-                    <button
-                      onClick={() => {
-                        clearCart();
-                      }}
-                      className="mt-3 px-5 py-2.5 rounded-lg border border-slate-700 text-slate-400 text-sm font-semibold hover:border-slate-500 transition cursor-pointer"
-                    >
-                      {"Retour"}
-                    </button>
+                          <button
+                            onClick={() => { clearCart(); }}
+                            className="mt-3 px-5 py-2.5 rounded-lg border border-slate-700 text-slate-400 text-sm font-semibold hover:border-slate-500 transition cursor-pointer"
+                          >
+                            {"Retour"}
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
                 {paymentStatus === "success" && lastOrder && (
@@ -1490,14 +1857,14 @@ export default function AeroClubBar() {
                             className="flex items-center justify-between"
                           >
                             <div className="flex items-center gap-2">
-                              {renderProductIcon(item.product.emoji, "text-lg", "w-5 h-5 object-contain")}
+                              {renderProductIcon(item.product.emoji, "text-lg", "w-6 h-6")}
                               <span className="text-sm">
                                 {item.qty > 1 ? item.qty + "x " : ""}
                                 {item.product.name}
                               </span>
                             </div>
                             <span className="text-sm font-bold text-amber-500">
-                              {formatPrice(item.product.price * item.qty)}
+                              {formatPrice(getFifoTotal(item.product, item.qty))}
                             </span>
                           </div>
                         ))}
@@ -1541,6 +1908,43 @@ export default function AeroClubBar() {
                       )}
                     </div>
 
+                    {/* Bandeau serrure */}
+                    <div className="w-full bg-emerald-900/30 border border-emerald-700/40 rounded-xl p-3 flex flex-col items-center gap-2">
+                      <p className="text-sm font-semibold text-emerald-400">
+                        {lastOrder.lockType === "cafe"
+                          ? "\u2615 Tiroir caf\u00e9 d\u00e9verrouill\u00e9 !"
+                          : lastOrder.lockType === "frigo"
+                            ? "\uD83C\uDF7A Frigo d\u00e9verrouill\u00e9 !"
+                            : "\u2615\uD83C\uDF7A Caf\u00e9 & Frigo d\u00e9verrouill\u00e9s !"}
+                      </p>
+                      {lockRetriggerCountdown === null ? (
+                        <button
+                          onClick={() => {
+                            fetch("/api/fridge?action=trigger&lock=" + lastOrder.lockType).catch(() => {});
+                            setLockRetriggerCountdown(5);
+                            if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
+                            lockRetriggerTimerRef.current = setInterval(() => {
+                              setLockRetriggerCountdown((prev) => {
+                                if (prev === null || prev <= 1) {
+                                  if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
+                                  lockRetriggerTimerRef.current = null;
+                                  return 0;
+                                }
+                                return prev - 1;
+                              });
+                            }, 1000);
+                          }}
+                          className="text-xs px-4 py-1.5 rounded-lg bg-emerald-700/40 text-emerald-300 font-semibold cursor-pointer hover:bg-emerald-700/60 active:scale-95"
+                        >
+                          {"\uD83D\uDD13 R\u00e9-ouvrir"}
+                        </button>
+                      ) : lockRetriggerCountdown > 0 ? (
+                        <p className="text-xs text-emerald-500 font-bold tabular-nums">
+                          {"Ferme dans " + lockRetriggerCountdown + "s\u2026"}
+                        </p>
+                      ) : null}
+                    </div>
+
                     <p className="text-slate-600 text-xs mt-2">
                       {"Bonne degustation ! \uD83D\uDE0A"}
                     </p>
@@ -1549,6 +1953,8 @@ export default function AeroClubBar() {
                         clearCart();
                         setBuyerName("");
                         setLastOrder(null);
+                        setLockRetriggerCountdown(null);
+                        if (lockRetriggerTimerRef.current) { clearInterval(lockRetriggerTimerRef.current); lockRetriggerTimerRef.current = null; }
                       }}
                       className="mt-2 px-6 py-2.5 rounded-xl bg-[#1e2d4a] text-amber-500 text-sm font-semibold cursor-pointer active:scale-95"
                     >
@@ -1718,22 +2124,46 @@ export default function AeroClubBar() {
                           <label className="text-[10px] text-slate-500 font-semibold uppercase">
                             {"Emoji / URL image"}
                           </label>
-                          <div className="flex items-center gap-2">
-                            <input
-                              placeholder={"🥤 ou https://..."}
-                              value={editingProduct.emoji}
-                              onChange={(e) =>
-                                setEditingProduct({
-                                  ...editingProduct,
-                                  emoji: e.target.value,
-                                })
-                              }
-                              className="h-12 flex-1 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-center text-sm outline-none px-2"
-                            />
-                            <div className="w-10 h-10 flex items-center justify-center bg-[#131b2e] rounded-lg border border-slate-700">
-                              {renderProductIcon(editingProduct.emoji, "text-2xl", "w-8 h-8 object-contain")}
+                          <button
+                            onClick={() => setEmojiPickerFor(emojiPickerFor === "edit" ? null : "edit")}
+                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-3xl cursor-pointer hover:border-amber-500 flex items-center justify-center"
+                          >
+                            {renderProductIcon(editingProduct.emoji, "text-3xl", "w-8 h-8")}
+                          </button>
+                          {emojiPickerFor === "edit" && (
+                            <div className="absolute z-20 mt-1 bg-[#131b2e] border border-slate-700 rounded-xl p-2 shadow-2xl w-72">
+                              <div className="flex gap-1 mb-2 flex-wrap">
+                                {EMOJI_CATEGORIES.map((cat, i) => (
+                                  <button key={i} onClick={() => setEmojiPickerCategory(i)}
+                                    className={"text-base px-1.5 py-0.5 rounded cursor-pointer " + (emojiPickerCategory === i ? "bg-amber-500" : "bg-[#0f172a] hover:bg-[#1e2d4a]")}
+                                    title={cat.title}
+                                  >{cat.label}</button>
+                                ))}
+                              </div>
+                              <p className="text-[10px] text-slate-500 mb-1">{EMOJI_CATEGORIES[emojiPickerCategory].title}</p>
+                              <div className="grid grid-cols-8 gap-1 mb-2">
+                                {EMOJI_CATEGORIES[emojiPickerCategory].emojis.map((e) => (
+                                  <button key={e} onClick={() => { setEditingProduct({ ...editingProduct, emoji: e }); setEmojiPickerFor(null); }}
+                                    className="text-xl p-1 rounded hover:bg-[#1e2d4a] cursor-pointer"
+                                  >{e}</button>
+                                ))}
+                              </div>
+                              <div className="border-t border-slate-700 pt-2 mt-1">
+                                <p className="text-[10px] text-slate-500 mb-1">{"🔗 URL d'image (logo, photo...)"}</p>
+                                <input
+                                  type="url"
+                                  placeholder="https://..."
+                                  className="w-full h-8 text-xs rounded-lg border border-slate-700 bg-[#0f172a] text-white px-2 outline-none"
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      const val = (e.target as HTMLInputElement).value.trim();
+                                      if (val.startsWith("http")) { setEditingProduct({ ...editingProduct, emoji: val }); setEmojiPickerFor(null); }
+                                    }
+                                  }}
+                                />
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
                         <div className="flex flex-col gap-1">
                           <label className="text-[10px] text-slate-500 font-semibold uppercase">
@@ -1817,6 +2247,20 @@ export default function AeroClubBar() {
                           />
                         </div>
                       </div>
+                      <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={(editingProduct.coffeeServings || 1) >= 2}
+                          onChange={(e) =>
+                            setEditingProduct({
+                              ...editingProduct,
+                              coffeeServings: e.target.checked ? 2 : undefined,
+                            })
+                          }
+                          className="w-4 h-4 accent-amber-500"
+                        />
+                        <span className="text-xs text-amber-400 font-semibold">{"☕ Double portion café (2 tasses — modal après paiement)"}</span>
+                      </label>
                       <div className="flex gap-2">
                         <button
                           onClick={saveEditProduct}
@@ -1837,206 +2281,98 @@ export default function AeroClubBar() {
                   <div
                     key={p.id}
                     className={
-                      "flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 border " +
-                      (p.stock <= 5 && (p.stockReserve ?? 0) === 0
-                        ? "bg-red-950/40 border-red-800"
-                        : p.stock <= 5
-                          ? "bg-orange-950/30 border-orange-800"
-                          : "bg-[#131b2e] border-[#1e2d4a]")
+                      "flex flex-col rounded-xl border overflow-hidden " +
+                      (p.archived
+                        ? "opacity-50 bg-[#0f172a] border-slate-800 grayscale"
+                        : p.stock <= 5 && (p.stockReserve ?? 0) === 0
+                          ? "bg-red-950/40 border-red-800"
+                          : p.stock <= 5
+                            ? "bg-orange-950/30 border-orange-800"
+                            : "bg-[#131b2e] border-[#1e2d4a]")
                     }
                   >
-                    <span className="w-9 text-center flex items-center justify-center">{renderProductIcon(p.emoji, "text-2xl", "w-7 h-7 object-contain")}</span>
-                    <div className="flex-1 flex flex-col">
-                      <span className="text-sm font-bold">{p.name}</span>
-                      <span className="text-xs text-amber-500 font-semibold">
-                        {formatPrice(p.price)}
-                        <span className="text-slate-600">
-                          {" / cout: " + formatPrice(p.cost || 0)}
-                        </span>
+                    {/* Ligne 1 : icône + infos + actions */}
+                    <div className="flex items-center gap-2 px-2 py-2.5">
+                      {/* Boutons déplacement */}
+                      <div className="flex flex-col gap-0.5 shrink-0">
+                        <button onClick={() => moveProduct(p.id, -1)} className="w-5 h-5 rounded text-[10px] text-slate-500 hover:text-white bg-[#0f172a] flex items-center justify-center cursor-pointer leading-none">{"▲"}</button>
+                        <button onClick={() => moveProduct(p.id, 1)} className="w-5 h-5 rounded text-[10px] text-slate-500 hover:text-white bg-[#0f172a] flex items-center justify-center cursor-pointer leading-none">{"▼"}</button>
+                      </div>
+                      <span className="w-8 h-8 flex items-center justify-center shrink-0">
+                        {renderProductIcon(p.emoji, "text-2xl", "w-8 h-8")}
                       </span>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-slate-400">
-                          {"🧊 Frigo : "}
-                          <span
-                            className={
-                              p.stock <= 5
-                                ? "text-orange-400 font-bold"
-                                : "text-white"
-                            }
-                          >
-                            {p.stock}
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-bold block truncate">{p.name}</span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs text-amber-500 font-semibold">
+                            {formatPrice(p.price)}
+                            <span className="text-slate-600">{" · " + formatPrice(p.cost || 0)}</span>
                           </span>
-                        </span>
-                        <span className="text-[10px] text-slate-600">
-                          {"•"}
-                        </span>
-                        <span className="text-[10px] text-slate-400">
-                          {"📦 Réserve : "}
-                          <span
-                            className={
-                              (p.stockReserve ?? 0) === 0 && p.stock <= 5
-                                ? "text-red-400 font-bold"
-                                : "text-purple-300"
-                            }
-                          >
-                            {p.stockReserve ?? 0}
-                          </span>
-                        </span>
+                          {/* Sélecteur catégorie */}
+                          {getCategories().map((cat) => (
+                            <button
+                              key={cat.id}
+                              onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, category: x.category === cat.id ? undefined : cat.id } : x))}
+                              className={"text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer " + (p.category === cat.id ? "bg-blue-600 text-white" : "bg-[#0f172a] text-slate-500 hover:text-slate-300")}
+                              title={cat.label}
+                            >
+                              {cat.emoji}
+                            </button>
+                          ))}
+                        </div>
                         {p.stock <= 5 && (p.stockReserve ?? 0) === 0 && (
-                          <span className="text-[10px] text-red-400 font-bold">
-                            {"⚠ Réappro!"}
-                          </span>
+                          <span className="text-[10px] text-red-400 font-bold block">{"⚠ Réappro nécessaire"}</span>
                         )}
                         {p.stock <= 5 && (p.stockReserve ?? 0) > 0 && (
-                          <span className="text-[10px] text-orange-400">
-                            {"↻ Réappro dispo"}
-                          </span>
+                          <span className="text-[10px] text-orange-400 block">{"↻ Réserve disponible"}</span>
+                        )}
+                        {p.archived && (
+                          <span className="text-[10px] text-slate-500 block">{"Archivé"}</span>
                         )}
                       </div>
-                    </div>
-                    <div className="flex flex-col gap-1 items-center">
-                      <span className="text-[9px] text-slate-600 uppercase font-semibold">
-                        Frigo
-                      </span>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
-                          onClick={() => adjustStock(p.id, -1)}
-                          className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-red-500 text-lg font-bold flex items-center justify-center cursor-pointer"
-                        >
-                          {"\u2212"}
-                        </button>
-                        <input
-                          type="number"
-                          value={p.stock}
-                          onChange={(e) => setStockDirect(p.id, e.target.value)}
-                          className="w-12 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-white text-sm font-bold text-center outline-none"
-                        />
-                        <button
-                          onClick={() => adjustStock(p.id, 1)}
-                          className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-emerald-500 text-lg font-bold flex items-center justify-center cursor-pointer"
-                        >
-                          {"+"}
-                        </button>
+                          onClick={() => { setRestockingProduct(p); setRestockForm({ qty: 1, newPrice: p.price, newCost: p.cost, method: "especes" }); }}
+                          className="text-[10px] px-2 py-1 rounded border border-emerald-700 bg-emerald-900/20 text-emerald-400 font-bold cursor-pointer"
+                          title="Réapprovisionner"
+                        >{"+ Réappro"}</button>
+                        <button onClick={() => setEditingProduct({ ...p })} className="text-base opacity-50 hover:opacity-100 cursor-pointer" title="Modifier">{"✏️"}</button>
+                        {p.stock === 0 && !p.archived && (
+                          <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, archived: true } : x))}
+                            className="text-base opacity-50 hover:opacity-100 cursor-pointer" title="Archiver">{"📦"}</button>
+                        )}
+                        {p.archived && (
+                          <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, archived: false } : x))}
+                            className="text-xs px-1.5 py-0.5 rounded border border-amber-700 text-amber-400 cursor-pointer" title="Réactiver">{"↩"}</button>
+                        )}
+                        <button onClick={() => removeProduct(p.id)} className="text-base opacity-30 hover:opacity-80 cursor-pointer" title="Supprimer">{"🗑"}</button>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-1 items-center">
-                      <span className="text-[9px] text-purple-400 uppercase font-semibold">
-                        Reserve
-                      </span>
+                    {/* Ligne 2 : contrôles stock */}
+                    <div className="flex items-center gap-3 px-3 py-2 bg-black/20 border-t border-white/5">
+                      <span className="text-[10px] text-slate-500 font-semibold w-10 shrink-0">{"🧊 Frigo"}</span>
                       <div className="flex items-center gap-1">
-                        <button
-                          onClick={() =>
-                            setProducts((prev) =>
-                              prev.map((x) =>
-                                x.id === p.id
-                                  ? {
-                                      ...x,
-                                      stockReserve: Math.max(
-                                        0,
-                                        (x.stockReserve ?? 0) - 1,
-                                      ),
-                                    }
-                                  : x,
-                              ),
-                            )
-                          }
-                          className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-red-500 text-lg font-bold flex items-center justify-center cursor-pointer"
-                        >
-                          {"\u2212"}
-                        </button>
-                        <input
-                          type="number"
-                          value={p.stockReserve ?? 0}
-                          onChange={(e) => {
-                            const n = parseInt(e.target.value, 10);
-                            if (!isNaN(n) && n >= 0)
-                              setProducts((prev) =>
-                                prev.map((x) =>
-                                  x.id === p.id ? { ...x, stockReserve: n } : x,
-                                ),
-                              );
-                          }}
-                          className="w-12 h-8 rounded-lg border border-purple-900 bg-[#0f172a] text-purple-300 text-sm font-bold text-center outline-none"
-                        />
-                        <button
-                          onClick={() =>
-                            setProducts((prev) =>
-                              prev.map((x) =>
-                                x.id === p.id
-                                  ? {
-                                      ...x,
-                                      stockReserve: (x.stockReserve ?? 0) + 1,
-                                    }
-                                  : x,
-                              ),
-                            )
-                          }
-                          className="w-8 h-8 rounded-lg border border-slate-700 bg-[#0f172a] text-emerald-500 text-lg font-bold flex items-center justify-center cursor-pointer"
-                        >
-                          {"+"}
-                        </button>
+                        <button onClick={() => adjustStock(p.id, -1)} className="w-7 h-7 rounded border border-slate-700 bg-[#0f172a] text-red-500 font-bold flex items-center justify-center cursor-pointer">{"−"}</button>
+                        <input type="number" value={p.stock} onChange={(e) => setStockDirect(p.id, e.target.value)}
+                          className={"w-10 h-7 rounded border bg-[#0f172a] text-sm font-bold text-center outline-none " + (p.stock <= 5 ? "border-orange-700 text-orange-400" : "border-slate-700 text-white")} />
+                        <button onClick={() => adjustStock(p.id, 1)} className="w-7 h-7 rounded border border-slate-700 bg-[#0f172a] text-emerald-500 font-bold flex items-center justify-center cursor-pointer">{"+"}</button>
+                      </div>
+                      <span className="text-slate-700">{"·"}</span>
+                      <span className="text-[10px] text-purple-400 font-semibold w-12 shrink-0">{"📦 Rés."}</span>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, stockReserve: Math.max(0, (x.stockReserve ?? 0) - 1) } : x))}
+                          className="w-7 h-7 rounded border border-slate-700 bg-[#0f172a] text-red-500 font-bold flex items-center justify-center cursor-pointer">{"−"}</button>
+                        <input type="number" value={p.stockReserve ?? 0}
+                          onChange={(e) => { const n = parseInt(e.target.value, 10); if (!isNaN(n) && n >= 0) setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, stockReserve: n } : x)); }}
+                          className="w-10 h-7 rounded border border-purple-900 bg-[#0f172a] text-purple-300 text-sm font-bold text-center outline-none" />
+                        <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, stockReserve: (x.stockReserve ?? 0) + 1 } : x))}
+                          className="w-7 h-7 rounded border border-slate-700 bg-[#0f172a] text-emerald-500 font-bold flex items-center justify-center cursor-pointer">{"+"}</button>
                         {(p.stockReserve ?? 0) > 0 && (
-                          <button
-                            onClick={() =>
-                              setProducts((prev) =>
-                                prev.map((x) =>
-                                  x.id === p.id
-                                    ? { ...x, stock: x.stock + (x.stockReserve ?? 0), stockReserve: 0 }
-                                    : x,
-                                ),
-                              )
-                            }
-                            className="ml-1 px-2 h-8 rounded-lg border border-purple-700 bg-purple-900/30 text-purple-300 text-xs font-bold cursor-pointer hover:bg-purple-800/40"
-                          >
-                            {"\u2192 Frigo"}
-                          </button>
+                          <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, stock: x.stock + (x.stockReserve ?? 0), stockReserve: 0 } : x))}
+                            className="px-2 h-7 rounded border border-purple-700 bg-purple-900/30 text-purple-300 text-[11px] font-bold cursor-pointer">{"→ Frigo"}</button>
                         )}
                       </div>
                     </div>
-                    <div className="flex flex-col gap-0.5">
-                      <button
-                        disabled={products.indexOf(p) === 0}
-                        onClick={() =>
-                          setProducts((prev) => {
-                            const i = prev.findIndex((x) => x.id === p.id);
-                            if (i <= 0) return prev;
-                            const n = [...prev];
-                            [n[i - 1], n[i]] = [n[i], n[i - 1]];
-                            return n;
-                          })
-                        }
-                        className="w-6 h-6 flex items-center justify-center rounded bg-[#0f172a] border border-slate-700 text-slate-400 text-xs font-bold cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed hover:text-white hover:border-slate-500"
-                      >
-                        {"\u25B2"}
-                      </button>
-                      <button
-                        disabled={products.indexOf(p) === products.length - 1}
-                        onClick={() =>
-                          setProducts((prev) => {
-                            const i = prev.findIndex((x) => x.id === p.id);
-                            if (i < 0 || i >= prev.length - 1) return prev;
-                            const n = [...prev];
-                            [n[i], n[i + 1]] = [n[i + 1], n[i]];
-                            return n;
-                          })
-                        }
-                        className="w-6 h-6 flex items-center justify-center rounded bg-[#0f172a] border border-slate-700 text-slate-400 text-xs font-bold cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed hover:text-white hover:border-slate-500"
-                      >
-                        {"\u25BC"}
-                      </button>
-                    </div>
-                    <button
-                      onClick={() => setEditingProduct({ ...p })}
-                      className="opacity-50 hover:opacity-100 text-sm cursor-pointer"
-                    >
-                      {"\u270F\uFE0F"}
-                    </button>
-                    <button
-                      onClick={() => removeProduct(p.id)}
-                      className="opacity-40 hover:opacity-80 text-base cursor-pointer"
-                    >
-                      {"\uD83D\uDDD1"}
-                    </button>
                   </div>
                 );
               })}
@@ -2057,22 +2393,46 @@ export default function AeroClubBar() {
                       <label className="text-[10px] text-slate-500 font-semibold uppercase">
                         {"Emoji / URL image"}
                       </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          placeholder={"🥤 ou https://..."}
-                          value={newProduct.emoji}
-                          onChange={(e) =>
-                            setNewProduct({
-                              ...newProduct,
-                              emoji: e.target.value,
-                            })
-                          }
-                          className="h-12 flex-1 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-center text-sm outline-none px-2"
-                        />
-                        <div className="w-10 h-10 flex items-center justify-center bg-[#131b2e] rounded-lg border border-slate-700">
-                          {renderProductIcon(newProduct.emoji, "text-2xl", "w-8 h-8 object-contain")}
+                      <button
+                        onClick={() => setEmojiPickerFor(emojiPickerFor === "new" ? null : "new")}
+                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-3xl cursor-pointer hover:border-amber-500 flex items-center justify-center"
+                      >
+                        {renderProductIcon(newProduct.emoji, "text-3xl", "w-8 h-8")}
+                      </button>
+                      {emojiPickerFor === "new" && (
+                        <div className="absolute z-20 mt-1 bg-[#131b2e] border border-slate-700 rounded-xl p-2 shadow-2xl w-72">
+                          <div className="flex gap-1 mb-2 flex-wrap">
+                            {EMOJI_CATEGORIES.map((cat, i) => (
+                              <button key={i} onClick={() => setEmojiPickerCategory(i)}
+                                className={"text-base px-1.5 py-0.5 rounded cursor-pointer " + (emojiPickerCategory === i ? "bg-amber-500" : "bg-[#0f172a] hover:bg-[#1e2d4a]")}
+                                title={cat.title}
+                              >{cat.label}</button>
+                            ))}
+                          </div>
+                          <p className="text-[10px] text-slate-500 mb-1">{EMOJI_CATEGORIES[emojiPickerCategory].title}</p>
+                          <div className="grid grid-cols-8 gap-1 mb-2">
+                            {EMOJI_CATEGORIES[emojiPickerCategory].emojis.map((e) => (
+                              <button key={e} onClick={() => { setNewProduct({ ...newProduct, emoji: e }); setEmojiPickerFor(null); }}
+                                className="text-xl p-1 rounded hover:bg-[#1e2d4a] cursor-pointer"
+                              >{e}</button>
+                            ))}
+                          </div>
+                          <div className="border-t border-slate-700 pt-2 mt-1">
+                            <p className="text-[10px] text-slate-500 mb-1">{"🔗 URL d'image (logo, photo...)"}</p>
+                            <input
+                              type="url"
+                              placeholder="https://..."
+                              className="w-full h-8 text-xs rounded-lg border border-slate-700 bg-[#0f172a] text-white px-2 outline-none"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  const val = (e.target as HTMLInputElement).value.trim();
+                                  if (val.startsWith("http")) { setNewProduct({ ...newProduct, emoji: val }); setEmojiPickerFor(null); }
+                                }
+                              }}
+                            />
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] text-slate-500 font-semibold uppercase">
@@ -2154,6 +2514,20 @@ export default function AeroClubBar() {
                       />
                     </div>
                   </div>
+                  <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={(newProduct.coffeeServings || 1) >= 2}
+                      onChange={(e) =>
+                        setNewProduct({
+                          ...newProduct,
+                          coffeeServings: e.target.checked ? 2 : undefined,
+                        })
+                      }
+                      className="w-4 h-4 accent-amber-500"
+                    />
+                    <span className="text-xs text-amber-400 font-semibold">{"☕ Double portion café (2 tasses — modal après paiement)"}</span>
+                  </label>
                   <div className="flex gap-2">
                     <button
                       onClick={addProduct}
@@ -2195,88 +2569,114 @@ export default function AeroClubBar() {
                 </div>
                 <div className="rounded-xl p-4 border bg-[#131b2e] border-emerald-800">
                   <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                    {"Benefice total"}
+                    {"Bénéfice brut"}
                   </span>
-                  <span
-                    className={
-                      "text-xl font-extrabold " +
-                      (totalProfit >= 0 ? "text-emerald-400" : "text-red-400")
-                    }
-                  >
+                  <span className={"text-xl font-extrabold " + (totalProfit >= 0 ? "text-emerald-400" : "text-red-400")}>
                     {formatPrice(totalProfit)}
                   </span>
                 </div>
                 <div className="rounded-xl p-4 border bg-[#131b2e] border-[#1e2d4a]">
-                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                    {"Marge"}
-                  </span>
-                  <span
-                    className={
-                      "text-xl font-extrabold " +
-                      (marginPct >= 0 ? "text-emerald-400" : "text-red-400")
-                    }
-                  >
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">{"Marge"}</span>
+                  <span className={"text-xl font-extrabold " + (marginPct >= 0 ? "text-emerald-400" : "text-red-400")}>
                     {marginPct + "%"}
                   </span>
                 </div>
               </div>
+              {/* Frais SumUp + bénéfice net */}
+              {totalSumupFees > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-xl p-4 border bg-[#131b2e] border-blue-900">
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                      {"Frais SumUp (" + (settings.sumupFeeRate ?? 2.5) + "%)"}
+                    </span>
+                    <span className="text-xl font-extrabold text-blue-400">
+                      {"- " + formatPrice(totalSumupFees)}
+                    </span>
+                    <span className="text-[10px] text-slate-600 block mt-0.5">
+                      {"Sur " + formatPrice(transactions.filter(t => t.method === "carte").reduce((s,t) => s + t.total, 0)) + " CB"}
+                    </span>
+                  </div>
+                  <div className="rounded-xl p-4 border-2 bg-[#0f172a] border-emerald-600">
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                      {"Bénéfice net réel"}
+                    </span>
+                    <span className={"text-xl font-extrabold " + (totalProfitNet >= 0 ? "text-emerald-400" : "text-red-400")}>
+                      {formatPrice(totalProfitNet)}
+                    </span>
+                    <span className="text-[10px] text-slate-600 block mt-0.5">
+                      {"Après frais SumUp"}
+                    </span>
+                  </div>
+                </div>
+              )}
 
-              {/* Recettes nettes */}
+              {/* Trésorerie actuelle */}
               {(() => {
-                const cashNet = (settings.cashInBox || 0) - (settings.cashInitialFund || 0);
-                const cbNet = (settings.cbReceived || 0) - (settings.cbInitialFund || 0);
-                const totalNet = cashNet + cbNet;
+                const totalTreasury = (settings.cashInBox || 0) + (settings.cbReceived || 0);
                 return (
-                  <>
-                    <div className="rounded-xl p-4 border-2 bg-[#131b2e] border-amber-500">
-                      <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                        {"Recettes nettes"}
-                      </span>
-                      <span className="text-2xl font-extrabold text-amber-500">
-                        {formatPrice(totalNet)}
-                      </span>
-                      <span className="text-[10px] text-slate-600 block mt-1">
-                        {"Hors fonds initiaux"}
+                  <div className="rounded-xl border-2 bg-[#131b2e] border-amber-500/60 overflow-hidden">
+                    <div className="px-4 pt-3 pb-2 border-b border-amber-500/20">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
+                          {"Trésorerie actuelle"}
+                        </span>
+                        <span className="text-2xl font-extrabold text-amber-500">
+                          {formatPrice(totalTreasury)}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-600 block mt-0.5">
+                        {"CA & bénéfice calculés depuis l'historique des ventes — non affectés par les corrections ci-dessous"}
                       </span>
                     </div>
-
-                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                            {"Especes"}
-                          </span>
-                          <span className="text-xl font-extrabold text-amber-500">
-                            {formatPrice(settings.cashInBox || 0)}
-                          </span>
-                          <span className="text-[10px] text-emerald-400 font-semibold block mt-0.5">
-                            {"+" + formatPrice(cashNet) + " net"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                            {"CB"}
-                          </span>
-                          <span className="text-xl font-extrabold text-blue-400">
-                            {formatPrice(settings.cbReceived || 0)}
-                          </span>
-                          <span className="text-[10px] text-emerald-400 font-semibold block mt-0.5">
-                            {"+" + formatPrice(cbNet) + " net"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                            {"Avoirs"}
-                          </span>
-                          <span className="text-xl font-extrabold text-emerald-400">
-                            {formatPrice(
-                              members.reduce((s, m) => s + Math.max(0, m.balance), 0),
-                            )}
-                          </span>
-                        </div>
+                    <div className="grid grid-cols-3 gap-0 divide-x divide-white/5">
+                      <div className="px-3 py-3">
+                        <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"Espèces"}</span>
+                        <span className="text-lg font-extrabold text-amber-500 block">
+                          {formatPrice(settings.cashInBox || 0)}
+                        </span>
+                        <input
+                          type="number" step="0.5" placeholder="Corriger..."
+                          className="w-full h-7 rounded border border-slate-700 bg-[#0f172a] text-white text-xs text-center outline-none mt-1.5"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              const v = parseFloat((e.target as HTMLInputElement).value);
+                              if (!isNaN(v)) {
+                                setSettings((prev) => ({ ...prev, cashInBox: v }));
+                                (e.target as HTMLInputElement).value = "";
+                                showToast("Caisse espèces mise à jour");
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                      <div className="px-3 py-3">
+                        <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"CB"}</span>
+                        <span className="text-lg font-extrabold text-blue-400 block">
+                          {formatPrice(settings.cbReceived || 0)}
+                        </span>
+                        <input
+                          type="number" step="0.5" placeholder="Corriger..."
+                          className="w-full h-7 rounded border border-slate-700 bg-[#0f172a] text-white text-xs text-center outline-none mt-1.5"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              const v = parseFloat((e.target as HTMLInputElement).value);
+                              if (!isNaN(v)) {
+                                setSettings((prev) => ({ ...prev, cbReceived: v }));
+                                (e.target as HTMLInputElement).value = "";
+                                showToast("Montant CB mis à jour");
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                      <div className="px-3 py-3">
+                        <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"Avoirs"}</span>
+                        <span className="text-lg font-extrabold text-emerald-400 block">
+                          {formatPrice(members.reduce((s, m) => s + Math.max(0, m.balance), 0))}
+                        </span>
                       </div>
                     </div>
-                  </>
+                  </div>
                 );
               })()}
 
@@ -2332,7 +2732,7 @@ export default function AeroClubBar() {
                       key={p.id}
                       className="flex items-center gap-2.5 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3.5 py-2"
                     >
-                      {renderProductIcon(p.emoji, "text-xl", "w-6 h-6 object-contain")}
+                      {renderProductIcon(p.emoji, "text-xl", "w-6 h-6")}
                       <span className="text-sm font-semibold flex-1">
                         {p.name}
                       </span>
@@ -2357,6 +2757,45 @@ export default function AeroClubBar() {
                 })}
               </div>
 
+              {/* Achats fournisseurs */}
+              {procurements.length > 0 && (() => {
+                const totalSpent = procurements.reduce((s, p) => s + p.totalCost, 0);
+                const shown = procurements.slice(0, 10);
+                return (
+                  <div className="bg-[#0f172a] border border-red-900/40 rounded-xl p-4 mt-2 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        {"Achats fournisseurs"}
+                      </span>
+                      <span className="text-sm font-extrabold text-red-400">
+                        {"- " + formatPrice(totalSpent)}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1 mt-1">
+                      {shown.map((pr) => {
+                        const prod = products.find((p) => p.id === pr.productId);
+                        return (
+                          <div key={pr.id} className="flex items-center justify-between text-xs text-slate-400">
+                            <span>
+                              {(prod?.emoji || "📦") + " " + pr.productName + " ×" + pr.qty}
+                            </span>
+                            <span className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-600">
+                                {new Date(pr.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}
+                              </span>
+                              <span className={pr.method === "especes" ? "text-emerald-400" : "text-blue-400"}>
+                                {pr.method === "especes" ? "💵" : "💳"}
+                              </span>
+                              <span className="font-bold text-red-400">{"- " + formatPrice(pr.totalCost)}</span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Stock value */}
               <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4 mt-2">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
@@ -2369,10 +2808,12 @@ export default function AeroClubBar() {
                     </span>
                     <span className="text-sm font-bold text-red-400">
                       {formatPrice(
-                        products.reduce(
-                          (s, p) => s + (p.cost || 0) * p.stock,
-                          0,
-                        ),
+                        products.reduce((s, p) => {
+                          const total = effectiveStock(p) + Math.floor((p.stockReserve || 0) / (p.coffeeServings || 1));
+                          const legacy = Math.min(p.legacyStock || 0, total);
+                          const regular = total - legacy;
+                          return s + legacy * (p.legacyPrice || p.cost || 0) + regular * (p.cost || 0);
+                        }, 0),
                       )}
                     </span>
                   </div>
@@ -2382,7 +2823,7 @@ export default function AeroClubBar() {
                     </span>
                     <span className="text-sm font-bold text-amber-500">
                       {formatPrice(
-                        products.reduce((s, p) => s + p.price * p.stock, 0),
+                        products.reduce((s, p) => s + p.price * (effectiveStock(p) + Math.floor((p.stockReserve || 0) / (p.coffeeServings || 1))), 0),
                       )}
                     </span>
                   </div>
@@ -2720,10 +3161,26 @@ export default function AeroClubBar() {
                               {formatPrice(bal)}
                             </span>
                           )}
-                          {bal === 0 && (
+                          {bal === 0 && (coffeeCredits[name] || 0) === 0 && (
                             <span className="text-xs text-slate-600">
                               {"Pas d\u0027avoir"}
                             </span>
+                          )}
+                          {(coffeeCredits[name] || 0) > 0 && (
+                            <button
+                              onClick={() => {
+                                setCoffeeCredits((prev) => {
+                                  const next = { ...prev, [name]: (prev[name] || 1) - 1 };
+                                  if (next[name] <= 0) delete next[name];
+                                  return next;
+                                });
+                                showToast("Avoir café utilisé pour " + name.split(" ")[0]);
+                              }}
+                              className="flex items-center gap-1 text-xs bg-amber-900/30 border border-amber-700/40 text-amber-400 font-semibold px-2 py-1 rounded-lg cursor-pointer hover:bg-amber-700/40"
+                              title="Utiliser 1 avoir café"
+                            >
+                              {"☕ " + (coffeeCredits[name] || 0)}
+                            </button>
                           )}
                           <button
                             onClick={() => renameMember(name)}
@@ -2854,7 +3311,7 @@ export default function AeroClubBar() {
                 <input
                   value={settings.clubName}
                   onChange={(e) =>
-                    setSettings({ ...settings, clubName: e.target.value })
+                    setSettings((prev) => ({ ...prev, clubName: e.target.value }))
                   }
                   className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
                 />
@@ -2867,7 +3324,7 @@ export default function AeroClubBar() {
                   type="password"
                   value={settings.adminPin}
                   onChange={(e) =>
-                    setSettings({ ...settings, adminPin: e.target.value })
+                    setSettings((prev) => ({ ...prev, adminPin: e.target.value }))
                   }
                   className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
                   maxLength={6}
@@ -2881,11 +3338,193 @@ export default function AeroClubBar() {
                   type="password"
                   value={settings.bureauPin || ""}
                   onChange={(e) =>
-                    setSettings({ ...settings, bureauPin: e.target.value })
+                    setSettings((prev) => ({ ...prev, bureauPin: e.target.value }))
                   }
                   className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
                   maxLength={6}
                 />
+              </div>
+              <div className="h-px bg-[#1e2d4a] my-3" />
+              {/* Support WhatsApp */}
+              <div className="flex flex-col gap-2">
+                <h3 className="text-base font-bold">{"📞 Support WhatsApp"}</h3>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{"Numéro (format international, ex: 33756919167)"}</label>
+                  <input
+                    value={settings.supportPhone || ""}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, supportPhone: e.target.value.replace(/\D/g, "") }))}
+                    placeholder="33756919167"
+                    className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
+                  />
+                </div>
+                {settings.supportPhone && (() => {
+                  const msg = "Bonjour j'ai un problème avec le bar de l'aéroclub.";
+                  const waUrl = `https://wa.me/${settings.supportPhone}?text=${encodeURIComponent(msg)}`;
+                  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&bgcolor=ffffff&color=000000&data=${encodeURIComponent(waUrl)}`;
+                  return (
+                    <div className="flex flex-col items-center gap-3 bg-white rounded-2xl p-4">
+                      <img src={qrUrl} alt="QR Code WhatsApp Support" className="w-48 h-48 rounded-xl" />
+                      <p className="text-[11px] text-slate-600 text-center font-semibold">{"Scanner pour contacter le support"}</p>
+                      <p className="text-[10px] text-slate-400 text-center break-all">{waUrl}</p>
+                      <a
+                        href={qrUrl}
+                        download="support-qr.png"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-2 rounded-xl bg-green-600 text-white text-xs font-bold text-center cursor-pointer"
+                      >{"⬇️ Télécharger le QR code"}</a>
+                    </div>
+                  );
+                })()}
+              </div>
+              <div className="h-px bg-[#1e2d4a] my-3" />
+              <h3 className="text-base font-bold">{"🏷️ Catégories"}</h3>
+              <div className="flex flex-col gap-2">
+                {getCategories().map((cat) => (
+                  editingCategory?.id === cat.id ? (
+                    <div key={cat.id} className="bg-[#0f172a] border border-blue-700 rounded-xl p-3 flex flex-col gap-2">
+                      <div className="flex gap-2">
+                        <input
+                          value={editingCategory.emoji}
+                          onChange={(e) => setEditingCategory((prev) => prev && ({ ...prev, emoji: e.target.value }))}
+                          className="w-14 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
+                          placeholder="emoji"
+                        />
+                        <input
+                          value={editingCategory.label}
+                          onChange={(e) => setEditingCategory((prev) => prev && ({ ...prev, label: e.target.value }))}
+                          className="flex-1 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm px-3 outline-none"
+                          placeholder="Nom"
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={editingCategory.hasCupCost || false}
+                          onChange={(e) => setEditingCategory((prev) => prev && ({ ...prev, hasCupCost: e.target.checked }))}
+                          className="w-4 h-4 accent-amber-500"
+                        />
+                        {"Utilise le coût gobelet (☕)"}
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            if (!editingCategory.label.trim()) return;
+                            setSettings((prev) => ({ ...prev, categories: (prev.categories || DEFAULT_CATEGORIES).map((c) => c.id === editingCategory.id ? editingCategory : c) }));
+                            setEditingCategory(null);
+                          }}
+                          className="flex-1 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold cursor-pointer"
+                        >{"✓ Enregistrer"}</button>
+                        <button onClick={() => setEditingCategory(null)} className="flex-1 py-1.5 rounded-lg border border-slate-700 text-slate-400 text-xs font-bold cursor-pointer">{"Annuler"}</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={cat.id} className="flex items-center gap-2 bg-[#0f172a] border border-[#1e2d4a] rounded-xl px-3 py-2.5">
+                      <div className="flex flex-col gap-0.5 shrink-0">
+                        <button onClick={() => setSettings((prev) => { const cats = [...(prev.categories || DEFAULT_CATEGORIES)]; const i = cats.findIndex(c => c.id === cat.id); if (i > 0) { [cats[i-1],cats[i]]=[cats[i],cats[i-1]]; } return {...prev, categories: cats}; })} className="w-5 h-4 rounded text-[9px] text-slate-500 hover:text-white bg-[#131b2e] flex items-center justify-center cursor-pointer">{"▲"}</button>
+                        <button onClick={() => setSettings((prev) => { const cats = [...(prev.categories || DEFAULT_CATEGORIES)]; const i = cats.findIndex(c => c.id === cat.id); if (i < cats.length-1) { [cats[i],cats[i+1]]=[cats[i+1],cats[i]]; } return {...prev, categories: cats}; })} className="w-5 h-4 rounded text-[9px] text-slate-500 hover:text-white bg-[#131b2e] flex items-center justify-center cursor-pointer">{"▼"}</button>
+                      </div>
+                      <span className="text-xl w-7 text-center">{cat.emoji}</span>
+                      <span className="flex-1 text-sm font-semibold text-white">{cat.label}</span>
+                      {cat.hasCupCost && <span className="text-[10px] text-amber-500 font-semibold">{"+ gobelet"}</span>}
+                      <button onClick={() => setEditingCategory({ ...cat })} className="text-slate-500 hover:text-white text-sm cursor-pointer px-1">{"✏️"}</button>
+                      <button
+                        onClick={() => {
+                          if (products.some((p) => p.category === cat.id)) {
+                            showToast("Retirez d'abord cette catégorie des produits", "error");
+                            return;
+                          }
+                          setSettings((prev) => ({ ...prev, categories: (prev.categories || DEFAULT_CATEGORIES).filter((c) => c.id !== cat.id) }));
+                        }}
+                        className="text-slate-600 hover:text-red-400 text-sm cursor-pointer px-1"
+                      >{"🗑"}</button>
+                    </div>
+                  )
+                ))}
+                {newCategoryForm ? (
+                  <div className="bg-[#0f172a] border border-emerald-700 rounded-xl p-3 flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <input
+                        value={newCategoryForm.emoji}
+                        onChange={(e) => setNewCategoryForm((prev) => prev && ({ ...prev, emoji: e.target.value }))}
+                        className="w-14 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
+                        placeholder="emoji"
+                      />
+                      <input
+                        value={newCategoryForm.label}
+                        onChange={(e) => setNewCategoryForm((prev) => prev && ({ ...prev, label: e.target.value }))}
+                        className="flex-1 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm px-3 outline-none"
+                        placeholder="Nom de la catégorie"
+                        autoFocus
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newCategoryForm.hasCupCost}
+                        onChange={(e) => setNewCategoryForm((prev) => prev && ({ ...prev, hasCupCost: e.target.checked }))}
+                        className="w-4 h-4 accent-amber-500"
+                      />
+                      {"Utilise le coût gobelet (☕)"}
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          if (!newCategoryForm.label.trim()) return;
+                          const newCat: Category = {
+                            id: Date.now().toString(36),
+                            label: newCategoryForm.label.trim(),
+                            emoji: newCategoryForm.emoji || "📁",
+                            hasCupCost: newCategoryForm.hasCupCost,
+                          };
+                          setSettings((prev) => ({ ...prev, categories: [...(prev.categories || DEFAULT_CATEGORIES), newCat] }));
+                          setNewCategoryForm(null);
+                        }}
+                        className="flex-1 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold cursor-pointer"
+                      >{"+ Créer"}</button>
+                      <button onClick={() => setNewCategoryForm(null)} className="flex-1 py-1.5 rounded-lg border border-slate-700 text-slate-400 text-xs font-bold cursor-pointer">{"Annuler"}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setNewCategoryForm({ label: "", emoji: "📁", hasCupCost: false })}
+                    className="py-2 border-2 border-dashed border-[#1e2d4a] text-slate-500 rounded-xl text-sm font-semibold hover:border-slate-600 cursor-pointer"
+                  >{"+ Nouvelle catégorie"}</button>
+                )}
+              </div>
+              <div className="h-px bg-[#1e2d4a] my-3" />
+              <h3 className="text-base font-bold">{"☕ Café & Comptabilité"}</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    {"Coût gobelet (€)"}
+                  </label>
+                  <input
+                    type="number" step="0.01" min="0" placeholder="ex: 0.03"
+                    value={settings.cupCost ?? ""}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setSettings((prev) => ({ ...prev, cupCost: isNaN(v) ? undefined : v }));
+                    }}
+                    className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
+                  />
+                  <span className="text-[10px] text-slate-600">{"Ajouté au coût de chaque ☕ vendu"}</span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    {"Frais SumUp (%)"}
+                  </label>
+                  <input
+                    type="number" step="0.1" min="0" max="10" placeholder="2.5"
+                    value={settings.sumupFeeRate ?? ""}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setSettings((prev) => ({ ...prev, sumupFeeRate: isNaN(v) ? undefined : v }));
+                    }}
+                    className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none"
+                  />
+                  <span className="text-[10px] text-slate-600">{"Défaut : 2,5% — déduit du bénéfice CB"}</span>
+                </div>
               </div>
               <div className="h-px bg-[#1e2d4a] my-3" />
               <h3 className="text-base font-bold">
@@ -2958,6 +3597,276 @@ export default function AeroClubBar() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Modale réapprovisionnement */}
+      {editingTxFull && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setEditingTxFull(null)}
+        >
+          <div
+            className="w-full max-w-md bg-[#131b2e] rounded-2xl p-5 flex flex-col gap-3 border border-slate-700 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-white text-base">{"Modifier la vente"}</h3>
+            <p className="text-[11px] text-slate-500">{"Le stock sera ajusté automatiquement (ancien restauré, nouveau déduit)."}</p>
+            <div className="flex flex-col gap-2">
+              {editingTxFull.lines.map((line, idx) => {
+                const prod = products.find((p) => p.id === line.productId);
+                return (
+                  <div key={idx} className="flex items-center gap-2 bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-2">
+                    <select
+                      value={line.productId}
+                      onChange={(e) =>
+                        setEditingTxFull((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                lines: prev.lines.map((l, i) => (i === idx ? { ...l, productId: e.target.value } : l)),
+                              }
+                            : prev,
+                        )
+                      }
+                      className="flex-1 h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-xs px-2 outline-none cursor-pointer"
+                    >
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.emoji.startsWith("http") ? "🖼" : p.emoji} {p.name} ({formatPrice(p.price)})
+                        </option>
+                      ))}
+                    </select>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() =>
+                          setEditingTxFull((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  lines: prev.lines.map((l, i) => (i === idx ? { ...l, qty: Math.max(0, l.qty - 1) } : l)),
+                                }
+                              : prev,
+                          )
+                        }
+                        className="w-7 h-7 rounded-lg bg-[#131b2e] border border-slate-700 text-red-500 font-bold cursor-pointer text-sm"
+                      >
+                        {"−"}
+                      </button>
+                      <span className="text-sm font-bold text-white w-6 text-center">{line.qty}</span>
+                      <button
+                        onClick={() =>
+                          setEditingTxFull((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  lines: prev.lines.map((l, i) => (i === idx ? { ...l, qty: l.qty + 1 } : l)),
+                                }
+                              : prev,
+                          )
+                        }
+                        className="w-7 h-7 rounded-lg bg-[#131b2e] border border-slate-700 text-emerald-500 font-bold cursor-pointer text-sm"
+                      >
+                        {"+"}
+                      </button>
+                    </div>
+                    <span className="text-xs font-bold text-amber-500 min-w-[50px] text-right">
+                      {prod ? formatPrice(getFifoTotal(prod, line.qty)) : "—"}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setEditingTxFull((prev) =>
+                          prev ? { ...prev, lines: prev.lines.filter((_, i) => i !== idx) } : prev,
+                        )
+                      }
+                      className="text-red-500 text-base cursor-pointer px-1"
+                    >
+                      {"🗑"}
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                onClick={() =>
+                  setEditingTxFull((prev) =>
+                    prev && products[0]
+                      ? { ...prev, lines: [...prev.lines, { productId: products[0].id, qty: 1 }] }
+                      : prev,
+                  )
+                }
+                className="text-xs py-2 rounded-lg border border-dashed border-slate-700 text-slate-400 font-semibold cursor-pointer"
+              >
+                {"+ Ajouter une ligne"}
+              </button>
+            </div>
+            <div className="bg-[#0f172a] rounded-xl p-3 flex justify-between items-center border border-amber-700">
+              <span className="text-sm text-slate-400 font-bold">{"Nouveau total"}</span>
+              <span className="text-base font-extrabold text-amber-500">
+                {formatPrice(
+                  editingTxFull.lines.reduce((s, l) => {
+                    const p = products.find((pr) => pr.id === l.productId);
+                    return s + (p ? getFifoTotal(p, l.qty) : 0);
+                  }, 0),
+                )}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEditingTxFull(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-400 text-sm font-bold cursor-pointer"
+              >
+                {"Annuler"}
+              </button>
+              <button
+                onClick={saveTxEdit}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold cursor-pointer"
+              >
+                {"✓ Enregistrer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {restockingProduct && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end justify-center p-4"
+          onClick={() => setRestockingProduct(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-[#131b2e] rounded-2xl p-5 flex flex-col gap-4 border border-slate-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-white text-base">
+              {restockingProduct.emoji + " " + restockingProduct.name + " — Réappro"}
+            </h3>
+
+            <div className="flex flex-col gap-3">
+              {/* Quantité */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-slate-400 font-semibold">{"Quantité achetée"}</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={restockForm.qty}
+                  onChange={(e) => setRestockForm((f) => ({ ...f, qty: Math.max(1, parseInt(e.target.value) || 1) }))}
+                  className="h-11 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-center text-base outline-none"
+                />
+              </div>
+
+              {/* Prix de vente */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-slate-400 font-semibold">
+                  {"Prix de vente (actuel : " + formatPrice(restockingProduct.price) + ")"}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={restockForm.newPrice}
+                  onChange={(e) => setRestockForm((f) => ({ ...f, newPrice: Math.max(0, parseFloat(e.target.value) || 0) }))}
+                  className={"h-11 rounded-xl border text-white text-center text-base outline-none bg-[#0f172a] " + (restockForm.newPrice !== restockingProduct.price ? "border-amber-500" : "border-slate-700")}
+                />
+                {restockForm.newPrice !== restockingProduct.price && (
+                  <span className="text-[10px] text-amber-400">{"⚠ Prix modifié — l'ancien stock sera vendu à " + formatPrice(restockingProduct.price)}</span>
+                )}
+              </div>
+
+              {/* Coût d'achat unitaire */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-slate-400 font-semibold">{"Coût d'achat unitaire"}</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={restockForm.newCost}
+                  onChange={(e) => setRestockForm((f) => ({ ...f, newCost: Math.max(0, parseFloat(e.target.value) || 0) }))}
+                  className="h-11 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-center text-base outline-none"
+                />
+              </div>
+
+              {/* Méthode de paiement */}
+              <div className="flex gap-2">
+                {(["especes", "carte"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setRestockForm((f) => ({ ...f, method: m }))}
+                    className={"flex-1 py-2 rounded-xl text-sm font-semibold cursor-pointer transition " + (restockForm.method === m ? "bg-amber-500 text-black" : "bg-[#0f172a] text-slate-400 border border-slate-700")}
+                  >
+                    {m === "especes" ? "💵 Espèces" : "💳 Carte"}
+                  </button>
+                ))}
+              </div>
+
+              {/* Total */}
+              <div className="bg-[#0f172a] rounded-xl p-3 flex justify-between items-center border border-slate-700">
+                <span className="text-sm text-slate-400">{"Total achat"}</span>
+                <span className="text-base font-extrabold text-red-400">{formatPrice(restockForm.qty * restockForm.newCost)}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setRestockingProduct(null)}
+                className="flex-1 py-2.5 rounded-xl bg-[#1e2d4a] text-slate-300 text-sm font-semibold cursor-pointer"
+              >
+                {"Annuler"}
+              </button>
+              <button
+                onClick={confirmRestock}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold cursor-pointer active:scale-95"
+              >
+                {"✓ Confirmer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal café : choisir combien de portions utiliser ── */}
+      {coffeeModal && (
+        <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#131b2e] border border-amber-700/40 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-2xl">
+            <div className="text-4xl text-center">{"☕"}</div>
+            <h2 className="text-lg font-bold text-white text-center">
+              {"Combien de cafés maintenant ?"}
+            </h2>
+            <p className="text-sm text-slate-400 text-center">
+              {coffeeModal.buyer.split(" ")[0]}
+              {" a acheté "}
+              <span className="text-amber-400 font-bold">{coffeeModal.totalServings + " café" + (coffeeModal.totalServings > 1 ? "s" : "")}</span>
+              {"."}
+              {(coffeeCredits[coffeeModal.buyer] || 0) > 0 && (
+                <span className="block mt-1 text-emerald-400 font-semibold">
+                  {"☕ " + (coffeeCredits[coffeeModal.buyer] || 0) + " avoir(s) café existant(s)"}
+                </span>
+              )}
+            </p>
+            <div className="flex flex-col gap-2">
+              {Array.from({ length: coffeeModal.totalServings }, (_, i) => i + 1).map((n) => {
+                const leftover = coffeeModal.totalServings - n;
+                return (
+                  <button
+                    key={n}
+                    onClick={() => handleCoffeeChoice(n)}
+                    className={
+                      "w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 flex items-center justify-between px-5 " +
+                      (n === coffeeModal.totalServings
+                        ? "bg-emerald-600 text-white"
+                        : "border border-amber-600 bg-amber-900/20 text-amber-300")
+                    }
+                  >
+                    <span>{n === coffeeModal.totalServings ? "☕".repeat(n) + " Les " + n + " cafés" : "☕".repeat(n) + " " + n + " café" + (n > 1 ? "s" : "") + " maintenant"}</span>
+                    {leftover > 0 && (
+                      <span className="text-xs text-slate-400 font-normal">
+                        {"→ +" + leftover + " avoir"}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
     </div>

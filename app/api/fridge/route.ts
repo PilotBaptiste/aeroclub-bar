@@ -1,6 +1,16 @@
 import { kv } from "@vercel/kv";
 import { NextResponse } from "next/server";
 
+export const runtime = "edge";
+
+interface Locks {
+  cafe: boolean;
+  frigo: boolean;
+  both: boolean;
+}
+
+const EMPTY: Locks = { cafe: false, frigo: false, both: false };
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action");
@@ -8,18 +18,14 @@ export async function GET(request: Request) {
 
   try {
     if (action === "check") {
-      const cafe = await kv.get("aeroclub-lock-cafe");
-      const frigo = await kv.get("aeroclub-lock-frigo");
-      const both = await kv.get("aeroclub-lock-both");
-      // Auto-reset after reading to prevent loops
-      if (cafe === true) await kv.set("aeroclub-lock-cafe", false);
-      if (frigo === true) await kv.set("aeroclub-lock-frigo", false);
-      if (both === true) await kv.set("aeroclub-lock-both", false);
-      return NextResponse.json({
-        cafe: cafe === true,
-        frigo: frigo === true,
-        both: both === true,
-      });
+      // 1 seul kv.get au lieu de 3
+      const locks = ((await kv.get("aeroclub-locks")) as Locks | null) || EMPTY;
+      const result = { cafe: locks.cafe === true, frigo: locks.frigo === true, both: locks.both === true };
+      // Reset seulement si un verrou était actif (1 kv.set au lieu de 3)
+      if (result.cafe || result.frigo || result.both) {
+        await kv.set("aeroclub-locks", EMPTY);
+      }
+      return NextResponse.json(result);
     }
 
     if (action === "done") {
@@ -27,9 +33,12 @@ export async function GET(request: Request) {
     }
 
     if (action === "trigger") {
-      if (lock === "cafe") await kv.set("aeroclub-lock-cafe", true);
-      else if (lock === "frigo") await kv.set("aeroclub-lock-frigo", true);
-      else await kv.set("aeroclub-lock-both", true);
+      // Read-modify-write pour ne pas écraser un trigger concurrent
+      const current = ((await kv.get("aeroclub-locks")) as Locks | null) || { ...EMPTY };
+      if (lock === "cafe") current.cafe = true;
+      else if (lock === "frigo") current.frigo = true;
+      else current.both = true;
+      await kv.set("aeroclub-locks", current);
       return NextResponse.json({ ok: true, lock: lock || "both" });
     }
 
