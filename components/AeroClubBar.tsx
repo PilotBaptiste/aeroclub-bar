@@ -657,39 +657,42 @@ export default function AeroClubBar() {
     const canonicalBuyer = canonicalMember
       ? canonicalMember.name
       : buyerName.trim();
-    // Calculer les produits mis à jour AVANT setProducts pour éviter la race condition (dépletion FIFO)
-    let updatedProducts = [...products];
-    for (const item of cart) {
-      updatedProducts = updatedProducts.map((p) => {
-        if (p.id !== item.product.id) return p;
-        // Produits café : la déduction est reportée dans handleCoffeeChoice (selon servings utilisés)
-        if (item.product.coffeeServings && item.product.coffeeServings > 1) return p;
-        let newLegacyStock = p.legacyStock || 0;
-        const fromLegacy = Math.min(newLegacyStock, item.qty);
-        newLegacyStock = Math.max(0, newLegacyStock - fromLegacy);
-        return { ...p, stock: Math.max(0, p.stock - item.qty), legacyStock: newLegacyStock };
-      });
-    }
-    setProducts(updatedProducts);
-    // Send Telegram alerts ONLY for products in this cart that drop to low stock
-    const cartProductIds = cart.map((c) => c.product.id);
-    for (const p of updatedProducts) {
-      if (!cartProductIds.includes(p.id)) continue;
-      if (p.stock > 0 && p.stock <= 5) {
-        fetch("/api/alert", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productName: p.name, stock: p.stock }),
-        }).catch(() => {});
+    // Déduire le stock via updater fonctionnel (évite d'écraser un state modifié entre-temps)
+    const cartSnapshot = [...cart];
+    setProducts((prev) => {
+      let updated = prev;
+      for (const item of cartSnapshot) {
+        updated = updated.map((p) => {
+          if (p.id !== item.product.id) return p;
+          // Produits café : la déduction est reportée dans handleCoffeeChoice (selon servings utilisés)
+          if (item.product.coffeeServings && item.product.coffeeServings > 1) return p;
+          let newLegacyStock = p.legacyStock || 0;
+          const fromLegacy = Math.min(newLegacyStock, item.qty);
+          newLegacyStock = Math.max(0, newLegacyStock - fromLegacy);
+          return { ...p, stock: Math.max(0, p.stock - item.qty), legacyStock: newLegacyStock };
+        });
       }
-      if (p.stock === 0) {
-        fetch("/api/alert", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productName: p.name, stock: 0 }),
-        }).catch(() => {});
+      // Alertes Telegram sur les produits mis à jour
+      const cartProductIds = cartSnapshot.map((c) => c.product.id);
+      for (const p of updated) {
+        if (!cartProductIds.includes(p.id)) continue;
+        if (p.stock > 0 && p.stock <= 5) {
+          fetch("/api/alert", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ productName: p.name, stock: p.stock }),
+          }).catch(() => {});
+        }
+        if (p.stock === 0) {
+          fetch("/api/alert", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ productName: p.name, stock: 0 }),
+          }).catch(() => {});
+        }
       }
-    }
+      return updated;
+    });
 
     // Handle member balance
     if (method === "avoir") {
