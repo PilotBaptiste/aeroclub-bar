@@ -16,6 +16,16 @@ interface Product {
   category?: string;
 }
 
+interface Batch {
+  id: string;
+  productId: string;
+  qty: number;
+  location: "frigo" | "reserve";
+  purchaseDate: string;
+  expiryDate?: string;
+  unitCost: number;
+}
+
 interface Category {
   id: string;
   label: string;
@@ -244,7 +254,7 @@ export default function AeroClubBar() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error">("idle");
   const [procurements, setProcurements] = useState<Procurement[]>([]);
   const [restockingProduct, setRestockingProduct] = useState<Product | null>(null);
-  const [restockForm, setRestockForm] = useState<{ qty: number; newPrice: number; newCost: number; method: "especes" | "carte" }>({ qty: 1, newPrice: 0, newCost: 0, method: "especes" });
+  const [restockForm, setRestockForm] = useState<{ qty: number; newPrice: number; newCost: number; method: "especes" | "carte"; expiryDate?: string }>({ qty: 1, newPrice: 0, newCost: 0, method: "especes" });
   const [lockRetriggerCountdown, setLockRetriggerCountdown] = useState<number | null>(null);
   const [emojiPickerFor, setEmojiPickerFor] = useState<"new" | "edit" | null>(null);
   const [emojiPickerCategory, setEmojiPickerCategory] = useState(0);
@@ -254,6 +264,8 @@ export default function AeroClubBar() {
   const [coffeeCredits, setCoffeeCredits] = useState<Record<string, number>>({});
   const [coffeeModal, setCoffeeModal] = useState<{ buyer: string; totalServings: number; lockType: "cafe" | "both"; productId: string } | null>(null);
   const [coffeeAvoirUsedInCheckout, setCoffeeAvoirUsedInCheckout] = useState(false);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false);
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -284,6 +296,7 @@ export default function AeroClubBar() {
         if (data.members) setMembers(data.members);
         if (data.procurements) setProcurements(data.procurements);
         if (data.coffeeCredits) setCoffeeCredits(data.coffeeCredits);
+        if (data.batches) setBatches(data.batches);
       }
       setLoading(false);
       setTimeout(() => {
@@ -291,6 +304,39 @@ export default function AeroClubBar() {
       }, 2000);
     })();
   }, []);
+
+  // Auto-migration: create legacy batches from existing stock for products that have no batches
+  useEffect(() => {
+    if (loading) return;
+    setBatches((prev) => {
+      if (prev.length > 0) return prev;
+      const migrated: Batch[] = [];
+      for (const p of products) {
+        if (p.stock > 0) {
+          migrated.push({
+            id: "legacy-frigo-" + p.id,
+            productId: p.id,
+            qty: p.stock,
+            location: "frigo",
+            purchaseDate: new Date().toISOString(),
+            unitCost: p.cost,
+          });
+        }
+        if ((p.stockReserve ?? 0) > 0) {
+          migrated.push({
+            id: "legacy-reserve-" + p.id,
+            productId: p.id,
+            qty: p.stockReserve!,
+            location: "reserve",
+            purchaseDate: new Date().toISOString(),
+            unitCost: p.cost,
+          });
+        }
+      }
+      return migrated;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   // Save on change
   useEffect(() => {
@@ -314,6 +360,9 @@ export default function AeroClubBar() {
   useEffect(() => {
     if (!loading) debouncedSave("aeroclub-coffee-credits", coffeeCredits);
   }, [coffeeCredits, loading, debouncedSave]);
+  useEffect(() => {
+    if (!loading) debouncedSave("aeroclub-batches", batches);
+  }, [batches, loading, debouncedSave]);
 
   // Nettoyer les timers SumUp et le clearCart au démontage du composant
   useEffect(() => {
@@ -362,6 +411,17 @@ export default function AeroClubBar() {
 
   const getCategories = () => settings.categories || DEFAULT_CATEGORIES;
   const effectiveStock = (p: Product) => Math.floor(p.stock / (p.coffeeServings || 1));
+
+  // Batch helpers — DLC alerts
+  const batchesForProduct = useCallback((pid: string) => batches.filter(b => b.productId === pid && b.qty > 0), [batches]);
+  const expiredBatches = batches.filter(b => b.expiryDate && new Date(b.expiryDate) < new Date() && b.qty > 0);
+  const expiringBatches = batches.filter(b => {
+    if (!b.expiryDate || b.qty <= 0) return false;
+    const exp = new Date(b.expiryDate);
+    const now = new Date();
+    return exp >= now && exp <= new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  });
+
   const cartTotal = cart.reduce((s, i) => s + getFifoTotal(i.product, i.qty), 0);
   const cartTotalCost = cart.reduce(
     (s, i) => {
@@ -563,6 +623,18 @@ export default function AeroClubBar() {
       method: restockForm.method,
     };
     setProcurements((prev) => [entry, ...prev]);
+
+    // Create batch for DLC tracking
+    const newBatch: Batch = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      productId: p.id,
+      qty: restockForm.qty,
+      location: "reserve",
+      purchaseDate: new Date().toISOString(),
+      expiryDate: restockForm.expiryDate ? restockForm.expiryDate + "T23:59:59" : undefined,
+      unitCost: restockForm.newCost,
+    };
+    setBatches((prev) => [...prev, newBatch]);
 
     if (restockForm.method === "especes") {
       setSettings((prev) => ({
@@ -2110,279 +2182,156 @@ export default function AeroClubBar() {
           </div>
 
           {activeAdminTab === "stock" && (
-            <div className="flex flex-col gap-2">
-              {products.map((p) => {
-                const isEd = editingProduct && editingProduct.id === p.id;
-                if (isEd)
-                  return (
-                    <div
-                      key={p.id}
-                      className="bg-[#0f172a] border-2 border-amber-500 rounded-xl p-4"
-                    >
-                      <span className="text-xs font-bold text-amber-500 uppercase tracking-wider mb-3 block">
-                        {"Modifier"}
-                      </span>
-                      <div className="grid grid-cols-2 gap-2 mb-3">
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                            {"Emoji / URL image"}
-                          </label>
-                          <button
-                            onClick={() => setEmojiPickerFor(emojiPickerFor === "edit" ? null : "edit")}
-                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-3xl cursor-pointer hover:border-amber-500 flex items-center justify-center"
-                          >
-                            {renderProductIcon(editingProduct.emoji, "text-3xl", "w-8 h-8")}
+            <div className="flex flex-col gap-3">
+              {/* DLC Alerts */}
+              {expiredBatches.length > 0 && (
+                <div className="bg-red-950/50 border border-red-700 rounded-xl p-3 flex items-start gap-2">
+                  <span className="text-lg">{"\u26A0\uFE0F"}</span>
+                  <div className="flex-1">
+                    <span className="text-sm font-bold text-red-400 block">
+                      {expiredBatches.length + " lot(s) \u00E9rim\u00E9(s)"}
+                    </span>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {[...new Set(expiredBatches.map(b => b.productId))].map((pid) => {
+                        const p = products.find(x => x.id === pid);
+                        return p ? (
+                          <button key={pid} onClick={() => setDetailProduct(p)}
+                            className="text-xs px-2 py-0.5 rounded-full bg-red-900/50 text-red-300 cursor-pointer hover:bg-red-800/50">
+                            {p.name}
                           </button>
-                          {emojiPickerFor === "edit" && (
-                            <div className="absolute z-20 mt-1 bg-[#131b2e] border border-slate-700 rounded-xl p-2 shadow-2xl w-72">
-                              <div className="flex gap-1 mb-2 flex-wrap">
-                                {EMOJI_CATEGORIES.map((cat, i) => (
-                                  <button key={i} onClick={() => setEmojiPickerCategory(i)}
-                                    className={"text-base px-1.5 py-0.5 rounded cursor-pointer " + (emojiPickerCategory === i ? "bg-amber-500" : "bg-[#0f172a] hover:bg-[#1e2d4a]")}
-                                    title={cat.title}
-                                  >{cat.label}</button>
-                                ))}
-                              </div>
-                              <p className="text-[10px] text-slate-500 mb-1">{EMOJI_CATEGORIES[emojiPickerCategory].title}</p>
-                              <div className="grid grid-cols-8 gap-1 mb-2">
-                                {EMOJI_CATEGORIES[emojiPickerCategory].emojis.map((e) => (
-                                  <button key={e} onClick={() => { setEditingProduct({ ...editingProduct, emoji: e }); setEmojiPickerFor(null); }}
-                                    className="text-xl p-1 rounded hover:bg-[#1e2d4a] cursor-pointer"
-                                  >{e}</button>
-                                ))}
-                              </div>
-                              <div className="border-t border-slate-700 pt-2 mt-1">
-                                <p className="text-[10px] text-slate-500 mb-1">{"🔗 URL d'image (logo, photo...)"}</p>
-                                <input
-                                  type="url"
-                                  placeholder="https://..."
-                                  className="w-full h-8 text-xs rounded-lg border border-slate-700 bg-[#0f172a] text-white px-2 outline-none"
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      const val = (e.target as HTMLInputElement).value.trim();
-                                      if (val.startsWith("http")) { setEditingProduct({ ...editingProduct, emoji: val }); setEmojiPickerFor(null); }
-                                    }
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                            {"Nom"}
-                          </label>
-                          <input
-                            value={editingProduct.name}
-                            onChange={(e) =>
-                              setEditingProduct({
-                                ...editingProduct,
-                                name: e.target.value,
-                              })
-                            }
-                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm px-3 outline-none"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                            {"Prix vente"}
-                          </label>
-                          <input
-                            type="number"
-                            step="0.1"
-                            value={editingProduct.price}
-                            onChange={(e) =>
-                              setEditingProduct({
-                                ...editingProduct,
-                                price: Math.max(0, parseFloat(e.target.value) || 0),
-                              })
-                            }
-                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                            {"Prix achat"}
-                          </label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={editingProduct.cost || 0}
-                            onChange={(e) =>
-                              setEditingProduct({
-                                ...editingProduct,
-                                cost: Math.max(0, parseFloat(e.target.value) || 0),
-                              })
-                            }
-                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-emerald-400 text-sm text-center outline-none"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1 col-span-2">
-                          <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                            {"Stock frigo / service"}
-                          </label>
-                          <input
-                            type="number"
-                            value={editingProduct.stock}
-                            onChange={(e) =>
-                              setEditingProduct({
-                                ...editingProduct,
-                                stock: parseInt(e.target.value, 10) || 0,
-                              })
-                            }
-                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1 col-span-2">
-                          <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                            {"Stock placard reserve"}
-                          </label>
-                          <input
-                            type="number"
-                            value={editingProduct.stockReserve ?? 0}
-                            onChange={(e) =>
-                              setEditingProduct({
-                                ...editingProduct,
-                                stockReserve: parseInt(e.target.value, 10) || 0,
-                              })
-                            }
-                            className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-purple-300 text-sm text-center outline-none"
-                          />
-                        </div>
-                      </div>
-                      <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={(editingProduct.coffeeServings || 1) >= 2}
-                          onChange={(e) =>
-                            setEditingProduct({
-                              ...editingProduct,
-                              coffeeServings: e.target.checked ? 2 : undefined,
-                            })
-                          }
-                          className="w-4 h-4 accent-amber-500"
-                        />
-                        <span className="text-xs text-amber-400 font-semibold">{"☕ Double portion café (2 tasses — modal après paiement)"}</span>
-                      </label>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={saveEditProduct}
-                          className="flex-1 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-bold cursor-pointer"
-                        >
-                          {"\u2713 Enregistrer"}
-                        </button>
-                        <button
-                          onClick={() => setEditingProduct(null)}
-                          className="flex-1 py-2.5 rounded-lg border border-slate-700 text-slate-400 text-sm font-bold cursor-pointer"
-                        >
-                          {"Annuler"}
-                        </button>
-                      </div>
+                        ) : null;
+                      })}
                     </div>
-                  );
+                  </div>
+                </div>
+              )}
+              {expiringBatches.length > 0 && (
+                <div className="bg-orange-950/40 border border-orange-700 rounded-xl p-3 flex items-start gap-2">
+                  <span className="text-lg">{"\uD83D\uDD51"}</span>
+                  <div className="flex-1">
+                    <span className="text-sm font-bold text-orange-400 block">
+                      {expiringBatches.length + " lot(s) expirent dans 7 jours"}
+                    </span>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {[...new Set(expiringBatches.map(b => b.productId))].map((pid) => {
+                        const p = products.find(x => x.id === pid);
+                        return p ? (
+                          <button key={pid} onClick={() => setDetailProduct(p)}
+                            className="text-xs px-2 py-0.5 rounded-full bg-orange-900/50 text-orange-300 cursor-pointer hover:bg-orange-800/50">
+                            {p.name}
+                          </button>
+                        ) : null;
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Product list — tappable rows */}
+              {products.filter(p => !p.archived).map((p, idx) => {
+                const pBatches = batchesForProduct(p.id);
+                const hasExpired = pBatches.some(b => b.expiryDate && new Date(b.expiryDate) < new Date());
+                const hasExpiring = pBatches.some(b => {
+                  if (!b.expiryDate) return false;
+                  const exp = new Date(b.expiryDate);
+                  const now = new Date();
+                  return exp >= now && exp <= new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+                });
                 return (
-                  <div
-                    key={p.id}
-                    className={
-                      "flex flex-col rounded-xl border overflow-hidden " +
-                      (p.archived
-                        ? "opacity-50 bg-[#0f172a] border-slate-800 grayscale"
-                        : p.stock <= 5 && (p.stockReserve ?? 0) === 0
-                          ? "bg-red-950/40 border-red-800"
-                          : p.stock <= 5
-                            ? "bg-orange-950/30 border-orange-800"
-                            : "bg-[#131b2e] border-[#1e2d4a]")
-                    }
-                  >
-                    {/* Ligne 1 : icône + infos + actions */}
-                    <div className="flex items-center gap-2 px-2 py-2.5">
-                      {/* Boutons déplacement */}
-                      <div className="flex flex-col gap-0.5 shrink-0">
-                        <button onClick={() => moveProduct(p.id, -1)} className="w-5 h-5 rounded text-[10px] text-slate-500 hover:text-white bg-[#0f172a] flex items-center justify-center cursor-pointer leading-none">{"▲"}</button>
-                        <button onClick={() => moveProduct(p.id, 1)} className="w-5 h-5 rounded text-[10px] text-slate-500 hover:text-white bg-[#0f172a] flex items-center justify-center cursor-pointer leading-none">{"▼"}</button>
+                  <div key={p.id} className="flex flex-col rounded-xl border overflow-hidden bg-[#131b2e] border-[#1e2d4a]">
+                    <button
+                      onClick={() => setDetailProduct(p)}
+                      className="flex items-center gap-3 px-3 py-3 w-full text-left cursor-pointer active:bg-[#1e2d4a] transition"
+                    >
+                      {/* Reorder */}
+                      <div className="flex flex-col gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button disabled={idx === 0} onClick={() => moveProduct(p.id, -1)}
+                          className="w-6 h-6 rounded text-[10px] text-slate-500 hover:text-white bg-[#0f172a] flex items-center justify-center cursor-pointer disabled:opacity-20">
+                          {"\u25B2"}
+                        </button>
+                        <button disabled={idx === products.filter(x => !x.archived).length - 1} onClick={() => moveProduct(p.id, 1)}
+                          className="w-6 h-6 rounded text-[10px] text-slate-500 hover:text-white bg-[#0f172a] flex items-center justify-center cursor-pointer disabled:opacity-20">
+                          {"\u25BC"}
+                        </button>
                       </div>
-                      <span className="w-8 h-8 flex items-center justify-center shrink-0">
-                        {renderProductIcon(p.emoji, "text-2xl", "w-8 h-8")}
+                      {/* Icon */}
+                      <span className="w-10 h-10 flex items-center justify-center shrink-0">
+                        {renderProductIcon(p.emoji, "text-2xl", "w-10 h-10")}
                       </span>
+                      {/* Info */}
                       <div className="flex-1 min-w-0">
                         <span className="text-sm font-bold block truncate">{p.name}</span>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-xs text-amber-500 font-semibold">
-                            {formatPrice(p.price)}
-                            <span className="text-slate-600">{" · " + formatPrice(p.cost || 0)}</span>
+                        <span className="text-xs text-amber-500 font-semibold">
+                          {formatPrice(p.price)}
+                          <span className="text-slate-600">{" \u00B7 " + formatPrice(p.cost || 0)}</span>
+                        </span>
+                      </div>
+                      {/* DLC indicator */}
+                      {hasExpired && <span className="w-3 h-3 rounded-full bg-red-500 shrink-0" title="Lot(s) p\u00E9rim\u00E9(s)" />}
+                      {!hasExpired && hasExpiring && <span className="w-3 h-3 rounded-full bg-orange-500 shrink-0" title="Lot(s) bient\u00F4t p\u00E9rim\u00E9(s)" />}
+                      {/* Stock summary */}
+                      <div className="text-right shrink-0">
+                        <div className="flex items-center gap-1.5 text-xs font-bold">
+                          <span className={p.stock <= 5 ? "text-orange-400" : "text-white"}>
+                            {"\uD83E\uDDCA " + p.stock}
                           </span>
-                          {/* Sélecteur catégorie */}
-                          {getCategories().map((cat) => (
-                            <button
-                              key={cat.id}
-                              onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, category: x.category === cat.id ? undefined : cat.id } : x))}
-                              className={"text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer " + (p.category === cat.id ? "bg-blue-600 text-white" : "bg-[#0f172a] text-slate-500 hover:text-slate-300")}
-                              title={cat.label}
-                            >
-                              {cat.emoji}
-                            </button>
-                          ))}
+                          <span className="text-slate-600">{"\u00B7"}</span>
+                          <span className="text-purple-300">
+                            {"\uD83D\uDCE6 " + (p.stockReserve ?? 0)}
+                          </span>
                         </div>
                         {p.stock <= 5 && (p.stockReserve ?? 0) === 0 && (
-                          <span className="text-[10px] text-red-400 font-bold block">{"⚠ Réappro nécessaire"}</span>
-                        )}
-                        {p.stock <= 5 && (p.stockReserve ?? 0) > 0 && (
-                          <span className="text-[10px] text-orange-400 block">{"↻ Réserve disponible"}</span>
-                        )}
-                        {p.archived && (
-                          <span className="text-[10px] text-slate-500 block">{"Archivé"}</span>
+                          <span className="text-[9px] text-red-400 font-bold">{"\u26A0 R\u00E9appro!"}</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          onClick={() => { setRestockingProduct(p); setRestockForm({ qty: 1, newPrice: p.price, newCost: p.cost, method: "especes" }); }}
-                          className="text-[10px] px-2 py-1 rounded border border-emerald-700 bg-emerald-900/20 text-emerald-400 font-bold cursor-pointer"
-                          title="Réapprovisionner"
-                        >{"+ Réappro"}</button>
-                        <button onClick={() => setEditingProduct({ ...p })} className="text-base opacity-50 hover:opacity-100 cursor-pointer" title="Modifier">{"✏️"}</button>
-                        {p.stock === 0 && !p.archived && (
-                          <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, archived: true } : x))}
-                            className="text-base opacity-50 hover:opacity-100 cursor-pointer" title="Archiver">{"📦"}</button>
-                        )}
-                        {p.archived && (
-                          <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, archived: false } : x))}
-                            className="text-xs px-1.5 py-0.5 rounded border border-amber-700 text-amber-400 cursor-pointer" title="Réactiver">{"↩"}</button>
-                        )}
-                        <button onClick={() => removeProduct(p.id)} className="text-base opacity-30 hover:opacity-80 cursor-pointer" title="Supprimer">{"🗑"}</button>
+                      {/* Chevron */}
+                      <span className="text-slate-600 text-sm shrink-0">{"\u203A"}</span>
+                    </button>
+                    {/* Quick action bar */}
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-black/20 border-t border-white/5">
+                      <div className="flex-1 flex items-center gap-1.5 flex-wrap">
+                        {getCategories().map((cat) => (
+                          <button key={cat.id}
+                            onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, category: x.category === cat.id ? undefined : cat.id } : x))}
+                            className={"text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer " + (p.category === cat.id ? "bg-blue-600 text-white" : "bg-[#0f172a] text-slate-500 hover:text-slate-300")}
+                          >{cat.emoji}</button>
+                        ))}
                       </div>
-                    </div>
-                    {/* Ligne 2 : contrôles stock */}
-                    <div className="flex items-center gap-3 px-3 py-2 bg-black/20 border-t border-white/5">
-                      <span className="text-[10px] text-slate-500 font-semibold w-10 shrink-0">{"🧊 Frigo"}</span>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => adjustStock(p.id, -1)} className="w-7 h-7 rounded border border-slate-700 bg-[#0f172a] text-red-500 font-bold flex items-center justify-center cursor-pointer">{"−"}</button>
-                        <input type="number" value={p.stock} onChange={(e) => setStockDirect(p.id, e.target.value)}
-                          className={"w-10 h-7 rounded border bg-[#0f172a] text-sm font-bold text-center outline-none " + (p.stock <= 5 ? "border-orange-700 text-orange-400" : "border-slate-700 text-white")} />
-                        <button onClick={() => adjustStock(p.id, 1)} className="w-7 h-7 rounded border border-slate-700 bg-[#0f172a] text-emerald-500 font-bold flex items-center justify-center cursor-pointer">{"+"}</button>
-                      </div>
-                      <span className="text-slate-700">{"·"}</span>
-                      <span className="text-[10px] text-purple-400 font-semibold w-12 shrink-0">{"📦 Rés."}</span>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, stockReserve: Math.max(0, (x.stockReserve ?? 0) - 1) } : x))}
-                          className="w-7 h-7 rounded border border-slate-700 bg-[#0f172a] text-red-500 font-bold flex items-center justify-center cursor-pointer">{"−"}</button>
-                        <input type="number" value={p.stockReserve ?? 0}
-                          onChange={(e) => { const n = parseInt(e.target.value, 10); if (!isNaN(n) && n >= 0) setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, stockReserve: n } : x)); }}
-                          className="w-10 h-7 rounded border border-purple-900 bg-[#0f172a] text-purple-300 text-sm font-bold text-center outline-none" />
-                        <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, stockReserve: (x.stockReserve ?? 0) + 1 } : x))}
-                          className="w-7 h-7 rounded border border-slate-700 bg-[#0f172a] text-emerald-500 font-bold flex items-center justify-center cursor-pointer">{"+"}</button>
-                        {(p.stockReserve ?? 0) > 0 && (
-                          <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, stock: x.stock + (x.stockReserve ?? 0), stockReserve: 0 } : x))}
-                            className="px-2 h-7 rounded border border-purple-700 bg-purple-900/30 text-purple-300 text-[11px] font-bold cursor-pointer">{"→ Frigo"}</button>
-                        )}
-                      </div>
+                      <button
+                        onClick={() => { setRestockingProduct(p); setRestockForm({ qty: 1, newPrice: p.price, newCost: p.cost, method: "especes" }); }}
+                        className="text-[11px] px-2.5 py-1 rounded-lg border border-emerald-700 bg-emerald-900/20 text-emerald-400 font-bold cursor-pointer"
+                      >{"+ R\u00E9appro"}</button>
                     </div>
                   </div>
                 );
               })}
+
+              {/* Archived products */}
+              {products.filter(p => p.archived).length > 0 && (
+                <details className="mt-2">
+                  <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300 font-semibold">
+                    {"\uD83D\uDCE6 Produits archiv\u00E9s (" + products.filter(p => p.archived).length + ")"}
+                  </summary>
+                  <div className="flex flex-col gap-1 mt-2">
+                    {products.filter(p => p.archived).map((p) => (
+                      <div key={p.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0f172a] border border-slate-800 opacity-60">
+                        <span className="w-6 h-6 flex items-center justify-center">{renderProductIcon(p.emoji, "text-lg", "w-6 h-6")}</span>
+                        <span className="text-sm flex-1">{p.name}</span>
+                        <button onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, archived: false } : x))}
+                          className="text-xs px-2 py-1 rounded border border-amber-700 text-amber-400 cursor-pointer">{"\u21A9 R\u00E9activer"}</button>
+                        <button onClick={() => removeProduct(p.id)}
+                          className="text-base opacity-40 hover:opacity-80 cursor-pointer">{"\uD83D\uDDD1"}</button>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+
+              {/* Add product */}
               {!showAddProduct ? (
                 <button
                   onClick={() => setShowAddProduct(true)}
-                  className="border-2 border-dashed border-[#1e2d4a] text-slate-500 py-3.5 rounded-xl text-sm font-semibold hover:border-slate-600 transition cursor-pointer"
+                  className="border-2 border-dashed border-[#1e2d4a] text-slate-500 py-4 rounded-xl text-sm font-semibold hover:border-slate-600 transition cursor-pointer"
                 >
                   {"+ Ajouter un produit"}
                 </button>
@@ -2421,10 +2370,8 @@ export default function AeroClubBar() {
                             ))}
                           </div>
                           <div className="border-t border-slate-700 pt-2 mt-1">
-                            <p className="text-[10px] text-slate-500 mb-1">{"🔗 URL d'image (logo, photo...)"}</p>
-                            <input
-                              type="url"
-                              placeholder="https://..."
+                            <p className="text-[10px] text-slate-500 mb-1">{"\uD83D\uDD17 URL d'image"}</p>
+                            <input type="url" placeholder="https://..."
                               className="w-full h-8 text-xs rounded-lg border border-slate-700 bg-[#0f172a] text-white px-2 outline-none"
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
@@ -2438,110 +2385,49 @@ export default function AeroClubBar() {
                       )}
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                        {"Nom"}
-                      </label>
-                      <input
-                        placeholder="ex: Jus"
-                        value={newProduct.name}
-                        onChange={(e) =>
-                          setNewProduct({ ...newProduct, name: e.target.value })
-                        }
-                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm px-3 outline-none"
-                      />
+                      <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Nom"}</label>
+                      <input placeholder="ex: Jus" value={newProduct.name}
+                        onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm px-3 outline-none" />
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                        {"Prix vente"}
-                      </label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={newProduct.price}
-                        onChange={(e) =>
-                          setNewProduct({
-                            ...newProduct,
-                            price: Math.max(0, parseFloat(e.target.value) || 0),
-                          })
-                        }
-                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
-                      />
+                      <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Prix vente"}</label>
+                      <input type="number" step="0.1" value={newProduct.price}
+                        onChange={(e) => setNewProduct({ ...newProduct, price: Math.max(0, parseFloat(e.target.value) || 0) })}
+                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none" />
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                        {"Prix achat"}
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={newProduct.cost}
-                        onChange={(e) =>
-                          setNewProduct({
-                            ...newProduct,
-                            cost: Math.max(0, parseFloat(e.target.value) || 0),
-                          })
-                        }
-                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-emerald-400 text-sm text-center outline-none"
-                      />
+                      <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Prix achat"}</label>
+                      <input type="number" step="0.01" value={newProduct.cost}
+                        onChange={(e) => setNewProduct({ ...newProduct, cost: Math.max(0, parseFloat(e.target.value) || 0) })}
+                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-emerald-400 text-sm text-center outline-none" />
                     </div>
                     <div className="flex flex-col gap-1 col-span-2">
-                      <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                        {"Stock frigo / service"}
-                      </label>
-                      <input
-                        type="number"
-                        value={newProduct.stock}
-                        onChange={(e) =>
-                          setNewProduct({
-                            ...newProduct,
-                            stock: parseInt(e.target.value, 10) || 0,
-                          })
-                        }
-                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
-                      />
+                      <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Stock frigo"}</label>
+                      <input type="number" value={newProduct.stock}
+                        onChange={(e) => setNewProduct({ ...newProduct, stock: parseInt(e.target.value, 10) || 0 })}
+                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none" />
                     </div>
                     <div className="flex flex-col gap-1 col-span-2">
-                      <label className="text-[10px] text-slate-500 font-semibold uppercase">
-                        {"Stock placard reserve"}
-                      </label>
-                      <input
-                        type="number"
-                        value={newProduct.stockReserve}
-                        onChange={(e) =>
-                          setNewProduct({
-                            ...newProduct,
-                            stockReserve: parseInt(e.target.value, 10) || 0,
-                          })
-                        }
-                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-purple-300 text-sm text-center outline-none"
-                      />
+                      <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Stock r\u00E9serve"}</label>
+                      <input type="number" value={newProduct.stockReserve}
+                        onChange={(e) => setNewProduct({ ...newProduct, stockReserve: parseInt(e.target.value, 10) || 0 })}
+                        className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-purple-300 text-sm text-center outline-none" />
                     </div>
                   </div>
-                  <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={(newProduct.coffeeServings || 1) >= 2}
-                      onChange={(e) =>
-                        setNewProduct({
-                          ...newProduct,
-                          coffeeServings: e.target.checked ? 2 : undefined,
-                        })
-                      }
-                      className="w-4 h-4 accent-amber-500"
-                    />
-                    <span className="text-xs text-amber-400 font-semibold">{"☕ Double portion café (2 tasses — modal après paiement)"}</span>
+                  <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2.5 cursor-pointer mb-2">
+                    <input type="checkbox" checked={(newProduct.coffeeServings || 1) >= 2}
+                      onChange={(e) => setNewProduct({ ...newProduct, coffeeServings: e.target.checked ? 2 : undefined })}
+                      className="w-4 h-4 accent-amber-500" />
+                    <span className="text-xs text-amber-400 font-semibold">{"\u2615 Double portion caf\u00E9"}</span>
                   </label>
                   <div className="flex gap-2">
-                    <button
-                      onClick={addProduct}
-                      className="flex-1 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-bold cursor-pointer"
-                    >
+                    <button onClick={addProduct}
+                      className="flex-1 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-bold cursor-pointer">
                       {"\u2713 Ajouter"}
                     </button>
-                    <button
-                      onClick={() => setShowAddProduct(false)}
-                      className="flex-1 py-2.5 rounded-lg border border-slate-700 text-slate-400 text-sm font-bold cursor-pointer"
-                    >
+                    <button onClick={() => setShowAddProduct(false)}
+                      className="flex-1 py-2.5 rounded-lg border border-slate-700 text-slate-400 text-sm font-bold cursor-pointer">
                       {"Annuler"}
                     </button>
                   </div>
@@ -3731,7 +3617,346 @@ export default function AeroClubBar() {
         </div>
       )}
 
-      {restockingProduct && (
+      {/* ── Edit Product Modal ── */}
+      {editingProduct && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end justify-center" onClick={() => setEditingProduct(null)}>
+          <div className="w-full max-w-lg bg-[#131b2e] rounded-t-3xl border-t border-x border-slate-700 max-h-[85vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-base font-bold text-amber-500">{"\u270F\uFE0F Modifier le produit"}</span>
+              <button onClick={() => setEditingProduct(null)} className="w-10 h-10 rounded-full bg-[#1e2d4a] text-slate-400 flex items-center justify-center text-lg cursor-pointer">{"\u2715"}</button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Emoji / URL image"}</label>
+                <button onClick={() => setEmojiPickerFor(emojiPickerFor === "edit" ? null : "edit")}
+                  className="h-14 rounded-xl border border-slate-700 bg-[#0f172a] text-3xl cursor-pointer hover:border-amber-500 flex items-center justify-center">
+                  {renderProductIcon(editingProduct.emoji, "text-3xl", "w-10 h-10")}
+                </button>
+                {emojiPickerFor === "edit" && (
+                  <div className="absolute z-20 mt-1 bg-[#131b2e] border border-slate-700 rounded-xl p-2 shadow-2xl w-72">
+                    <div className="flex gap-1 mb-2 flex-wrap">
+                      {EMOJI_CATEGORIES.map((cat, i) => (
+                        <button key={i} onClick={() => setEmojiPickerCategory(i)}
+                          className={"text-base px-1.5 py-0.5 rounded cursor-pointer " + (emojiPickerCategory === i ? "bg-amber-500" : "bg-[#0f172a] hover:bg-[#1e2d4a]")}
+                          title={cat.title}>{cat.label}</button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-8 gap-1 mb-2">
+                      {EMOJI_CATEGORIES[emojiPickerCategory].emojis.map((e) => (
+                        <button key={e} onClick={() => { setEditingProduct({ ...editingProduct, emoji: e }); setEmojiPickerFor(null); }}
+                          className="text-xl p-1 rounded hover:bg-[#1e2d4a] cursor-pointer">{e}</button>
+                      ))}
+                    </div>
+                    <div className="border-t border-slate-700 pt-2 mt-1">
+                      <input type="url" placeholder="https://..."
+                        className="w-full h-8 text-xs rounded-lg border border-slate-700 bg-[#0f172a] text-white px-2 outline-none"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const val = (e.target as HTMLInputElement).value.trim();
+                            if (val.startsWith("http")) { setEditingProduct({ ...editingProduct, emoji: val }); setEmojiPickerFor(null); }
+                          }
+                        }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Nom"}</label>
+                <input value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
+                  className="h-14 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-sm px-3 outline-none" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Prix vente"}</label>
+                <input type="number" step="0.1" value={editingProduct.price}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, price: Math.max(0, parseFloat(e.target.value) || 0) })}
+                  className="h-14 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-sm text-center outline-none" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Prix achat"}</label>
+                <input type="number" step="0.01" value={editingProduct.cost || 0}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, cost: Math.max(0, parseFloat(e.target.value) || 0) })}
+                  className="h-14 rounded-xl border border-slate-700 bg-[#0f172a] text-emerald-400 text-sm text-center outline-none" />
+              </div>
+              <div className="flex flex-col gap-1 col-span-2">
+                <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Stock frigo"}</label>
+                <input type="number" value={editingProduct.stock}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, stock: parseInt(e.target.value, 10) || 0 })}
+                  className="h-14 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-sm text-center outline-none" />
+              </div>
+              <div className="flex flex-col gap-1 col-span-2">
+                <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Stock r\u00E9serve"}</label>
+                <input type="number" value={editingProduct.stockReserve ?? 0}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, stockReserve: parseInt(e.target.value, 10) || 0 })}
+                  className="h-14 rounded-xl border border-slate-700 bg-[#0f172a] text-purple-300 text-sm text-center outline-none" />
+              </div>
+            </div>
+            <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-xl px-3 py-3 cursor-pointer mb-3">
+              <input type="checkbox" checked={(editingProduct.coffeeServings || 1) >= 2}
+                onChange={(e) => setEditingProduct({ ...editingProduct, coffeeServings: e.target.checked ? 2 : undefined })}
+                className="w-5 h-5 accent-amber-500" />
+              <span className="text-xs text-amber-400 font-semibold">{"\u2615 Double portion caf\u00E9 (2 tasses)"}</span>
+            </label>
+            <div className="flex gap-2">
+              <button onClick={saveEditProduct}
+                className="flex-1 py-3.5 rounded-xl bg-emerald-600 text-white text-sm font-bold cursor-pointer active:scale-95">
+                {"\u2713 Enregistrer"}
+              </button>
+              <button onClick={() => setEditingProduct(null)}
+                className="flex-1 py-3.5 rounded-xl border border-slate-700 text-slate-400 text-sm font-bold cursor-pointer">
+                {"Annuler"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+            {/* ── Product Detail Bottom Sheet ── */}
+      {detailProduct && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end justify-center"
+          onClick={() => setDetailProduct(null)}
+        >
+          <div
+            className="w-full max-w-lg bg-[#131b2e] rounded-t-3xl border-t border-x border-slate-700 max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="sticky top-0 bg-[#131b2e] border-b border-[#1e2d4a] px-5 py-4 flex items-center gap-3 z-10">
+              <span className="w-12 h-12 flex items-center justify-center">
+                {renderProductIcon(detailProduct.emoji, "text-3xl", "w-12 h-12")}
+              </span>
+              <div className="flex-1 min-w-0">
+                <span className="text-lg font-bold block truncate">{detailProduct.name}</span>
+                <span className="text-sm text-amber-500 font-semibold">
+                  {formatPrice(detailProduct.price)}
+                  <span className="text-slate-600">{" \u00B7 co\u00FBt " + formatPrice(detailProduct.cost || 0)}</span>
+                </span>
+              </div>
+              <button onClick={() => setDetailProduct(null)}
+                className="w-10 h-10 rounded-full bg-[#1e2d4a] text-slate-400 flex items-center justify-center text-lg cursor-pointer hover:text-white">
+                {"\u2715"}
+              </button>
+            </div>
+
+            <div className="px-5 py-4 flex flex-col gap-5">
+              {/* ── Stock Controls ── */}
+              <div className="flex flex-col gap-4">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{"Stocks"}</span>
+
+                {/* Frigo */}
+                <div className="flex items-center justify-between bg-[#0f172a] rounded-xl p-3 border border-[#1e2d4a]">
+                  <span className="text-sm font-semibold text-slate-300">{"\uD83E\uDDCA Frigo"}</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { adjustStock(detailProduct.id, -1); setDetailProduct((prev) => prev ? { ...prev, stock: Math.max(0, prev.stock - 1) } : null); }}
+                      className="w-12 h-12 rounded-xl border border-slate-700 bg-[#131b2e] text-red-500 text-xl font-bold flex items-center justify-center cursor-pointer active:scale-90"
+                    >{"\u2212"}</button>
+                    <input
+                      type="number"
+                      value={detailProduct.stock}
+                      onChange={(e) => {
+                        const n = parseInt(e.target.value, 10);
+                        if (!isNaN(n) && n >= 0) {
+                          setStockDirect(detailProduct.id, e.target.value);
+                          setDetailProduct((prev) => prev ? { ...prev, stock: n } : null);
+                        }
+                      }}
+                      className={"w-16 h-12 rounded-xl border bg-[#131b2e] text-center text-lg font-extrabold outline-none " + (detailProduct.stock <= 5 ? "border-orange-700 text-orange-400" : "border-slate-700 text-white")}
+                    />
+                    <button
+                      onClick={() => { adjustStock(detailProduct.id, 1); setDetailProduct((prev) => prev ? { ...prev, stock: prev.stock + 1 } : null); }}
+                      className="w-12 h-12 rounded-xl border border-slate-700 bg-[#131b2e] text-emerald-500 text-xl font-bold flex items-center justify-center cursor-pointer active:scale-90"
+                    >{"+"}</button>
+                  </div>
+                </div>
+
+                {/* Reserve */}
+                <div className="flex items-center justify-between bg-[#0f172a] rounded-xl p-3 border border-[#1e2d4a]">
+                  <span className="text-sm font-semibold text-purple-300">{"\uD83D\uDCE6 R\u00E9serve"}</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, stockReserve: Math.max(0, (x.stockReserve ?? 0) - 1) } : x));
+                        setDetailProduct((prev) => prev ? { ...prev, stockReserve: Math.max(0, (prev.stockReserve ?? 0) - 1) } : null);
+                      }}
+                      className="w-12 h-12 rounded-xl border border-slate-700 bg-[#131b2e] text-red-500 text-xl font-bold flex items-center justify-center cursor-pointer active:scale-90"
+                    >{"\u2212"}</button>
+                    <input
+                      type="number"
+                      value={detailProduct.stockReserve ?? 0}
+                      onChange={(e) => {
+                        const n = parseInt(e.target.value, 10);
+                        if (!isNaN(n) && n >= 0) {
+                          setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, stockReserve: n } : x));
+                          setDetailProduct((prev) => prev ? { ...prev, stockReserve: n } : null);
+                        }
+                      }}
+                      className="w-16 h-12 rounded-xl border border-purple-900 bg-[#131b2e] text-purple-300 text-center text-lg font-extrabold outline-none"
+                    />
+                    <button
+                      onClick={() => {
+                        setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, stockReserve: (x.stockReserve ?? 0) + 1 } : x));
+                        setDetailProduct((prev) => prev ? { ...prev, stockReserve: (prev.stockReserve ?? 0) + 1 } : null);
+                      }}
+                      className="w-12 h-12 rounded-xl border border-slate-700 bg-[#131b2e] text-emerald-500 text-xl font-bold flex items-center justify-center cursor-pointer active:scale-90"
+                    >{"+"}</button>
+                  </div>
+                </div>
+
+                {/* Transfer buttons */}
+                {(detailProduct.stockReserve ?? 0) > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <span className="text-xs font-semibold text-slate-500">{"\uD83D\uDCE6 \u2192 \uD83E\uDDCA Transf\u00E9rer en frigo"}</span>
+                    <div className="flex gap-2">
+                      {[1, 5, 10].map((n) => (
+                        <button key={n}
+                          disabled={n > (detailProduct.stockReserve ?? 0)}
+                          onClick={() => {
+                            const transfer = Math.min(n, detailProduct.stockReserve ?? 0);
+                            setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, stock: x.stock + transfer, stockReserve: Math.max(0, (x.stockReserve ?? 0) - transfer) } : x));
+                            setBatches((prev) => {
+                              const result: Batch[] = [];
+                              let remaining = transfer;
+                              const reserveSorted = prev.filter(b => b.productId === detailProduct.id && b.location === "reserve" && b.qty > 0)
+                                .sort((a, b) => (a.expiryDate || "9").localeCompare(b.expiryDate || "9"));
+                              const reserveIds = new Set(reserveSorted.map(b => b.id));
+                              for (const b of prev) {
+                                if (!reserveIds.has(b.id)) { result.push(b); continue; }
+                                if (remaining <= 0) { result.push(b); continue; }
+                                const take = Math.min(b.qty, remaining);
+                                remaining -= take;
+                                if (take === b.qty) {
+                                  result.push({ ...b, location: "frigo" });
+                                } else {
+                                  result.push({ ...b, qty: b.qty - take });
+                                  result.push({ ...b, id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), qty: take, location: "frigo" });
+                                }
+                              }
+                              return result;
+                            });
+                            setDetailProduct((prev) => prev ? { ...prev, stock: prev.stock + transfer, stockReserve: Math.max(0, (prev.stockReserve ?? 0) - transfer) } : null);
+                          }}
+                          className="flex-1 py-3 rounded-xl border border-purple-700 bg-purple-900/20 text-purple-300 text-sm font-bold cursor-pointer active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
+                        >{String(n)}</button>
+                      ))}
+                      <button
+                        onClick={() => {
+                          const transfer = detailProduct.stockReserve ?? 0;
+                          setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, stock: x.stock + transfer, stockReserve: 0 } : x));
+                          setBatches((prev) => prev.map(b => b.productId === detailProduct.id && b.location === "reserve" ? { ...b, location: "frigo" as const } : b));
+                          setDetailProduct((prev) => prev ? { ...prev, stock: prev.stock + transfer, stockReserve: 0 } : null);
+                        }}
+                        className="flex-1 py-3 rounded-xl border border-purple-700 bg-purple-900/20 text-purple-300 text-sm font-bold cursor-pointer active:scale-95"
+                      >{"Tout"}</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Lots / DLC ── */}
+              {(() => {
+                const pBatches = batchesForProduct(detailProduct.id);
+                if (pBatches.length === 0) return null;
+                const now = new Date();
+                const soon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+                return (
+                  <div className="flex flex-col gap-2">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      {"Lots / DLC (" + pBatches.length + ")"}
+                    </span>
+                    {pBatches
+                      .sort((a, b) => (a.expiryDate || "9").localeCompare(b.expiryDate || "9"))
+                      .map((b) => {
+                        const exp = b.expiryDate ? new Date(b.expiryDate) : null;
+                        const isExpired = exp && exp < now;
+                        const isExpiring = exp && !isExpired && exp <= soon;
+                        return (
+                          <div key={b.id}
+                            className={"flex items-center gap-3 rounded-xl px-3 py-2.5 border " +
+                              (isExpired ? "bg-red-950/40 border-red-800" :
+                               isExpiring ? "bg-orange-950/30 border-orange-800" :
+                               "bg-[#0f172a] border-[#1e2d4a]")}
+                          >
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className={"text-xs font-bold px-2 py-0.5 rounded " + (b.location === "frigo" ? "bg-blue-900/40 text-blue-300" : "bg-purple-900/40 text-purple-300")}>
+                                  {b.location === "frigo" ? "\uD83E\uDDCA Frigo" : "\uD83D\uDCE6 R\u00E9serve"}
+                                </span>
+                                <span className="text-sm font-bold text-white">{b.qty + " unit\u00E9(s)"}</span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
+                                <span>{"Achat : " + new Date(b.purchaseDate).toLocaleDateString("fr-FR")}</span>
+                                <span className="text-slate-600">{"\u00B7"}</span>
+                                <span>{formatPrice(b.unitCost) + "/u"}</span>
+                              </div>
+                              {exp ? (
+                                <div className="mt-1">
+                                  <span className={"text-[11px] font-semibold " + (isExpired ? "text-red-400" : isExpiring ? "text-orange-400" : "text-slate-400")}>
+                                    {isExpired ? "\u26A0 P\u00E9rim\u00E9 le " : isExpiring ? "\uD83D\uDD51 Expire le " : "DLC : "}
+                                    {exp.toLocaleDateString("fr-FR")}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-slate-600 mt-1 block">{"Pas de DLC"}</span>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <input type="date"
+                                value={b.expiryDate ? b.expiryDate.slice(0, 10) : ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setBatches((prev) => prev.map((x) => x.id === b.id ? { ...x, expiryDate: val ? val + "T23:59:59" : undefined } : x));
+                                }}
+                                className="h-8 text-[10px] rounded-lg border border-slate-700 bg-[#131b2e] text-white px-1.5 outline-none w-28"
+                                title="Modifier DLC"
+                              />
+                              <button onClick={() => setBatches((prev) => prev.filter((x) => x.id !== b.id))}
+                                className="text-[10px] text-red-500 hover:text-red-300 cursor-pointer text-center">
+                                {"Supprimer"}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                );
+              })()}
+
+              {/* ── Actions ── */}
+              <div className="flex flex-col gap-2 pb-4">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{"Actions"}</span>
+                <button
+                  onClick={() => { setRestockingProduct(detailProduct); setRestockForm({ qty: 1, newPrice: detailProduct.price, newCost: detailProduct.cost, method: "especes" }); setDetailProduct(null); }}
+                  className="w-full py-3.5 rounded-xl bg-emerald-900/30 border border-emerald-700 text-emerald-400 text-sm font-bold cursor-pointer active:scale-95"
+                >{"+ R\u00E9approvisionner"}</button>
+                <button
+                  onClick={() => { setEditingProduct({ ...detailProduct }); setDetailProduct(null); }}
+                  className="w-full py-3.5 rounded-xl bg-[#1e2d4a] border border-slate-700 text-slate-300 text-sm font-bold cursor-pointer active:scale-95"
+                >{"\u270F\uFE0F Modifier le produit"}</button>
+                <div className="flex gap-2">
+                  {!detailProduct.archived ? (
+                    <button
+                      onClick={() => { setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, archived: true } : x)); setDetailProduct(null); }}
+                      className="flex-1 py-3 rounded-xl border border-slate-700 text-slate-400 text-sm font-semibold cursor-pointer"
+                    >{"\uD83D\uDCE6 Archiver"}</button>
+                  ) : (
+                    <button
+                      onClick={() => { setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, archived: false } : x)); setDetailProduct(null); }}
+                      className="flex-1 py-3 rounded-xl border border-amber-700 text-amber-400 text-sm font-semibold cursor-pointer"
+                    >{"\u21A9 R\u00E9activer"}</button>
+                  )}
+                  <button
+                    onClick={() => { if (confirm("Supprimer ce produit ?")) { removeProduct(detailProduct.id); setDetailProduct(null); } }}
+                    className="flex-1 py-3 rounded-xl border border-red-800 text-red-400 text-sm font-semibold cursor-pointer"
+                  >{"\uD83D\uDDD1 Supprimer"}</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+            {restockingProduct && (
         <div
           className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end justify-center p-4"
           onClick={() => setRestockingProduct(null)}
@@ -3799,6 +4024,17 @@ export default function AeroClubBar() {
                     {m === "especes" ? "💵 Espèces" : "💳 Carte"}
                   </button>
                 ))}
+              </div>
+
+              {/* DLC */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-slate-400 font-semibold">{"Date limite de consommation (optionnel)"}</label>
+                <input
+                  type="date"
+                  value={restockForm.expiryDate || ""}
+                  onChange={(e) => setRestockForm((f) => ({ ...f, expiryDate: e.target.value || undefined }))}
+                  className="h-11 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-center text-base outline-none"
+                />
               </div>
 
               {/* Total */}
