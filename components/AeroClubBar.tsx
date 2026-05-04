@@ -3808,7 +3808,7 @@ export default function AeroClubBar() {
                   <div className="flex flex-col gap-2">
                     <span className="text-xs font-semibold text-slate-500">{"\uD83D\uDCE6 \u2192 \uD83E\uDDCA Transf\u00E9rer en frigo"}</span>
                     <div className="flex gap-2">
-                      {[1, 5, 10].map((n) => (
+                      {[1, 2, 3].map((n) => (
                         <button key={n}
                           disabled={n > (detailProduct.stockReserve ?? 0)}
                           onClick={() => {
