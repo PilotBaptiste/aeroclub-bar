@@ -3739,116 +3739,109 @@ export default function AeroClubBar() {
             </div>
 
             <div className="px-5 py-4 flex flex-col gap-5">
-              {/* ── Stock Controls ── */}
-              <div className="flex flex-col gap-4">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{"Stocks"}</span>
-
-                {/* Frigo */}
-                <div className="flex items-center justify-between bg-[#0f172a] rounded-xl p-3 border border-[#1e2d4a]">
-                  <span className="text-sm font-semibold text-slate-300">{"\uD83E\uDDCA Frigo"}</span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => { adjustStock(detailProduct.id, -1); setDetailProduct((prev) => prev ? { ...prev, stock: Math.max(0, prev.stock - 1) } : null); }}
-                      className="w-12 h-12 rounded-xl border border-slate-700 bg-[#131b2e] text-red-500 text-xl font-bold flex items-center justify-center cursor-pointer active:scale-90"
-                    >{"\u2212"}</button>
-                    <input
-                      type="number"
-                      value={detailProduct.stock}
-                      onChange={(e) => {
-                        const n = parseInt(e.target.value, 10);
-                        if (!isNaN(n) && n >= 0) {
-                          setStockDirect(detailProduct.id, e.target.value);
-                          setDetailProduct((prev) => prev ? { ...prev, stock: n } : null);
-                        }
-                      }}
-                      className={"w-16 h-12 rounded-xl border bg-[#131b2e] text-center text-lg font-extrabold outline-none " + (detailProduct.stock <= 5 ? "border-orange-700 text-orange-400" : "border-slate-700 text-white")}
+              {/* ── Stock Overview ── */}
+              <div className="bg-[#0f172a] rounded-2xl border border-[#1e2d4a] overflow-hidden">
+                {/* Frigo + Reserve side by side */}
+                <div className="grid grid-cols-2 divide-x divide-[#1e2d4a]">
+                  <div className="flex flex-col items-center py-4 gap-1">
+                    <span className="text-xs text-slate-500 font-semibold">{"\uD83E\uDDCA Frigo"}</span>
+                    <input type="number" value={detailProduct.stock}
+                      onChange={(e) => { const n = parseInt(e.target.value,10); if (!isNaN(n) && n >= 0) { setStockDirect(detailProduct.id, e.target.value); setDetailProduct(prev => prev ? {...prev, stock: n} : null); }}}
+                      className={"w-20 h-14 rounded-xl border bg-[#131b2e] text-center text-2xl font-extrabold outline-none " + (detailProduct.stock <= 5 ? "border-orange-600 text-orange-400" : "border-slate-700 text-white")}
                     />
-                    <button
-                      onClick={() => { adjustStock(detailProduct.id, 1); setDetailProduct((prev) => prev ? { ...prev, stock: prev.stock + 1 } : null); }}
-                      className="w-12 h-12 rounded-xl border border-slate-700 bg-[#131b2e] text-emerald-500 text-xl font-bold flex items-center justify-center cursor-pointer active:scale-90"
-                    >{"+"}</button>
-                  </div>
-                </div>
-
-                {/* Reserve */}
-                <div className="flex items-center justify-between bg-[#0f172a] rounded-xl p-3 border border-[#1e2d4a]">
-                  <span className="text-sm font-semibold text-purple-300">{"\uD83D\uDCE6 R\u00E9serve"}</span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, stockReserve: Math.max(0, (x.stockReserve ?? 0) - 1) } : x));
-                        setDetailProduct((prev) => prev ? { ...prev, stockReserve: Math.max(0, (prev.stockReserve ?? 0) - 1) } : null);
-                      }}
-                      className="w-12 h-12 rounded-xl border border-slate-700 bg-[#131b2e] text-red-500 text-xl font-bold flex items-center justify-center cursor-pointer active:scale-90"
-                    >{"\u2212"}</button>
-                    <input
-                      type="number"
-                      value={detailProduct.stockReserve ?? 0}
-                      onChange={(e) => {
-                        const n = parseInt(e.target.value, 10);
-                        if (!isNaN(n) && n >= 0) {
-                          setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, stockReserve: n } : x));
-                          setDetailProduct((prev) => prev ? { ...prev, stockReserve: n } : null);
-                        }
-                      }}
-                      className="w-16 h-12 rounded-xl border border-purple-900 bg-[#131b2e] text-purple-300 text-center text-lg font-extrabold outline-none"
-                    />
-                    <button
-                      onClick={() => {
-                        setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, stockReserve: (x.stockReserve ?? 0) + 1 } : x));
-                        setDetailProduct((prev) => prev ? { ...prev, stockReserve: (prev.stockReserve ?? 0) + 1 } : null);
-                      }}
-                      className="w-12 h-12 rounded-xl border border-slate-700 bg-[#131b2e] text-emerald-500 text-xl font-bold flex items-center justify-center cursor-pointer active:scale-90"
-                    >{"+"}</button>
-                  </div>
-                </div>
-
-                {/* Transfer buttons */}
-                {(detailProduct.stockReserve ?? 0) > 0 && (
-                  <div className="flex flex-col gap-2">
-                    <span className="text-xs font-semibold text-slate-500">{"\uD83D\uDCE6 \u2192 \uD83E\uDDCA Transf\u00E9rer en frigo"}</span>
-                    <div className="flex gap-2">
-                      {[1, 2, 3].map((n) => (
-                        <button key={n}
-                          disabled={n > (detailProduct.stockReserve ?? 0)}
-                          onClick={() => {
-                            const transfer = Math.min(n, detailProduct.stockReserve ?? 0);
-                            setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, stock: x.stock + transfer, stockReserve: Math.max(0, (x.stockReserve ?? 0) - transfer) } : x));
-                            setBatches((prev) => {
-                              const result: Batch[] = [];
-                              let remaining = transfer;
-                              const reserveSorted = prev.filter(b => b.productId === detailProduct.id && b.location === "reserve" && b.qty > 0)
-                                .sort((a, b) => (a.expiryDate || "9").localeCompare(b.expiryDate || "9"));
-                              const reserveIds = new Set(reserveSorted.map(b => b.id));
-                              for (const b of prev) {
-                                if (!reserveIds.has(b.id)) { result.push(b); continue; }
-                                if (remaining <= 0) { result.push(b); continue; }
-                                const take = Math.min(b.qty, remaining);
-                                remaining -= take;
-                                if (take === b.qty) {
-                                  result.push({ ...b, location: "frigo" });
-                                } else {
-                                  result.push({ ...b, qty: b.qty - take });
-                                  result.push({ ...b, id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), qty: take, location: "frigo" });
-                                }
-                              }
-                              return result;
-                            });
-                            setDetailProduct((prev) => prev ? { ...prev, stock: prev.stock + transfer, stockReserve: Math.max(0, (prev.stockReserve ?? 0) - transfer) } : null);
-                          }}
-                          className="flex-1 py-3 rounded-xl border border-purple-700 bg-purple-900/20 text-purple-300 text-sm font-bold cursor-pointer active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
-                        >{String(n)}</button>
-                      ))}
-                      <button
-                        onClick={() => {
-                          const transfer = detailProduct.stockReserve ?? 0;
-                          setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, stock: x.stock + transfer, stockReserve: 0 } : x));
-                          setBatches((prev) => prev.map(b => b.productId === detailProduct.id && b.location === "reserve" ? { ...b, location: "frigo" as const } : b));
-                          setDetailProduct((prev) => prev ? { ...prev, stock: prev.stock + transfer, stockReserve: 0 } : null);
-                        }}
-                        className="flex-1 py-3 rounded-xl border border-purple-700 bg-purple-900/20 text-purple-300 text-sm font-bold cursor-pointer active:scale-95"
-                      >{"Tout"}</button>
+                    <div className="flex gap-1.5 mt-1">
+                      <button onClick={() => { adjustStock(detailProduct.id, -1); setDetailProduct(prev => prev ? {...prev, stock: Math.max(0, prev.stock-1)} : null); }}
+                        className="w-11 h-11 rounded-xl border border-slate-700 bg-[#131b2e] text-red-500 text-lg font-bold flex items-center justify-center cursor-pointer active:scale-90">{"\u2212"}</button>
+                      <button onClick={() => { adjustStock(detailProduct.id, 1); setDetailProduct(prev => prev ? {...prev, stock: prev.stock+1} : null); }}
+                        className="w-11 h-11 rounded-xl border border-slate-700 bg-[#131b2e] text-emerald-500 text-lg font-bold flex items-center justify-center cursor-pointer active:scale-90">{"+"}</button>
                     </div>
+                  </div>
+                  <div className="flex flex-col items-center py-4 gap-1">
+                    <span className="text-xs text-purple-400 font-semibold">{"\uD83D\uDCE6 R\u00E9serve"}</span>
+                    <input type="number" value={detailProduct.stockReserve ?? 0}
+                      onChange={(e) => { const n = parseInt(e.target.value,10); if (!isNaN(n) && n >= 0) { setProducts(prev => prev.map(x => x.id === detailProduct.id ? {...x, stockReserve: n} : x)); setDetailProduct(prev => prev ? {...prev, stockReserve: n} : null); }}}
+                      className="w-20 h-14 rounded-xl border border-purple-900 bg-[#131b2e] text-purple-300 text-center text-2xl font-extrabold outline-none"
+                    />
+                    <div className="flex gap-1.5 mt-1">
+                      <button onClick={() => { setProducts(prev => prev.map(x => x.id === detailProduct.id ? {...x, stockReserve: Math.max(0,(x.stockReserve??0)-1)} : x)); setDetailProduct(prev => prev ? {...prev, stockReserve: Math.max(0,(prev.stockReserve??0)-1)} : null); }}
+                        className="w-11 h-11 rounded-xl border border-slate-700 bg-[#131b2e] text-red-500 text-lg font-bold flex items-center justify-center cursor-pointer active:scale-90">{"\u2212"}</button>
+                      <button onClick={() => { setProducts(prev => prev.map(x => x.id === detailProduct.id ? {...x, stockReserve: (x.stockReserve??0)+1} : x)); setDetailProduct(prev => prev ? {...prev, stockReserve: (prev.stockReserve??0)+1} : null); }}
+                        className="w-11 h-11 rounded-xl border border-slate-700 bg-[#131b2e] text-emerald-500 text-lg font-bold flex items-center justify-center cursor-pointer active:scale-90">{"+"}</button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Transfer section */}
+                {((detailProduct.stockReserve ?? 0) > 0 || detailProduct.stock > 0) && (
+                  <div className="border-t border-[#1e2d4a] px-3 py-3 flex flex-col gap-2">
+                    {(detailProduct.stockReserve ?? 0) > 0 && (
+                      <div>
+                        <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">{"\uD83D\uDCE6 \u2192 \uD83E\uDDCA R\u00E9serve vers frigo"}</span>
+                        <div className="flex gap-1.5">
+                          {[1, 2, 3].map((n) => (
+                            <button key={n} disabled={n > (detailProduct.stockReserve ?? 0)}
+                              onClick={() => {
+                                const t = Math.min(n, detailProduct.stockReserve ?? 0);
+                                setProducts(prev => prev.map(x => x.id === detailProduct.id ? {...x, stock: x.stock+t, stockReserve: Math.max(0,(x.stockReserve??0)-t)} : x));
+                                setBatches(prev => { const res: Batch[] = []; let rem = t; for (const b of prev) { if (b.productId !== detailProduct.id || b.location !== "reserve" || b.qty <= 0 || rem <= 0) { res.push(b); continue; } const take = Math.min(b.qty, rem); rem -= take; if (take === b.qty) { res.push({...b, location:"frigo"}); } else { res.push({...b, qty: b.qty-take}); res.push({...b, id: Date.now().toString(36)+Math.random().toString(36).slice(2,6), qty: take, location:"frigo"}); } } return res; });
+                                setDetailProduct(prev => prev ? {...prev, stock: prev.stock+t, stockReserve: Math.max(0,(prev.stockReserve??0)-t)} : null);
+                              }}
+                              className="flex-1 py-2.5 rounded-xl border border-purple-700 bg-purple-900/20 text-purple-300 text-sm font-bold cursor-pointer active:scale-95 disabled:opacity-25 disabled:cursor-not-allowed"
+                            >{String(n)}</button>
+                          ))}
+                          <button onClick={() => {
+                              const t = detailProduct.stockReserve ?? 0;
+                              setProducts(prev => prev.map(x => x.id === detailProduct.id ? {...x, stock: x.stock+t, stockReserve: 0} : x));
+                              setBatches(prev => prev.map(b => b.productId === detailProduct.id && b.location === "reserve" ? {...b, location:"frigo" as const} : b));
+                              setDetailProduct(prev => prev ? {...prev, stock: prev.stock+t, stockReserve: 0} : null);
+                            }}
+                            className="flex-1 py-2.5 rounded-xl border border-purple-700 bg-purple-900/20 text-purple-300 text-sm font-bold cursor-pointer active:scale-95"
+                          >{"Tout"}</button>
+                          <button onClick={() => {
+                              const val = prompt("Quantit\u00E9 \u00E0 transf\u00E9rer ?");
+                              if (!val) return;
+                              const n = parseInt(val, 10);
+                              if (isNaN(n) || n <= 0) return;
+                              const t = Math.min(n, detailProduct.stockReserve ?? 0);
+                              setProducts(prev => prev.map(x => x.id === detailProduct.id ? {...x, stock: x.stock+t, stockReserve: Math.max(0,(x.stockReserve??0)-t)} : x));
+                              setBatches(prev => { const res: Batch[] = []; let rem = t; for (const b of prev) { if (b.productId !== detailProduct.id || b.location !== "reserve" || b.qty <= 0 || rem <= 0) { res.push(b); continue; } const take = Math.min(b.qty, rem); rem -= take; if (take === b.qty) { res.push({...b, location:"frigo"}); } else { res.push({...b, qty: b.qty-take}); res.push({...b, id: Date.now().toString(36)+Math.random().toString(36).slice(2,6), qty: take, location:"frigo"}); } } return res; });
+                              setDetailProduct(prev => prev ? {...prev, stock: prev.stock+t, stockReserve: Math.max(0,(prev.stockReserve??0)-t)} : null);
+                            }}
+                            className="flex-1 py-2.5 rounded-xl border border-amber-700 bg-amber-900/20 text-amber-400 text-sm font-bold cursor-pointer active:scale-95"
+                          >{"Autre"}</button>
+                        </div>
+                      </div>
+                    )}
+                    {detailProduct.stock > 0 && (
+                      <div>
+                        <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">{"\uD83E\uDDCA \u2192 \uD83D\uDCE6 Frigo vers r\u00E9serve"}</span>
+                        <div className="flex gap-1.5">
+                          {[1, 2, 3].map((n) => (
+                            <button key={n} disabled={n > detailProduct.stock}
+                              onClick={() => {
+                                const t = Math.min(n, detailProduct.stock);
+                                setProducts(prev => prev.map(x => x.id === detailProduct.id ? {...x, stock: Math.max(0, x.stock-t), stockReserve: (x.stockReserve??0)+t} : x));
+                                setBatches(prev => { const res: Batch[] = []; let rem = t; for (const b of prev) { if (b.productId !== detailProduct.id || b.location !== "frigo" || b.qty <= 0 || rem <= 0) { res.push(b); continue; } const take = Math.min(b.qty, rem); rem -= take; if (take === b.qty) { res.push({...b, location:"reserve"}); } else { res.push({...b, qty: b.qty-take}); res.push({...b, id: Date.now().toString(36)+Math.random().toString(36).slice(2,6), qty: take, location:"reserve"}); } } return res; });
+                                setDetailProduct(prev => prev ? {...prev, stock: Math.max(0, prev.stock-t), stockReserve: (prev.stockReserve??0)+t} : null);
+                              }}
+                              className="flex-1 py-2.5 rounded-xl border border-blue-800 bg-blue-900/20 text-blue-300 text-sm font-bold cursor-pointer active:scale-95 disabled:opacity-25 disabled:cursor-not-allowed"
+                            >{String(n)}</button>
+                          ))}
+                          <button onClick={() => {
+                              const val = prompt("Quantit\u00E9 \u00E0 transf\u00E9rer ?");
+                              if (!val) return;
+                              const n = parseInt(val, 10);
+                              if (isNaN(n) || n <= 0) return;
+                              const t = Math.min(n, detailProduct.stock);
+                              setProducts(prev => prev.map(x => x.id === detailProduct.id ? {...x, stock: Math.max(0, x.stock-t), stockReserve: (x.stockReserve??0)+t} : x));
+                              setBatches(prev => { const res: Batch[] = []; let rem = t; for (const b of prev) { if (b.productId !== detailProduct.id || b.location !== "frigo" || b.qty <= 0 || rem <= 0) { res.push(b); continue; } const take = Math.min(b.qty, rem); rem -= take; if (take === b.qty) { res.push({...b, location:"reserve"}); } else { res.push({...b, qty: b.qty-take}); res.push({...b, id: Date.now().toString(36)+Math.random().toString(36).slice(2,6), qty: take, location:"reserve"}); } } return res; });
+                              setDetailProduct(prev => prev ? {...prev, stock: Math.max(0, prev.stock-t), stockReserve: (prev.stockReserve??0)+t} : null);
+                            }}
+                            className="flex-1 py-2.5 rounded-xl border border-amber-700 bg-amber-900/20 text-amber-400 text-sm font-bold cursor-pointer active:scale-95"
+                          >{"Autre"}</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
