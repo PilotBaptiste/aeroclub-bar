@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 
 const ACBA_BLUE = "#0A2FE0";
@@ -7,19 +7,31 @@ const ACBA_BLUE_DARK = "#071E96";
 const ACBA_BLUE_LIGHT = "#1A40FF";
 const ACBA_YELLOW = "#FFD700";
 
-const DEMO_PRODUCTS = [
-  { id: "cafe", name: "Café", emoji: "☕", price: 0.5, stock: 50, maxStock: 60, category: "chaud" },
-  { id: "eau", name: "Eau", emoji: "💧", price: 0.5, stock: 30, maxStock: 40, category: "soft" },
-  { id: "coca", name: "Coca-Cola", emoji: "🥤", price: 1.0, stock: 24, maxStock: 30, category: "soft" },
-  { id: "orangina", name: "Orangina", emoji: "🍊", price: 1.0, stock: 24, maxStock: 30, category: "soft" },
-  { id: "icetea", name: "Ice Tea", emoji: "🧋", price: 1.0, stock: 18, maxStock: 24, category: "soft" },
-  { id: "perrier", name: "Perrier", emoji: "🧊", price: 1.0, stock: 20, maxStock: 24, category: "soft" },
-  { id: "biere", name: "Bière", emoji: "🍺", price: 1.5, stock: 20, maxStock: 24, category: "alcool" },
-  { id: "snack", name: "Snack", emoji: "🍫", price: 1.0, stock: 15, maxStock: 20, category: "food" },
-  { id: "chips", name: "Chips", emoji: "🍟", price: 1.0, stock: 12, maxStock: 20, category: "food" },
-  { id: "glace", name: "Glace", emoji: "🍦", price: 1.5, stock: 3, maxStock: 12, category: "food" },
-  { id: "2xcafe", name: "2x Cafés", emoji: "☕☕", price: 0.8, stock: 25, maxStock: 30, category: "chaud" },
-  { id: "jus", name: "Jus d'orange", emoji: "🧃", price: 1.0, stock: 16, maxStock: 24, category: "soft" },
+interface Product {
+  id: string;
+  name: string;
+  emoji: string;
+  price: number;
+  frigo: number;
+  reserve: number;
+  maxStock: number;
+  category: string;
+  dlc?: string;
+}
+
+const INITIAL_PRODUCTS: Product[] = [
+  { id: "cafe", name: "Café", emoji: "☕", price: 0.5, frigo: 35, reserve: 15, maxStock: 60, category: "chaud" },
+  { id: "eau", name: "Eau", emoji: "💧", price: 0.5, frigo: 20, reserve: 10, maxStock: 40, category: "soft" },
+  { id: "coca", name: "Coca-Cola", emoji: "🥤", price: 1.0, frigo: 14, reserve: 10, maxStock: 30, category: "soft" },
+  { id: "orangina", name: "Orangina", emoji: "🍊", price: 1.0, frigo: 12, reserve: 12, maxStock: 30, category: "soft" },
+  { id: "icetea", name: "Ice Tea", emoji: "🧋", price: 1.0, frigo: 8, reserve: 10, maxStock: 24, category: "soft" },
+  { id: "perrier", name: "Perrier", emoji: "🧊", price: 1.0, frigo: 10, reserve: 10, maxStock: 24, category: "soft" },
+  { id: "biere", name: "Bière", emoji: "🍺", price: 1.5, frigo: 12, reserve: 8, maxStock: 24, category: "alcool" },
+  { id: "snack", name: "Snack", emoji: "🍫", price: 1.0, frigo: 0, reserve: 15, maxStock: 20, category: "food", dlc: "2026-05-20" },
+  { id: "chips", name: "Chips", emoji: "🍟", price: 1.0, frigo: 0, reserve: 12, maxStock: 20, category: "food", dlc: "2026-08-15" },
+  { id: "glace", name: "Glace", emoji: "🍦", price: 1.5, frigo: 3, reserve: 0, maxStock: 12, category: "food", dlc: "2026-06-01" },
+  { id: "2xcafe", name: "2x Cafés", emoji: "☕☕", price: 0.8, frigo: 25, reserve: 0, maxStock: 30, category: "chaud" },
+  { id: "jus", name: "Jus d'orange", emoji: "🧃", price: 1.0, frigo: 10, reserve: 6, maxStock: 24, category: "soft", dlc: "2026-05-10" },
 ];
 
 const CATEGORIES = [
@@ -30,15 +42,74 @@ const CATEGORIES = [
   { id: "food", label: "Snacks", icon: "🍫" },
 ];
 
-interface CartItem {
+interface CartItem { id: string; name: string; emoji: string; price: number; qty: number; }
+
+interface Transaction {
   id: string;
-  name: string;
-  emoji: string;
-  price: number;
-  qty: number;
+  buyer: string;
+  items: { name: string; emoji: string; qty: number; price: number }[];
+  total: number;
+  method: string;
+  time: string;
+}
+
+const DEMO_TRANSACTIONS: Transaction[] = [
+  { id: "t1", buyer: "Jean Dupont", items: [{ name: "Café", emoji: "☕", qty: 2, price: 0.5 }, { name: "Snack", emoji: "🍫", qty: 1, price: 1.0 }], total: 2.0, method: "cash", time: "14:32" },
+  { id: "t2", buyer: "Marie Martin", items: [{ name: "Coca-Cola", emoji: "🥤", qty: 1, price: 1.0 }], total: 1.0, method: "card", time: "14:15" },
+  { id: "t3", buyer: "Pierre Lefèvre", items: [{ name: "Bière", emoji: "🍺", qty: 2, price: 1.5 }, { name: "Chips", emoji: "🍟", qty: 1, price: 1.0 }], total: 4.0, method: "card", time: "13:48" },
+  { id: "t4", buyer: "Sophie Bernard", items: [{ name: "Ice Tea", emoji: "🧋", qty: 1, price: 1.0 }, { name: "Glace", emoji: "🍦", qty: 1, price: 1.5 }], total: 2.5, method: "cash", time: "13:20" },
+  { id: "t5", buyer: "Luc Moreau", items: [{ name: "2x Cafés", emoji: "☕☕", qty: 1, price: 0.8 }], total: 0.8, method: "cash", time: "12:55" },
+  { id: "t6", buyer: "Club (offert)", items: [{ name: "Eau", emoji: "💧", qty: 3, price: 0.5 }], total: 0, method: "free", time: "12:30" },
+];
+
+const SALES_7D = [12.5, 18.0, 8.5, 22.0, 15.5, 28.0, 19.5];
+const DAYS_LABELS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+function AnimatedNumber({ value, decimals = 0 }: { value: number; decimals?: number }) {
+  const [display, setDisplay] = useState(0);
+  const ref = useRef<number>(0);
+  useEffect(() => {
+    const start = ref.current;
+    const diff = value - start;
+    const duration = 600;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const elapsed = now - t0;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const current = start + diff * eased;
+      setDisplay(current);
+      ref.current = current;
+      if (progress < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, [value]);
+  return <>{decimals > 0 ? display.toFixed(decimals).replace(".", ",") : Math.round(display)}</>;
+}
+
+function MiniChart({ data, labels }: { data: number[]; labels: string[] }) {
+  const max = Math.max(...data);
+  return (
+    <div className="flex items-end gap-1 h-20 w-full">
+      {data.map((v, i) => (
+        <div key={i} className="flex-1 flex flex-col items-center gap-1">
+          <div className="w-full rounded-t-md anim-stock-fill" style={{
+            height: (v / max) * 100 + "%",
+            background: i === data.length - 1
+              ? `linear-gradient(180deg, ${ACBA_YELLOW}, ${ACBA_YELLOW}80)`
+              : `linear-gradient(180deg, ${ACBA_BLUE_LIGHT}60, ${ACBA_BLUE}40)`,
+            animationDelay: i * 0.08 + "s",
+            minHeight: "4px",
+          }} />
+          <span className="text-[8px] text-slate-500">{labels[i]}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function DevPage() {
+  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
@@ -47,15 +118,28 @@ export default function DevPage() {
   const [tappedId, setTappedId] = useState<string | null>(null);
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [cartBounce, setCartBounce] = useState(false);
+  const [mode, setMode] = useState<"client" | "admin">("client");
+  const [adminTab, setAdminTab] = useState<"dashboard" | "stock" | "history">("dashboard");
+  const [barOpen, setBarOpen] = useState(true);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [transactions] = useState<Transaction[]>(DEMO_TRANSACTIONS);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useEffect(() => { setMounted(true); }, []);
 
   const cartTotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
+  const todayRevenue = transactions.reduce((s, t) => s + t.total, 0);
+  const todaySales = transactions.length;
+  const lowStockProducts = products.filter((p) => p.frigo + p.reserve <= 5);
+  const dlcAlerts = products.filter((p) => {
+    if (!p.dlc) return false;
+    const days = (new Date(p.dlc).getTime() - Date.now()) / 86400000;
+    return days <= 14;
+  });
 
-  const addToCart = useCallback((p: (typeof DEMO_PRODUCTS)[0]) => {
+  const addToCart = useCallback((p: Product) => {
     setCart((prev) => {
       const ex = prev.find((c) => c.id === p.id);
       if (ex) return prev.map((c) => (c.id === p.id ? { ...c, qty: c.qty + 1 } : c));
@@ -77,10 +161,60 @@ export default function DevPage() {
     });
   };
 
-  const filtered = DEMO_PRODUCTS.filter((p) => !activeCategory || p.category === activeCategory);
+  const doPayment = () => {
+    setShowCheckout(false);
+    setShowConfetti(true);
+    setCart([]);
+    setBuyerName("");
+    setTimeout(() => setShowConfetti(false), 2500);
+  };
+
+  const transferStock = (productId: string, direction: "toFrigo" | "toReserve", qty: number) => {
+    setProducts((prev) => prev.map((p) => {
+      if (p.id !== productId) return p;
+      if (direction === "toFrigo") {
+        const moved = Math.min(qty, p.reserve);
+        return { ...p, frigo: p.frigo + moved, reserve: p.reserve - moved };
+      } else {
+        const moved = Math.min(qty, p.frigo);
+        return { ...p, frigo: p.frigo - moved, reserve: p.reserve + moved };
+      }
+    }));
+  };
+
+  const filtered = products.filter((p) => !activeCategory || p.category === activeCategory);
+  const filteredStock = searchQuery
+    ? products.filter((p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : products;
+
+  const glass = (opacity = "08") => ({
+    background: `linear-gradient(135deg, rgba(255,255,255,0.${opacity}) 0%, rgba(255,255,255,0.02) 100%)`,
+    border: "1px solid " + ACBA_BLUE + "20",
+    borderRadius: "16px",
+  });
 
   return (
-    <div className="min-h-screen text-white" style={{ background: "linear-gradient(180deg, #040C24 0%, #06103A 50%, #040C24 100%)" }}>
+    <div className="min-h-screen text-white pb-20" style={{ background: "linear-gradient(180deg, #040C24 0%, #06103A 50%, #040C24 100%)" }}>
+
+      {/* ── Confetti ── */}
+      {showConfetti && (
+        <div className="fixed inset-0 z-[100] pointer-events-none overflow-hidden">
+          {Array.from({ length: 40 }).map((_, i) => (
+            <div key={i} className="confetti-piece" style={{
+              left: Math.random() * 100 + "%",
+              animationDelay: Math.random() * 0.5 + "s",
+              background: [ACBA_YELLOW, ACBA_BLUE_LIGHT, "#10B981", "#F97316", "#EF4444", "#fff"][i % 6],
+            }} />
+          ))}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center" style={{ animation: "popIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}>
+              <div className="text-6xl mb-3">✅</div>
+              <div className="text-2xl font-black" style={{ color: ACBA_YELLOW }}>Paiement enregistré !</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Header ── */}
       <header className="sticky top-0 z-30 border-b" style={{ background: "rgba(4,12,36,0.85)", backdropFilter: "blur(16px)", borderColor: ACBA_BLUE + "30" }}>
         <div className="max-w-4xl mx-auto px-4 py-2 flex items-center justify-between">
@@ -89,459 +223,582 @@ export default function DevPage() {
               <Image src="/logo-acba.png" alt="ACBA" width={44} height={62} className="object-contain drop-shadow-lg" priority />
             </div>
             <div>
-              <h1 className="text-sm font-extrabold tracking-tight" style={{ color: ACBA_YELLOW }}>AÉRO-CLUB BAR</h1>
+              <h1 className="text-sm font-extrabold tracking-tight" style={{ color: ACBA_YELLOW }}>
+                {mode === "client" ? "AÉRO-CLUB BAR" : "ADMIN"}
+              </h1>
               <p className="text-[9px] font-medium" style={{ color: ACBA_BLUE_LIGHT + "80" }}>Bassin d&#39;Arcachon</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="h-7 px-2.5 rounded-full flex items-center gap-1.5 anim-glow" style={{ background: ACBA_BLUE + "20", border: "1px solid " + ACBA_BLUE + "40" }}>
-              <span className="w-2 h-2 rounded-full anim-pulse-dot" style={{ background: "#22C55E" }} />
-              <span className="text-[10px] font-semibold" style={{ color: "#22C55E" }}>Bar ouvert</span>
-            </div>
+            {mode === "admin" && (
+              <button
+                onClick={() => setBarOpen(!barOpen)}
+                className="h-7 px-2.5 rounded-full flex items-center gap-1.5 cursor-pointer active:scale-95 transition-transform"
+                style={{
+                  background: barOpen ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                  border: "1px solid " + (barOpen ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"),
+                }}
+              >
+                <span className={"w-2 h-2 rounded-full " + (barOpen ? "anim-pulse-dot" : "")} style={{ background: barOpen ? "#22C55E" : "#EF4444" }} />
+                <span className="text-[10px] font-semibold" style={{ color: barOpen ? "#22C55E" : "#EF4444" }}>{barOpen ? "Ouvert" : "Fermé"}</span>
+              </button>
+            )}
+            {mode === "client" && (
+              <div className="h-7 px-2.5 rounded-full flex items-center gap-1.5 anim-glow" style={{ background: ACBA_BLUE + "20", border: "1px solid " + ACBA_BLUE + "40" }}>
+                <span className="w-2 h-2 rounded-full anim-pulse-dot" style={{ background: barOpen ? "#22C55E" : "#EF4444" }} />
+                <span className="text-[10px] font-semibold" style={{ color: barOpen ? "#22C55E" : "#EF4444" }}>{barOpen ? "Bar ouvert" : "Fermé"}</span>
+              </div>
+            )}
           </div>
         </div>
       </header>
 
-      {/* ── Categories ── */}
-      <div className="sticky top-[54px] z-20" style={{ background: "rgba(4,12,36,0.9)", backdropFilter: "blur(12px)" }}>
-        <div className="max-w-4xl mx-auto px-3 py-2.5 flex gap-2 overflow-x-auto no-scrollbar">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.id ?? "all"}
-              onClick={() => setActiveCategory(cat.id)}
-              className={"shrink-0 px-5 py-2 rounded-full text-xs font-bold cursor-pointer anim-pill " + (activeCategory === cat.id ? "anim-pill-active" : "")}
-              style={
-                activeCategory === cat.id
-                  ? { background: ACBA_YELLOW, color: "#000", boxShadow: "0 4px 15px " + ACBA_YELLOW + "40" }
-                  : { background: ACBA_BLUE + "15", color: ACBA_BLUE_LIGHT + "80", border: "1px solid " + ACBA_BLUE + "25" }
-              }
-            >
-              {cat.icon + "  " + cat.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* ═══════════════ CLIENT MODE ═══════════════ */}
+      {mode === "client" && (
+        <>
+          {/* Categories */}
+          <div className="sticky top-[54px] z-20" style={{ background: "rgba(4,12,36,0.9)", backdropFilter: "blur(12px)" }}>
+            <div className="max-w-4xl mx-auto px-3 py-2.5 flex gap-2 overflow-x-auto no-scrollbar">
+              {CATEGORIES.map((cat) => (
+                <button key={cat.id ?? "all"} onClick={() => setActiveCategory(cat.id)}
+                  className={"shrink-0 px-5 py-2 rounded-full text-xs font-bold cursor-pointer anim-pill " + (activeCategory === cat.id ? "anim-pill-active" : "")}
+                  style={activeCategory === cat.id
+                    ? { background: ACBA_YELLOW, color: "#000", boxShadow: "0 4px 15px " + ACBA_YELLOW + "40" }
+                    : { background: ACBA_BLUE + "15", color: ACBA_BLUE_LIGHT + "80", border: "1px solid " + ACBA_BLUE + "25" }}
+                >{cat.icon + "  " + cat.label}</button>
+              ))}
+            </div>
+          </div>
 
-      {/* ── Product Grid ── */}
-      <main className="max-w-4xl mx-auto px-3 py-4">
-        <div className="grid grid-cols-3 portrait-6-cols gap-2.5">
-          {filtered.map((p, i) => {
-            const inCart = cart.find((c) => c.id === p.id);
-            const out = p.stock <= 0;
-            const pct = Math.min(100, (p.stock / p.maxStock) * 100);
-            const isTapped = tappedId === p.id;
-            const wasJustAdded = justAdded === p.id;
-            return (
-              <button
-                key={p.id}
-                onClick={() => !out && addToCart(p)}
-                disabled={out}
-                className={"group relative rounded-2xl overflow-hidden cursor-pointer " + (out ? "opacity-30 cursor-not-allowed" : "")}
-                style={{
-                  animation: mounted ? `fadeSlideUp 0.4s ease-out ${i * 0.05}s both` : "none",
-                  transform: isTapped ? "scale(0.92)" : "scale(1)",
-                  transition: "transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)",
-                }}
-              >
-                <div
-                  className="relative p-3 pb-2 flex flex-col items-center gap-1"
-                  style={{
-                    background: inCart
-                      ? "linear-gradient(160deg, " + ACBA_BLUE + "35 0%, " + ACBA_BLUE + "15 100%)"
-                      : "linear-gradient(160deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 100%)",
-                    border: inCart ? "2px solid " + ACBA_YELLOW + "80" : "1px solid " + ACBA_BLUE + "20",
-                    borderRadius: "16px",
-                    transition: "border-color 0.3s, background 0.3s",
-                  }}
-                >
-                  {/* Qty badge */}
-                  {inCart && (
-                    <div
-                      className={"absolute top-1.5 right-1.5 min-w-[22px] h-[22px] px-1 rounded-full text-[11px] font-black flex items-center justify-center " + (wasJustAdded ? "anim-badge-pop" : "")}
-                      style={{ background: ACBA_YELLOW, color: "#000", boxShadow: "0 2px 8px " + ACBA_YELLOW + "60" }}
-                    >
-                      {String(inCart.qty)}
-                    </div>
-                  )}
-
-                  {/* Emoji */}
-                  <span
-                    className="text-4xl drop-shadow-md"
-                    style={{
-                      transform: isTapped ? "scale(1.3) rotate(-8deg)" : "scale(1)",
-                      transition: "transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)",
-                    }}
-                  >
-                    {p.emoji}
-                  </span>
-
-                  {/* Name */}
-                  <span className="text-[11px] font-semibold leading-tight text-center text-white/90">{p.name}</span>
-
-                  {/* Price */}
-                  <span className="text-sm font-black" style={{ color: ACBA_YELLOW }}>
-                    {p.price.toFixed(2).replace(".", ",") + " €"}
-                  </span>
-
-                  {/* Stock bar + number */}
-                  {!out && (
-                    <div className="w-full mt-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <div className="flex-1 h-[4px] rounded-full overflow-hidden" style={{ background: ACBA_BLUE + "25" }}>
-                          <div
-                            className="h-full rounded-full anim-stock-fill"
-                            style={{
-                              width: pct + "%",
-                              background: p.stock <= 5
-                                ? "linear-gradient(90deg, #EF4444, #F97316)"
-                                : p.stock <= 10
-                                  ? "linear-gradient(90deg, #F59E0B, " + ACBA_YELLOW + ")"
-                                  : "linear-gradient(90deg, " + ACBA_BLUE_LIGHT + ", " + ACBA_BLUE + "80)",
-                              animationDelay: (i * 0.05 + 0.3) + "s",
-                            }}
-                          />
+          {/* Product Grid */}
+          <main className="max-w-4xl mx-auto px-3 py-4">
+            <div className="grid grid-cols-3 portrait-6-cols gap-2.5">
+              {filtered.map((p, i) => {
+                const inCart = cart.find((c) => c.id === p.id);
+                const stock = p.frigo + p.reserve;
+                const out = stock <= 0;
+                const pct = Math.min(100, (stock / p.maxStock) * 100);
+                const isTapped = tappedId === p.id;
+                const wasJustAdded = justAdded === p.id;
+                return (
+                  <button key={p.id} onClick={() => !out && addToCart(p)} disabled={out}
+                    className={"group relative rounded-2xl overflow-hidden cursor-pointer " + (out ? "opacity-30 cursor-not-allowed" : "")}
+                    style={{ animation: mounted ? `fadeSlideUp 0.4s ease-out ${i * 0.05}s both` : "none", transform: isTapped ? "scale(0.92)" : "scale(1)", transition: "transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)" }}>
+                    <div className="relative p-3 pb-2 flex flex-col items-center gap-1" style={{
+                      background: inCart ? "linear-gradient(160deg, " + ACBA_BLUE + "35 0%, " + ACBA_BLUE + "15 100%)" : "linear-gradient(160deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 100%)",
+                      border: inCart ? "2px solid " + ACBA_YELLOW + "80" : "1px solid " + ACBA_BLUE + "20", borderRadius: "16px", transition: "border-color 0.3s, background 0.3s" }}>
+                      {inCart && <div className={"absolute top-1.5 right-1.5 min-w-[22px] h-[22px] px-1 rounded-full text-[11px] font-black flex items-center justify-center " + (wasJustAdded ? "anim-badge-pop" : "")} style={{ background: ACBA_YELLOW, color: "#000", boxShadow: "0 2px 8px " + ACBA_YELLOW + "60" }}>{String(inCart.qty)}</div>}
+                      <span className="text-4xl drop-shadow-md" style={{ transform: isTapped ? "scale(1.3) rotate(-8deg)" : "scale(1)", transition: "transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)" }}>{p.emoji}</span>
+                      <span className="text-[11px] font-semibold leading-tight text-center text-white/90">{p.name}</span>
+                      <span className="text-sm font-black" style={{ color: ACBA_YELLOW }}>{p.price.toFixed(2).replace(".", ",") + " €"}</span>
+                      {!out && (
+                        <div className="w-full mt-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex-1 h-[4px] rounded-full overflow-hidden" style={{ background: ACBA_BLUE + "25" }}>
+                              <div className="h-full rounded-full anim-stock-fill" style={{ width: pct + "%", background: stock <= 5 ? "linear-gradient(90deg, #EF4444, #F97316)" : stock <= 10 ? "linear-gradient(90deg, #F59E0B, " + ACBA_YELLOW + ")" : "linear-gradient(90deg, " + ACBA_BLUE_LIGHT + ", " + ACBA_BLUE + "80)", animationDelay: (i * 0.05 + 0.3) + "s" }} />
+                            </div>
+                            <span className="text-[9px] font-bold tabular-nums min-w-[18px] text-right" style={{ color: stock <= 5 ? "#F97316" : stock <= 10 ? ACBA_YELLOW : ACBA_BLUE_LIGHT + "60" }}>{String(stock)}</span>
+                          </div>
+                          {stock <= 5 && <span className="text-[8px] text-orange-400 font-semibold block text-center mt-0.5 anim-blink">Stock bas !</span>}
                         </div>
-                        <span
-                          className="text-[9px] font-bold tabular-nums min-w-[18px] text-right"
-                          style={{ color: p.stock <= 5 ? "#F97316" : p.stock <= 10 ? ACBA_YELLOW : ACBA_BLUE_LIGHT + "60" }}
-                        >
-                          {String(p.stock)}
-                        </span>
-                      </div>
-                      {p.stock <= 5 && (
-                        <span className="text-[8px] text-orange-400 font-semibold block text-center mt-0.5 anim-blink">
-                          Stock bas !
-                        </span>
                       )}
+                      {out && <span className="text-[9px] font-bold text-red-400 uppercase tracking-wider">Épuisé</span>}
+                      {isTapped && <div className="absolute inset-0 rounded-2xl anim-ripple" style={{ background: ACBA_YELLOW + "15" }} />}
                     </div>
-                  )}
+                  </button>
+                );
+              })}
+            </div>
+          </main>
 
-                  {out && (
-                    <span className="text-[9px] font-bold text-red-400 uppercase tracking-wider">Épuisé</span>
-                  )}
-
-                  {/* Tap ripple */}
-                  {isTapped && (
-                    <div className="absolute inset-0 rounded-2xl anim-ripple" style={{ background: ACBA_YELLOW + "15" }} />
-                  )}
+          {/* Cart Bar */}
+          {cartCount > 0 && (
+            <div className="fixed bottom-16 inset-x-0 z-40 pb-safe" style={{ animation: "slideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}>
+              <div className="max-w-4xl mx-auto px-3 pb-3">
+                <button onClick={() => setShowCheckout(true)}
+                  className={"w-full flex items-center justify-between rounded-2xl px-5 py-4 shadow-2xl cursor-pointer active:scale-[0.98] " + (cartBounce ? "anim-cart-bounce" : "")}
+                  style={{ background: "linear-gradient(135deg, " + ACBA_YELLOW + " 0%, #FFC000 100%)", color: "#000", boxShadow: "0 8px 30px " + ACBA_YELLOW + "40", transition: "transform 0.2s" }}>
+                  <div className="flex items-center gap-3">
+                    <div className={"w-9 h-9 rounded-full flex items-center justify-center text-sm font-black " + (cartBounce ? "anim-badge-pop" : "")} style={{ background: "rgba(0,0,0,0.15)" }}>{String(cartCount)}</div>
+                    <span className="font-bold text-sm">Voir le panier</span>
+                  </div>
+                  <span className="text-lg font-black">{cartTotal.toFixed(2).replace(".", ",") + " €"}</span>
+                </button>
+                <div className="flex gap-1.5 mt-2 overflow-x-auto no-scrollbar">
+                  {cart.map((item) => (
+                    <button key={item.id} onClick={(e) => { e.stopPropagation(); removeFromCart(item.id); }}
+                      className="shrink-0 flex items-center gap-1 rounded-full px-2.5 py-1 cursor-pointer group"
+                      style={{ background: ACBA_BLUE + "30", border: "1px solid " + ACBA_BLUE + "40", animation: "popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both", transition: "background 0.2s" }}>
+                      <span className="text-sm">{item.emoji}</span>
+                      {item.qty > 1 && <span className="text-[10px] font-bold text-slate-400">{item.qty + "x"}</span>}
+                      <span className="text-[10px] text-slate-500 group-hover:text-red-400 transition-colors">✕</span>
+                    </button>
+                  ))}
                 </div>
-              </button>
-            );
-          })}
-        </div>
-      </main>
-
-      {/* ── Cart Bar ── */}
-      {cartCount > 0 && (
-        <div
-          className="fixed bottom-0 inset-x-0 z-40 pb-safe"
-          style={{ animation: "slideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}
-        >
-          <div className="max-w-4xl mx-auto px-3 pb-3">
-            <button
-              onClick={() => setShowCheckout(true)}
-              className={"w-full flex items-center justify-between rounded-2xl px-5 py-4 shadow-2xl cursor-pointer active:scale-[0.98] " + (cartBounce ? "anim-cart-bounce" : "")}
-              style={{
-                background: "linear-gradient(135deg, " + ACBA_YELLOW + " 0%, #FFC000 100%)",
-                color: "#000",
-                boxShadow: "0 8px 30px " + ACBA_YELLOW + "40",
-                transition: "transform 0.2s",
-              }}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={"w-9 h-9 rounded-full flex items-center justify-center text-sm font-black " + (cartBounce ? "anim-badge-pop" : "")}
-                  style={{ background: "rgba(0,0,0,0.15)" }}
-                >
-                  {String(cartCount)}
-                </div>
-                <span className="font-bold text-sm">Voir le panier</span>
               </div>
-              <span className="text-lg font-black">
-                {cartTotal.toFixed(2).replace(".", ",") + " €"}
-              </span>
-            </button>
+            </div>
+          )}
 
-            {/* Quick preview chips */}
-            <div className="flex gap-1.5 mt-2 overflow-x-auto no-scrollbar">
-              {cart.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={(e) => { e.stopPropagation(); removeFromCart(item.id); }}
-                  className="shrink-0 flex items-center gap-1 rounded-full px-2.5 py-1 cursor-pointer group"
-                  style={{
-                    background: ACBA_BLUE + "30",
-                    border: "1px solid " + ACBA_BLUE + "40",
-                    animation: "popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both",
-                    transition: "background 0.2s",
-                  }}
-                >
-                  <span className="text-sm">{item.emoji}</span>
-                  {item.qty > 1 && <span className="text-[10px] font-bold text-slate-400">{item.qty + "x"}</span>}
-                  <span className="text-[10px] text-slate-500 group-hover:text-red-400 transition-colors">✕</span>
+          {/* Checkout Sheet */}
+          {showCheckout && (
+            <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setShowCheckout(false)}>
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm anim-fade-in" />
+              <div className="relative w-full max-w-lg rounded-t-3xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}
+                style={{ background: "#0A1228", border: "1px solid " + ACBA_BLUE + "30", borderBottom: "none", animation: "sheetUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}>
+                <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full" style={{ background: ACBA_BLUE + "40" }} /></div>
+                <div className="px-5 pb-8">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Image src="/logo-acba.png" alt="ACBA" width={28} height={40} className="object-contain" />
+                    <h2 className="text-xl font-bold">Votre commande</h2>
+                  </div>
+                  <div className="flex flex-col gap-2 mb-5">
+                    {cart.map((item, i) => (
+                      <div key={item.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: ACBA_BLUE + "10", border: "1px solid " + ACBA_BLUE + "20", animation: `fadeSlideUp 0.3s ease-out ${i * 0.06}s both` }}>
+                        <span className="text-2xl">{item.emoji}</span>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-semibold block truncate">{item.name}</span>
+                          <span className="text-xs" style={{ color: ACBA_BLUE_LIGHT + "70" }}>{item.price.toFixed(2).replace(".", ",") + " € / unité"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => removeFromCart(item.id)} className="w-9 h-9 rounded-xl font-bold flex items-center justify-center cursor-pointer active:scale-90 transition-all text-sm text-red-400" style={{ background: ACBA_BLUE + "20" }}>−</button>
+                          <span className="w-8 text-center font-bold text-lg">{String(item.qty)}</span>
+                          <button onClick={() => addToCart(products.find((pp) => pp.id === item.id)!)} className="w-9 h-9 rounded-xl font-bold flex items-center justify-center cursor-pointer active:scale-90 transition-all text-sm text-emerald-400" style={{ background: ACBA_BLUE + "20" }}>+</button>
+                        </div>
+                        <span className="text-sm font-bold w-14 text-right" style={{ color: ACBA_YELLOW }}>{(item.price * item.qty).toFixed(2).replace(".", ",") + "€"}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between rounded-xl px-4 py-3 mb-5 anim-shimmer" style={{ background: ACBA_YELLOW + "10", border: "1px solid " + ACBA_YELLOW + "30" }}>
+                    <span className="text-sm font-semibold text-slate-400">Total</span>
+                    <span className="text-2xl font-black" style={{ color: ACBA_YELLOW }}>{cartTotal.toFixed(2).replace(".", ",") + " €"}</span>
+                  </div>
+                  <div className="mb-5">
+                    <label className="text-xs font-semibold uppercase tracking-wider block mb-2" style={{ color: ACBA_BLUE_LIGHT + "70" }}>Votre nom</label>
+                    <input value={buyerName} onChange={(e) => setBuyerName(e.target.value)} placeholder="Prénom Nom"
+                      className="w-full h-12 rounded-xl text-white text-sm px-4 outline-none placeholder:text-slate-600"
+                      style={{ background: ACBA_BLUE + "15", border: "1px solid " + ACBA_BLUE + "30", transition: "border-color 0.3s, box-shadow 0.3s" }}
+                      onFocus={(e) => { e.currentTarget.style.borderColor = ACBA_YELLOW + "60"; e.currentTarget.style.boxShadow = "0 0 0 3px " + ACBA_YELLOW + "15"; }}
+                      onBlur={(e) => { e.currentTarget.style.borderColor = ACBA_BLUE + "30"; e.currentTarget.style.boxShadow = "none"; }} />
+                  </div>
+                  <div className="flex flex-col gap-2.5">
+                    <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: ACBA_BLUE_LIGHT + "70" }}>Paiement</span>
+                    {[
+                      { label: "Espèces", icon: "💵", bg: "linear-gradient(135deg, #10B981, #059669)", shadow: "rgba(16,185,129,0.3)" },
+                      { label: "Carte bancaire", icon: "💳", bg: "linear-gradient(135deg, " + ACBA_BLUE_LIGHT + ", " + ACBA_BLUE + ")", shadow: ACBA_BLUE + "40" },
+                    ].map((btn) => (
+                      <button key={btn.label} onClick={doPayment}
+                        className="w-full py-4 rounded-2xl text-white font-bold text-base shadow-lg active:scale-[0.97] cursor-pointer flex items-center justify-center gap-2 anim-btn-shine"
+                        style={{ background: btn.bg, boxShadow: "0 6px 20px " + btn.shadow, transition: "transform 0.15s" }}>
+                        <span className="text-lg">{btn.icon}</span><span>{btn.label}</span>
+                      </button>
+                    ))}
+                    <button onClick={doPayment} className="w-full py-3.5 rounded-2xl text-slate-400 font-semibold text-sm cursor-pointer active:scale-[0.97] flex items-center justify-center gap-2" style={{ background: ACBA_BLUE + "10", border: "1px solid " + ACBA_BLUE + "25", transition: "transform 0.15s" }}>
+                      <span>🎁</span><span>Offert</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ═══════════════ ADMIN MODE ═══════════════ */}
+      {mode === "admin" && (
+        <>
+          {/* Admin sub-tabs */}
+          <div className="sticky top-[54px] z-20" style={{ background: "rgba(4,12,36,0.9)", backdropFilter: "blur(12px)" }}>
+            <div className="max-w-4xl mx-auto px-3 py-2 flex gap-1">
+              {([
+                { id: "dashboard" as const, label: "Dashboard", icon: "📊" },
+                { id: "stock" as const, label: "Stock", icon: "📦" },
+                { id: "history" as const, label: "Historique", icon: "📋" },
+              ]).map((tab) => (
+                <button key={tab.id} onClick={() => setAdminTab(tab.id)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all active:scale-95"
+                  style={adminTab === tab.id
+                    ? { background: ACBA_BLUE + "30", color: ACBA_YELLOW, border: "1px solid " + ACBA_BLUE + "40" }
+                    : { background: "transparent", color: ACBA_BLUE_LIGHT + "60" }}>
+                  {tab.icon + " " + tab.label}
                 </button>
               ))}
             </div>
           </div>
-        </div>
-      )}
 
-      {/* ── Checkout Sheet ── */}
-      {showCheckout && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setShowCheckout(false)}>
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm anim-fade-in" />
-          <div
-            className="relative w-full max-w-lg rounded-t-3xl max-h-[85vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: "#0A1228",
-              border: "1px solid " + ACBA_BLUE + "30",
-              borderBottom: "none",
-              animation: "sheetUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both",
-            }}
-          >
-            <div className="flex justify-center pt-3 pb-1">
-              <div className="w-10 h-1 rounded-full" style={{ background: ACBA_BLUE + "40" }} />
-            </div>
+          <main className="max-w-4xl mx-auto px-3 py-4">
 
-            <div className="px-5 pb-8">
-              <div className="flex items-center gap-3 mb-4">
-                <Image src="/logo-acba.png" alt="ACBA" width={28} height={40} className="object-contain" />
-                <h2 className="text-xl font-bold">Votre commande</h2>
-              </div>
-
-              {/* Items */}
-              <div className="flex flex-col gap-2 mb-5">
-                {cart.map((item, i) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2.5"
-                    style={{
-                      background: ACBA_BLUE + "10",
-                      border: "1px solid " + ACBA_BLUE + "20",
-                      animation: `fadeSlideUp 0.3s ease-out ${i * 0.06}s both`,
-                    }}
-                  >
-                    <span className="text-2xl">{item.emoji}</span>
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm font-semibold block truncate">{item.name}</span>
-                      <span className="text-xs" style={{ color: ACBA_BLUE_LIGHT + "70" }}>{item.price.toFixed(2).replace(".", ",") + " € / unité"}</span>
+            {/* ── DASHBOARD ── */}
+            {adminTab === "dashboard" && (
+              <div className="flex flex-col gap-3" style={{ animation: "fadeSlideUp 0.4s ease-out both" }}>
+                {/* Stat cards */}
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: "CA du jour", value: todayRevenue, suffix: " €", icon: "💰", color: ACBA_YELLOW, decimals: 2 },
+                    { label: "Ventes", value: todaySales, suffix: "", icon: "🧾", color: "#10B981", decimals: 0 },
+                    { label: "Stock bas", value: lowStockProducts.length, suffix: "", icon: "⚠️", color: "#F97316", decimals: 0 },
+                    { label: "Alertes DLC", value: dlcAlerts.length, suffix: "", icon: "📅", color: "#EF4444", decimals: 0 },
+                  ].map((stat, i) => (
+                    <div key={stat.label} className="p-4 rounded-2xl" style={{ ...glass(), animation: `fadeSlideUp 0.4s ease-out ${i * 0.08}s both` }}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold" style={{ color: ACBA_BLUE_LIGHT + "60" }}>{stat.label}</span>
+                        <span className="text-lg">{stat.icon}</span>
+                      </div>
+                      <div className="text-2xl font-black" style={{ color: stat.color }}>
+                        <AnimatedNumber value={stat.value} decimals={stat.decimals} />{stat.suffix}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => removeFromCart(item.id)}
-                        className="w-9 h-9 rounded-xl font-bold flex items-center justify-center cursor-pointer active:scale-90 transition-all text-sm text-red-400 hover:bg-red-500/10"
-                        style={{ background: ACBA_BLUE + "20" }}
-                      >−</button>
-                      <span className="w-8 text-center font-bold text-lg">{String(item.qty)}</span>
-                      <button onClick={() => addToCart(DEMO_PRODUCTS.find((p) => p.id === item.id)!)}
-                        className="w-9 h-9 rounded-xl font-bold flex items-center justify-center cursor-pointer active:scale-90 transition-all text-sm text-emerald-400 hover:bg-emerald-500/10"
-                        style={{ background: ACBA_BLUE + "20" }}
-                      >+</button>
-                    </div>
-                    <span className="text-sm font-bold w-14 text-right" style={{ color: ACBA_YELLOW }}>
-                      {(item.price * item.qty).toFixed(2).replace(".", ",") + "€"}
+                  ))}
+                </div>
+
+                {/* Mini chart */}
+                <div className="p-4 rounded-2xl" style={{ ...glass(), animation: "fadeSlideUp 0.4s ease-out 0.3s both" }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-semibold" style={{ color: ACBA_BLUE_LIGHT + "60" }}>Ventes 7 jours</span>
+                    <span className="text-sm font-bold" style={{ color: ACBA_YELLOW }}>
+                      <AnimatedNumber value={SALES_7D.reduce((a, b) => a + b, 0)} decimals={2} /> €
                     </span>
+                  </div>
+                  <MiniChart data={SALES_7D} labels={DAYS_LABELS} />
+                </div>
+
+                {/* Alerts */}
+                {(lowStockProducts.length > 0 || dlcAlerts.length > 0) && (
+                  <div className="flex flex-col gap-2" style={{ animation: "fadeSlideUp 0.4s ease-out 0.4s both" }}>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: ACBA_BLUE_LIGHT + "50" }}>Alertes</h3>
+                    {lowStockProducts.map((p) => (
+                      <div key={p.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5 anim-blink-soft" style={{ background: "rgba(249,115,22,0.08)", border: "1px solid rgba(249,115,22,0.2)" }}>
+                        <span className="text-xl">{p.emoji}</span>
+                        <div className="flex-1">
+                          <span className="text-sm font-semibold">{p.name}</span>
+                          <span className="text-xs text-orange-400 block">Stock bas : {p.frigo + p.reserve} restants</span>
+                        </div>
+                        <span className="text-orange-400 text-lg">⚠️</span>
+                      </div>
+                    ))}
+                    {dlcAlerts.map((p) => {
+                      const days = Math.ceil((new Date(p.dlc!).getTime() - Date.now()) / 86400000);
+                      const expired = days <= 0;
+                      return (
+                        <div key={p.id + "-dlc"} className="flex items-center gap-3 rounded-xl px-3 py-2.5"
+                          style={{ background: expired ? "rgba(239,68,68,0.08)" : "rgba(245,158,11,0.08)", border: "1px solid " + (expired ? "rgba(239,68,68,0.2)" : "rgba(245,158,11,0.2)") }}>
+                          <span className="text-xl">{p.emoji}</span>
+                          <div className="flex-1">
+                            <span className="text-sm font-semibold">{p.name}</span>
+                            <span className={"text-xs block " + (expired ? "text-red-400" : "text-amber-400")}>
+                              {expired ? "DLC dépassée !" : "DLC dans " + days + " jours (" + p.dlc + ")"}
+                            </span>
+                          </div>
+                          <span className="text-lg">{expired ? "🚫" : "📅"}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Recent activity */}
+                <div style={{ animation: "fadeSlideUp 0.4s ease-out 0.5s both" }}>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: ACBA_BLUE_LIGHT + "50" }}>Activité récente</h3>
+                  <div className="flex flex-col gap-1.5">
+                    {transactions.slice(0, 4).map((t, i) => (
+                      <div key={t.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ ...glass("05"), animation: `fadeSlideUp 0.3s ease-out ${i * 0.05}s both` }}>
+                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-lg" style={{ background: ACBA_BLUE + "20" }}>
+                          {t.method === "cash" ? "💵" : t.method === "card" ? "💳" : "🎁"}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-semibold block truncate">{t.buyer}</span>
+                          <span className="text-[11px]" style={{ color: ACBA_BLUE_LIGHT + "60" }}>
+                            {t.items.map((it) => it.emoji + (it.qty > 1 ? "×" + it.qty : "")).join(" ")}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm font-bold block" style={{ color: t.total > 0 ? ACBA_YELLOW : "#10B981" }}>
+                            {t.total > 0 ? t.total.toFixed(2).replace(".", ",") + " €" : "Offert"}
+                          </span>
+                          <span className="text-[10px]" style={{ color: ACBA_BLUE_LIGHT + "50" }}>{t.time}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── STOCK ── */}
+            {adminTab === "stock" && (
+              <div className="flex flex-col gap-3" style={{ animation: "fadeSlideUp 0.4s ease-out both" }}>
+                {/* Search */}
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: ACBA_BLUE_LIGHT + "40" }}>🔍</span>
+                  <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Rechercher un produit..."
+                    className="w-full h-11 rounded-xl text-white text-sm pl-9 pr-4 outline-none placeholder:text-slate-600"
+                    style={{ background: ACBA_BLUE + "10", border: "1px solid " + ACBA_BLUE + "25", transition: "border-color 0.3s" }}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = ACBA_YELLOW + "50"; }}
+                    onBlur={(e) => { e.currentTarget.style.borderColor = ACBA_BLUE + "25"; }} />
+                </div>
+
+                {/* Stock list */}
+                {filteredStock.map((p, i) => {
+                  const total = p.frigo + p.reserve;
+                  const pct = Math.min(100, (total / p.maxStock) * 100);
+                  return (
+                    <button key={p.id} onClick={() => setSelectedProduct(p)}
+                      className="w-full text-left rounded-2xl p-3.5 cursor-pointer active:scale-[0.98] transition-transform"
+                      style={{ ...glass(), animation: `fadeSlideUp 0.3s ease-out ${i * 0.04}s both` }}>
+                      <div className="flex items-center gap-3">
+                        <span className="text-3xl">{p.emoji}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-bold truncate">{p.name}</span>
+                            <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ background: ACBA_YELLOW + "15", color: ACBA_YELLOW }}>{p.price.toFixed(2).replace(".", ",") + "€"}</span>
+                          </div>
+                          {/* Dual bar */}
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1 flex-1">
+                              <span className="text-[9px] font-semibold w-7" style={{ color: "#60A5FA" }}>❄️ {p.frigo}</span>
+                              <div className="flex-1 h-[6px] rounded-full overflow-hidden flex" style={{ background: ACBA_BLUE + "15" }}>
+                                <div className="h-full rounded-l-full transition-all duration-500" style={{ width: (p.maxStock > 0 ? (p.frigo / p.maxStock) * 100 : 0) + "%", background: "linear-gradient(90deg, #3B82F6, #60A5FA)" }} />
+                                <div className="h-full rounded-r-full transition-all duration-500" style={{ width: (p.maxStock > 0 ? (p.reserve / p.maxStock) * 100 : 0) + "%", background: "linear-gradient(90deg, #F59E0B80, #F59E0B40)" }} />
+                              </div>
+                              <span className="text-[9px] font-semibold w-7 text-right" style={{ color: "#F59E0B" }}>📦 {p.reserve}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-[10px] font-semibold" style={{ color: total <= 5 ? "#F97316" : ACBA_BLUE_LIGHT + "50" }}>
+                              Total : {total}/{p.maxStock}
+                            </span>
+                            {p.dlc && (
+                              <span className="text-[10px] font-semibold" style={{ color: Math.ceil((new Date(p.dlc).getTime() - Date.now()) / 86400000) <= 7 ? "#EF4444" : ACBA_BLUE_LIGHT + "40" }}>
+                                DLC : {p.dlc}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-slate-600 text-sm">›</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ── HISTORY ── */}
+            {adminTab === "history" && (
+              <div className="flex flex-col gap-2" style={{ animation: "fadeSlideUp 0.4s ease-out both" }}>
+                {/* Summary */}
+                <div className="grid grid-cols-3 gap-2 mb-2">
+                  {[
+                    { label: "Espèces", value: transactions.filter((t) => t.method === "cash").reduce((s, t) => s + t.total, 0), icon: "💵" },
+                    { label: "Carte", value: transactions.filter((t) => t.method === "card").reduce((s, t) => s + t.total, 0), icon: "💳" },
+                    { label: "Offerts", value: transactions.filter((t) => t.method === "free").length, icon: "🎁", noEuro: true },
+                  ].map((s, i) => (
+                    <div key={s.label} className="p-3 rounded-xl text-center" style={{ ...glass(), animation: `fadeSlideUp 0.3s ease-out ${i * 0.08}s both` }}>
+                      <div className="text-lg mb-1">{s.icon}</div>
+                      <div className="text-sm font-black" style={{ color: ACBA_YELLOW }}>
+                        <AnimatedNumber value={s.value} decimals={("noEuro" in s) ? 0 : 2} />{("noEuro" in s) ? "" : " €"}
+                      </div>
+                      <div className="text-[9px]" style={{ color: ACBA_BLUE_LIGHT + "50" }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Transaction list */}
+                {transactions.map((t, i) => (
+                  <div key={t.id} className="rounded-xl p-3.5" style={{ ...glass("05"), animation: `fadeSlideUp 0.3s ease-out ${i * 0.05 + 0.2}s both` }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm" style={{ background: ACBA_BLUE + "20" }}>
+                          {t.method === "cash" ? "💵" : t.method === "card" ? "💳" : "🎁"}
+                        </div>
+                        <div>
+                          <span className="text-sm font-bold block">{t.buyer}</span>
+                          <span className="text-[10px]" style={{ color: ACBA_BLUE_LIGHT + "50" }}>{t.time}</span>
+                        </div>
+                      </div>
+                      <span className="text-base font-black" style={{ color: t.total > 0 ? ACBA_YELLOW : "#10B981" }}>
+                        {t.total > 0 ? t.total.toFixed(2).replace(".", ",") + " €" : "Offert"}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {t.items.map((item, j) => (
+                        <span key={j} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]" style={{ background: ACBA_BLUE + "15", border: "1px solid " + ACBA_BLUE + "20" }}>
+                          {item.emoji} {item.name} {item.qty > 1 ? "×" + item.qty : ""}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
+            )}
+          </main>
 
-              {/* Total */}
-              <div
-                className="flex items-center justify-between rounded-xl px-4 py-3 mb-5 anim-shimmer"
-                style={{ background: ACBA_YELLOW + "10", border: "1px solid " + ACBA_YELLOW + "30" }}
-              >
-                <span className="text-sm font-semibold text-slate-400">Total</span>
-                <span className="text-2xl font-black" style={{ color: ACBA_YELLOW }}>
-                  {cartTotal.toFixed(2).replace(".", ",") + " €"}
-                </span>
-              </div>
+          {/* Stock detail sheet */}
+          {selectedProduct && (
+            <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setSelectedProduct(null)}>
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm anim-fade-in" />
+              <div className="relative w-full max-w-lg rounded-t-3xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}
+                style={{ background: "#0A1228", border: "1px solid " + ACBA_BLUE + "30", borderBottom: "none", animation: "sheetUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}>
+                <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full" style={{ background: ACBA_BLUE + "40" }} /></div>
+                <div className="px-5 pb-8">
+                  {/* Product header */}
+                  <div className="flex items-center gap-4 mb-5">
+                    <span className="text-5xl">{selectedProduct.emoji}</span>
+                    <div>
+                      <h2 className="text-xl font-bold">{selectedProduct.name}</h2>
+                      <span className="text-sm" style={{ color: ACBA_YELLOW }}>{selectedProduct.price.toFixed(2).replace(".", ",") + " €"}</span>
+                    </div>
+                  </div>
 
-              {/* Name */}
-              <div className="mb-5">
-                <label className="text-xs font-semibold uppercase tracking-wider block mb-2" style={{ color: ACBA_BLUE_LIGHT + "70" }}>Votre nom</label>
-                <input
-                  value={buyerName}
-                  onChange={(e) => setBuyerName(e.target.value)}
-                  placeholder="Prénom Nom"
-                  className="w-full h-12 rounded-xl text-white text-sm px-4 outline-none placeholder:text-slate-600 focus:ring-2"
-                  style={{
-                    background: ACBA_BLUE + "15",
-                    border: "1px solid " + ACBA_BLUE + "30",
-                    transition: "border-color 0.3s, box-shadow 0.3s",
-                  }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = ACBA_YELLOW + "60"; e.currentTarget.style.boxShadow = "0 0 0 3px " + ACBA_YELLOW + "15"; }}
-                  onBlur={(e) => { e.currentTarget.style.borderColor = ACBA_BLUE + "30"; e.currentTarget.style.boxShadow = "none"; }}
-                />
-              </div>
+                  {/* Stock visual */}
+                  <div className="grid grid-cols-2 gap-3 mb-5">
+                    {[
+                      { label: "Frigo", value: selectedProduct.frigo, icon: "❄️", color: "#3B82F6" },
+                      { label: "Réserve", value: selectedProduct.reserve, icon: "📦", color: "#F59E0B" },
+                    ].map((loc) => (
+                      <div key={loc.label} className="p-4 rounded-2xl text-center" style={glass()}>
+                        <div className="text-2xl mb-1">{loc.icon}</div>
+                        <div className="text-3xl font-black mb-1" style={{ color: loc.color }}>
+                          <AnimatedNumber value={loc.value} />
+                        </div>
+                        <div className="text-xs font-semibold" style={{ color: ACBA_BLUE_LIGHT + "60" }}>{loc.label}</div>
+                      </div>
+                    ))}
+                  </div>
 
-              {/* Payment buttons */}
-              <div className="flex flex-col gap-2.5">
-                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: ACBA_BLUE_LIGHT + "70" }}>Paiement</span>
-                <button
-                  className="w-full py-4 rounded-2xl text-white font-bold text-base shadow-lg active:scale-[0.97] cursor-pointer flex items-center justify-center gap-2 anim-btn-shine"
-                  style={{ background: "linear-gradient(135deg, #10B981 0%, #059669 100%)", boxShadow: "0 6px 20px rgba(16,185,129,0.3)", transition: "transform 0.15s" }}
-                >
-                  <span className="text-lg">💵</span>
-                  <span>Espèces</span>
-                </button>
-                <button
-                  className="w-full py-4 rounded-2xl text-white font-bold text-base shadow-lg active:scale-[0.97] cursor-pointer flex items-center justify-center gap-2 anim-btn-shine"
-                  style={{ background: "linear-gradient(135deg, " + ACBA_BLUE_LIGHT + " 0%, " + ACBA_BLUE + " 100%)", boxShadow: "0 6px 20px " + ACBA_BLUE + "40", transition: "transform 0.15s" }}
-                >
-                  <span className="text-lg">💳</span>
-                  <span>Carte bancaire</span>
-                </button>
-                <button
-                  className="w-full py-3.5 rounded-2xl text-slate-400 font-semibold text-sm cursor-pointer active:scale-[0.97] flex items-center justify-center gap-2"
-                  style={{ background: ACBA_BLUE + "10", border: "1px solid " + ACBA_BLUE + "25", transition: "transform 0.15s" }}
-                >
-                  <span>🎁</span>
-                  <span>Offert</span>
-                </button>
+                  {/* Transfer buttons */}
+                  <div className="mb-4">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: ACBA_BLUE_LIGHT + "50" }}>Réserve → Frigo</h3>
+                    <div className="flex gap-2">
+                      {[1, 2, 3, 6].map((n) => (
+                        <button key={n} onClick={() => { transferStock(selectedProduct.id, "toFrigo", n); setSelectedProduct((prev) => prev ? { ...prev, frigo: prev.frigo + Math.min(n, prev.reserve), reserve: prev.reserve - Math.min(n, prev.reserve) } : null); }}
+                          className="flex-1 py-3 rounded-xl text-sm font-bold cursor-pointer active:scale-90 transition-all"
+                          style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)", color: "#60A5FA" }}>
+                          +{n}
+                        </button>
+                      ))}
+                      <button onClick={() => { const qty = selectedProduct.reserve; transferStock(selectedProduct.id, "toFrigo", qty); setSelectedProduct((prev) => prev ? { ...prev, frigo: prev.frigo + qty, reserve: 0 } : null); }}
+                        className="flex-1 py-3 rounded-xl text-sm font-bold cursor-pointer active:scale-90 transition-all"
+                        style={{ background: "rgba(59,130,246,0.25)", border: "1px solid rgba(59,130,246,0.4)", color: "#3B82F6" }}>
+                        Tout
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mb-5">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: ACBA_BLUE_LIGHT + "50" }}>Frigo → Réserve</h3>
+                    <div className="flex gap-2">
+                      {[1, 2, 3, 6].map((n) => (
+                        <button key={n} onClick={() => { transferStock(selectedProduct.id, "toReserve", n); setSelectedProduct((prev) => prev ? { ...prev, reserve: prev.reserve + Math.min(n, prev.frigo), frigo: prev.frigo - Math.min(n, prev.frigo) } : null); }}
+                          className="flex-1 py-3 rounded-xl text-sm font-bold cursor-pointer active:scale-90 transition-all"
+                          style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.3)", color: "#F59E0B" }}>
+                          +{n}
+                        </button>
+                      ))}
+                      <button onClick={() => { const qty = selectedProduct.frigo; transferStock(selectedProduct.id, "toReserve", qty); setSelectedProduct((prev) => prev ? { ...prev, reserve: prev.reserve + qty, frigo: 0 } : null); }}
+                        className="flex-1 py-3 rounded-xl text-sm font-bold cursor-pointer active:scale-90 transition-all"
+                        style={{ background: "rgba(245,158,11,0.25)", border: "1px solid rgba(245,158,11,0.4)", color: "#F59E0B" }}>
+                        Tout
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* DLC */}
+                  {selectedProduct.dlc && (
+                    <div className="rounded-xl p-3 mb-4" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)" }}>
+                      <div className="flex items-center gap-2">
+                        <span>📅</span>
+                        <span className="text-sm font-semibold">DLC : {selectedProduct.dlc}</span>
+                        <span className="text-xs ml-auto" style={{ color: Math.ceil((new Date(selectedProduct.dlc).getTime() - Date.now()) / 86400000) <= 7 ? "#EF4444" : "#F59E0B" }}>
+                          {(() => {
+                            const d = Math.ceil((new Date(selectedProduct.dlc).getTime() - Date.now()) / 86400000);
+                            return d <= 0 ? "Expiré !" : "Dans " + d + " jours";
+                          })()}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        </div>
+          )}
+        </>
       )}
 
+      {/* ═══════════════ BOTTOM NAV ═══════════════ */}
+      <nav className="fixed bottom-0 inset-x-0 z-50 border-t" style={{ background: "rgba(4,12,36,0.95)", backdropFilter: "blur(16px)", borderColor: ACBA_BLUE + "20" }}>
+        <div className="max-w-4xl mx-auto flex">
+          {([
+            { id: "client" as const, label: "Bar", icon: "🍺" },
+            { id: "admin" as const, label: "Admin", icon: "⚙️" },
+          ]).map((tab) => (
+            <button key={tab.id} onClick={() => setMode(tab.id)}
+              className="flex-1 flex flex-col items-center gap-0.5 py-2.5 cursor-pointer transition-all active:scale-95"
+              style={{ color: mode === tab.id ? ACBA_YELLOW : ACBA_BLUE_LIGHT + "40" }}>
+              <span className="text-xl" style={{ transform: mode === tab.id ? "scale(1.15)" : "scale(1)", transition: "transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)" }}>{tab.icon}</span>
+              <span className="text-[10px] font-bold">{tab.label}</span>
+              {mode === tab.id && <div className="w-5 h-0.5 rounded-full mt-0.5" style={{ background: ACBA_YELLOW }} />}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {/* ═══════════════ STYLES ═══════════════ */}
       <style jsx>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .pb-safe { padding-bottom: env(safe-area-inset-bottom, 12px); }
+        @media (min-width: 600px) { .portrait-6-cols { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 
-        @media (min-width: 600px) {
-          .portrait-6-cols { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-        }
-
-        /* ── Entrance animations ── */
-        @keyframes fadeSlideUp {
-          from { opacity: 0; transform: translateY(16px) scale(0.96); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        @keyframes slideUp {
-          from { transform: translateY(100%); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
-        }
-        @keyframes sheetUp {
-          from { transform: translateY(100%); }
-          to { transform: translateY(0); }
-        }
-        @keyframes popIn {
-          from { opacity: 0; transform: scale(0.5); }
-          to { opacity: 1; transform: scale(1); }
-        }
-
-        /* ── Badge pop ── */
-        @keyframes badgePop {
-          0% { transform: scale(1); }
-          40% { transform: scale(1.5); }
-          70% { transform: scale(0.9); }
-          100% { transform: scale(1); }
-        }
+        @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(16px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        @keyframes popIn { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
+        @keyframes badgePop { 0% { transform: scale(1); } 40% { transform: scale(1.5); } 70% { transform: scale(0.9); } 100% { transform: scale(1); } }
         .anim-badge-pop { animation: badgePop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
-
-        /* ── Cart bounce ── */
-        @keyframes cartBounce {
-          0% { transform: translateY(0); }
-          30% { transform: translateY(-6px); }
-          50% { transform: translateY(0); }
-          70% { transform: translateY(-3px); }
-          100% { transform: translateY(0); }
-        }
+        @keyframes cartBounce { 0% { transform: translateY(0); } 30% { transform: translateY(-6px); } 50% { transform: translateY(0); } 70% { transform: translateY(-3px); } 100% { transform: translateY(0); } }
         .anim-cart-bounce { animation: cartBounce 0.4s ease-out; }
-
-        /* ── Tap ripple ── */
-        @keyframes ripple {
-          from { opacity: 1; transform: scale(0.5); }
-          to { opacity: 0; transform: scale(2); }
-        }
+        @keyframes ripple { from { opacity: 1; transform: scale(0.5); } to { opacity: 0; transform: scale(2); } }
         .anim-ripple { animation: ripple 0.5s ease-out forwards; pointer-events: none; }
-
-        /* ── Floating logo ── */
-        @keyframes float {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-3px); }
-        }
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
         .anim-float { animation: float 3s ease-in-out infinite; }
-
-        /* ── Pulse dot (bar ouvert) ── */
-        @keyframes pulseDot {
-          0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.6); }
-          50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(34,197,94,0); }
-        }
+        @keyframes pulseDot { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.6); } 50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(34,197,94,0); } }
         .anim-pulse-dot { animation: pulseDot 2s ease-in-out infinite; }
-
-        /* ── Pill press ── */
         .anim-pill { transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
         .anim-pill:active { transform: scale(0.92); }
         .anim-pill-active { animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
-
-        /* ── Stock bar fill ── */
-        @keyframes stockFill {
-          from { width: 0%; }
-        }
+        @keyframes stockFill { from { width: 0%; height: 0%; } }
         .anim-stock-fill { animation: stockFill 0.8s ease-out both; }
-
-        /* ── Blink (stock bas) ── */
-        @keyframes blink {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .anim-blink { animation: blink 2s ease-in-out infinite; }
-
-        /* ── Fade in backdrop ── */
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
+        .anim-blink-soft { animation: blink 3s ease-in-out infinite; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .anim-fade-in { animation: fadeIn 0.3s ease-out both; }
-
-        /* ── Button shine ── */
-        @keyframes shine {
-          0% { background-position: -200% center; }
-          100% { background-position: 200% center; }
-        }
-        .anim-btn-shine {
-          background-size: 200% auto;
-          transition: transform 0.15s;
-        }
-        .anim-btn-shine:hover {
-          animation: shine 1.5s linear infinite;
-        }
-
-        /* ── Shimmer on total ── */
-        @keyframes shimmer {
-          0% { background-position: -100% 0; }
-          100% { background-position: 100% 0; }
-        }
-        .anim-shimmer {
-          position: relative;
-          overflow: hidden;
-        }
-        .anim-shimmer::after {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(90deg, transparent 0%, rgba(255,215,0,0.06) 50%, transparent 100%);
-          background-size: 200% 100%;
-          animation: shimmer 3s ease-in-out infinite;
-          pointer-events: none;
-        }
-
-        /* ── Glow badge bar ouvert ── */
-        @keyframes glow {
-          0%, 100% { box-shadow: 0 0 4px rgba(34,197,94,0.1); }
-          50% { box-shadow: 0 0 12px rgba(34,197,94,0.15); }
-        }
+        @keyframes shine { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
+        .anim-btn-shine { background-size: 200% auto; transition: transform 0.15s; }
+        .anim-btn-shine:hover { animation: shine 1.5s linear infinite; }
+        @keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
+        .anim-shimmer { position: relative; overflow: hidden; }
+        .anim-shimmer::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 0%, rgba(255,215,0,0.06) 50%, transparent 100%); background-size: 200% 100%; animation: shimmer 3s ease-in-out infinite; pointer-events: none; }
+        @keyframes glow { 0%, 100% { box-shadow: 0 0 4px rgba(34,197,94,0.1); } 50% { box-shadow: 0 0 12px rgba(34,197,94,0.15); } }
         .anim-glow { animation: glow 3s ease-in-out infinite; }
+
+        /* Confetti */
+        @keyframes confettiFall {
+          0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+        }
+        .confetti-piece {
+          position: absolute;
+          top: -10px;
+          width: 8px;
+          height: 8px;
+          border-radius: 2px;
+          animation: confettiFall 2.5s ease-out forwards;
+        }
       `}</style>
 
       {/* Dev badge */}
-      <div
-        className="fixed top-2 left-2 z-50 px-2 py-1 rounded-full text-[9px] font-bold text-black uppercase tracking-wider"
-        style={{ background: ACBA_YELLOW, animation: "popIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.5s both" }}
-      >
-        DEV — Design V2 ACBA
+      <div className="fixed top-2 left-2 z-50 px-2 py-1 rounded-full text-[9px] font-bold text-black uppercase tracking-wider"
+        style={{ background: ACBA_YELLOW, animation: "popIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.5s both" }}>
+        DEV — V2 ACBA
       </div>
     </div>
   );
