@@ -140,7 +140,7 @@ export default function DevPage() {
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [cartBounce, setCartBounce] = useState(false);
   const [mode, setMode] = useState<"client" | "admin">("client");
-  const [adminTab, setAdminTab] = useState<"dashboard" | "stock" | "history">("dashboard");
+  const [adminTab, setAdminTab] = useState<"dashboard" | "stock" | "history" | "finance" | "members" | "settings">("dashboard");
   const [barOpen, setBarOpen] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [transactions] = useState<Transaction[]>(DEMO_TRANSACTIONS);
@@ -345,6 +345,14 @@ export default function DevPage() {
                 <span className="text-[10px] font-semibold" style={{ color: barOpen ? "#22C55E" : "#EF4444" }}>{barOpen ? "Bar ouvert" : "Fermé"}</span>
               </div>
             )}
+            {/* Mode toggle button in header */}
+            <button onClick={() => setMode(isAdmin ? "client" : "admin")}
+              className="h-8 px-3 rounded-full flex items-center gap-1.5 cursor-pointer active:scale-95 transition-transform font-bold text-[11px]"
+              style={isAdmin
+                ? { background: ACBA_BLUE, color: "#fff" }
+                : { background: ACBA_BLUE + "20", color: ACBA_BLUE_LIGHT, border: "1px solid " + ACBA_BLUE + "30" }}>
+              {isAdmin ? "🍺 Bar" : "⚙️ Admin"}
+            </button>
           </div>
         </div>
       </header>
@@ -368,7 +376,7 @@ export default function DevPage() {
 
           {/* Product Grid */}
           <main className="max-w-4xl mx-auto px-3 py-4">
-            <div className="grid grid-cols-3 portrait-6-cols gap-2.5">
+            <div className="grid grid-cols-3 min-[600px]:grid-cols-6 gap-2.5">
               {filtered.map((p, i) => {
                 const inCart = cart.find((c) => c.id === p.id);
                 const stock = p.frigo + p.reserve;
@@ -504,18 +512,21 @@ export default function DevPage() {
         <>
           {/* Admin sub-tabs */}
           <div className="sticky top-[54px] z-20 border-b" style={{ background: "rgba(255,255,255,0.9)", backdropFilter: "blur(12px)", borderColor: ADMIN_BORDER }}>
-            <div className="max-w-4xl mx-auto px-3 py-2 flex gap-1">
+            <div className="max-w-4xl mx-auto px-2 py-2 flex gap-1 overflow-x-auto no-scrollbar">
               {([
-                { id: "dashboard" as const, label: "Dashboard", icon: "📊" },
-                { id: "stock" as const, label: "Stock", icon: "📦" },
-                { id: "history" as const, label: "Historique", icon: "📋" },
+                { id: "dashboard" as const, label: "📊 Board" },
+                { id: "stock" as const, label: "📦 Stock" },
+                { id: "finance" as const, label: "💰 Finances" },
+                { id: "history" as const, label: "📋 Ventes" },
+                { id: "members" as const, label: "👥 Comptes" },
+                { id: "settings" as const, label: "⚙ Config" },
               ]).map((tab) => (
                 <button key={tab.id} onClick={() => setAdminTab(tab.id)}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all active:scale-95"
+                  className="shrink-0 px-3 py-2 rounded-xl text-[11px] font-bold cursor-pointer transition-all active:scale-95"
                   style={adminTab === tab.id
                     ? { background: ACBA_BLUE, color: "#fff", boxShadow: "0 2px 8px " + ACBA_BLUE + "30" }
                     : { background: "transparent", color: ADMIN_TEXT_SEC }}>
-                  {tab.icon + " " + tab.label}
+                  {tab.label}
                 </button>
               ))}
             </div>
@@ -823,6 +834,181 @@ export default function DevPage() {
                 )}
               </div>
             )}
+
+            {/* ── FINANCE ── */}
+            {adminTab === "finance" && (
+              <div className="flex flex-col gap-3" style={{ animation: "fadeSlideUp 0.4s ease-out both" }}>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: "CA total", value: todayRevenue, icon: "💰", color: "#059669" },
+                    { label: "Bénéfice estimé", value: todayRevenue * 0.35, icon: "📈", color: ACBA_BLUE },
+                    { label: "Espèces", value: transactions.filter((t) => t.method === "cash").reduce((s, t) => s + t.total, 0), icon: "💵", color: "#16A34A" },
+                    { label: "Carte", value: transactions.filter((t) => t.method === "card").reduce((s, t) => s + t.total, 0), icon: "💳", color: "#7C3AED" },
+                  ].map((stat, i) => (
+                    <AdminCard key={stat.label} delay={i * 0.08}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-semibold" style={{ color: ADMIN_TEXT_SEC }}>{stat.label}</span>
+                        <span className="text-lg">{stat.icon}</span>
+                      </div>
+                      <div className="text-2xl font-black" style={{ color: stat.color }}>
+                        <AnimatedNumber value={stat.value} decimals={2} /> €
+                      </div>
+                    </AdminCard>
+                  ))}
+                </div>
+
+                <AdminCard delay={0.3}>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: ADMIN_TEXT_SEC }}>Répartition des ventes</h3>
+                  {(() => {
+                    const productSales: Record<string, { emoji: string; name: string; qty: number; revenue: number; cost: number }> = {};
+                    transactions.forEach((t) => t.items.forEach((it) => {
+                      const k = it.name;
+                      if (!productSales[k]) productSales[k] = { emoji: it.emoji, name: it.name, qty: 0, revenue: 0, cost: 0 };
+                      productSales[k].qty += it.qty;
+                      productSales[k].revenue += it.qty * it.price;
+                      productSales[k].cost += it.qty * it.price * 0.6;
+                    }));
+                    return Object.values(productSales).sort((a, b) => b.revenue - a.revenue).map((p, i) => (
+                      <div key={p.name} className="flex items-center gap-3 py-2" style={{ borderTop: i > 0 ? "1px solid " + ADMIN_BORDER : "none" }}>
+                        <span className="text-xl">{p.emoji}</span>
+                        <div className="flex-1">
+                          <span className="text-sm font-semibold" style={{ color: ADMIN_TEXT }}>{p.name}</span>
+                          <span className="text-[11px] block" style={{ color: ADMIN_TEXT_SEC }}>{p.qty} vendus</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm font-bold" style={{ color: ACBA_BLUE }}>{p.revenue.toFixed(2).replace(".", ",") + " €"}</span>
+                          <span className="text-[10px] block" style={{ color: "#059669" }}>+{(p.revenue - p.cost).toFixed(2).replace(".", ",")} € marge</span>
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </AdminCard>
+
+                <AdminCard delay={0.4}>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: ADMIN_TEXT_SEC }}>Approvisionnements récents</h3>
+                  {[
+                    { date: "03/05", items: "24× Coca, 24× Orangina, 20× Perrier", total: 28.80, method: "Espèces" },
+                    { date: "01/05", items: "20× Bière, 20× Snack, 20× Chips", total: 32.00, method: "Carte club" },
+                  ].map((r, i) => (
+                    <div key={i} className="flex items-center gap-3 py-2" style={{ borderTop: i > 0 ? "1px solid " + ADMIN_BORDER : "none" }}>
+                      <span className="text-[11px] font-bold px-2 py-1 rounded" style={{ background: "#F0F4FA", color: ADMIN_TEXT_SEC }}>{r.date}</span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm truncate block" style={{ color: ADMIN_TEXT }}>{r.items}</span>
+                        <span className="text-[10px]" style={{ color: ADMIN_TEXT_SEC }}>{r.method}</span>
+                      </div>
+                      <span className="text-sm font-bold" style={{ color: "#DC2626" }}>-{r.total.toFixed(2).replace(".", ",")} €</span>
+                    </div>
+                  ))}
+                </AdminCard>
+              </div>
+            )}
+
+            {/* ── MEMBERS ── */}
+            {adminTab === "members" && (
+              <div className="flex flex-col gap-3" style={{ animation: "fadeSlideUp 0.4s ease-out both" }}>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">👤</span>
+                  <input value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} placeholder="Rechercher un membre..."
+                    className="w-full h-11 rounded-xl text-sm pl-9 pr-4 outline-none placeholder:text-slate-400"
+                    style={{ background: ADMIN_CARD, border: "1px solid " + ADMIN_BORDER, color: ADMIN_TEXT }} />
+                </div>
+
+                {filteredMembers.map((m, i) => (
+                  <AdminCard key={m.name} delay={i * 0.05}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-full flex items-center justify-center text-lg font-bold shrink-0" style={{ background: ACBA_BLUE + "10", color: ACBA_BLUE }}>
+                        {m.name.charAt(0)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-bold block" style={{ color: ADMIN_TEXT }}>{m.name}</span>
+                        <span className="text-[11px]" style={{ color: ADMIN_TEXT_SEC }}>{m.count} achat{m.count > 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-base font-black block" style={{ color: ACBA_BLUE }}>{m.total.toFixed(2).replace(".", ",") + " €"}</span>
+                        <span className="text-[10px]" style={{ color: ADMIN_TEXT_SEC }}>total dépensé</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid " + ADMIN_BORDER }}>
+                      {Object.entries(m.items).map(([name, qty]) => (
+                        <span key={name} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: "#F0F4FA", color: ADMIN_TEXT_SEC }}>
+                          {name} ×{qty}
+                        </span>
+                      ))}
+                    </div>
+                  </AdminCard>
+                ))}
+
+                {filteredMembers.length === 0 && (
+                  <div className="text-center py-12 text-sm" style={{ color: ADMIN_TEXT_SEC }}>Aucun membre trouvé</div>
+                )}
+              </div>
+            )}
+
+            {/* ── SETTINGS ── */}
+            {adminTab === "settings" && (
+              <div className="flex flex-col gap-3" style={{ animation: "fadeSlideUp 0.4s ease-out both" }}>
+                <AdminCard delay={0}>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: ADMIN_TEXT_SEC }}>Paramètres du bar</h3>
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <label className="text-[11px] font-semibold block mb-1" style={{ color: ADMIN_TEXT_SEC }}>Nom du club</label>
+                      <input defaultValue="Aéro-Club du Bassin d'Arcachon" className="w-full h-11 rounded-xl text-sm px-4 outline-none" style={{ background: "#F0F4FA", border: "1px solid " + ADMIN_BORDER, color: ADMIN_TEXT }} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold block mb-1" style={{ color: ADMIN_TEXT_SEC }}>Code PIN admin</label>
+                      <input type="password" defaultValue="1234" className="w-full h-11 rounded-xl text-sm px-4 outline-none" style={{ background: "#F0F4FA", border: "1px solid " + ADMIN_BORDER, color: ADMIN_TEXT }} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold block mb-1" style={{ color: ADMIN_TEXT_SEC }}>Code PIN bureau</label>
+                      <input type="password" defaultValue="1215" className="w-full h-11 rounded-xl text-sm px-4 outline-none" style={{ background: "#F0F4FA", border: "1px solid " + ADMIN_BORDER, color: ADMIN_TEXT }} />
+                    </div>
+                  </div>
+                </AdminCard>
+
+                <AdminCard delay={0.1}>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: ADMIN_TEXT_SEC }}>État du bar</h3>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-semibold block" style={{ color: ADMIN_TEXT }}>Bar {barOpen ? "ouvert" : "fermé"}</span>
+                      <span className="text-[11px]" style={{ color: ADMIN_TEXT_SEC }}>Les clients {barOpen ? "peuvent" : "ne peuvent pas"} commander</span>
+                    </div>
+                    <button onClick={() => setBarOpen(!barOpen)}
+                      className="w-14 h-8 rounded-full cursor-pointer transition-all relative"
+                      style={{ background: barOpen ? "#22C55E" : "#E2E8F0" }}>
+                      <div className="w-6 h-6 rounded-full bg-white shadow-md absolute top-1 transition-all"
+                        style={{ left: barOpen ? "28px" : "4px" }} />
+                    </button>
+                  </div>
+                </AdminCard>
+
+                <AdminCard delay={0.2}>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: ADMIN_TEXT_SEC }}>Données</h3>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between py-2" style={{ borderBottom: "1px solid " + ADMIN_BORDER }}>
+                      <span className="text-sm" style={{ color: ADMIN_TEXT }}>Produits</span>
+                      <span className="text-sm font-bold" style={{ color: ACBA_BLUE }}>{products.length}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-2" style={{ borderBottom: "1px solid " + ADMIN_BORDER }}>
+                      <span className="text-sm" style={{ color: ADMIN_TEXT }}>Transactions</span>
+                      <span className="text-sm font-bold" style={{ color: ACBA_BLUE }}>{transactions.length}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-2" style={{ borderBottom: "1px solid " + ADMIN_BORDER }}>
+                      <span className="text-sm" style={{ color: ADMIN_TEXT }}>Membres actifs</span>
+                      <span className="text-sm font-bold" style={{ color: ACBA_BLUE }}>{memberStats.length}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-2">
+                      <span className="text-sm" style={{ color: ADMIN_TEXT }}>Cache offline</span>
+                      <span className="text-sm font-bold" style={{ color: offlineReady ? "#059669" : "#DC2626" }}>{offlineReady ? "Actif" : "Inactif"}</span>
+                    </div>
+                  </div>
+                </AdminCard>
+
+                <button className="w-full py-3 rounded-2xl text-sm font-bold cursor-pointer active:scale-[0.98] transition-transform"
+                  style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#DC2626" }}>
+                  🗑 Réinitialiser les données (démo)
+                </button>
+              </div>
+            )}
           </main>
 
           {/* Stock detail sheet (admin light) */}
@@ -981,7 +1167,7 @@ export default function DevPage() {
       )}
 
       {/* ═══════════════ BOTTOM NAV ═══════════════ */}
-      <nav className="fixed bottom-0 inset-x-0 z-50 border-t" style={{
+      <nav className="fixed bottom-0 inset-x-0 z-[60] border-t" style={{
         background: isAdmin ? "rgba(255,255,255,0.95)" : "rgba(4,12,36,0.95)",
         backdropFilter: "blur(16px)",
         borderColor: isAdmin ? ADMIN_BORDER : ACBA_BLUE + "20",
@@ -1008,7 +1194,7 @@ export default function DevPage() {
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .pb-safe { padding-bottom: env(safe-area-inset-bottom, 12px); }
-        @media (min-width: 600px) { .portrait-6-cols { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+
 
         @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(16px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
         @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
