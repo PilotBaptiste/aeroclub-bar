@@ -586,7 +586,9 @@ export default function AeroClubBar() {
   const confirmRestock = () => {
     if (!restockingProduct || restockForm.qty <= 0) return;
     const p = restockingProduct;
-    const totalCost = Math.round(restockForm.qty * restockForm.newCost * 100) / 100;
+    // newCost = prix total d'achat (saisi par l'utilisateur)
+    const totalCost = Math.round(restockForm.newCost * 100) / 100;
+    const unitCost = Math.round((restockForm.newCost / restockForm.qty) * 100) / 100;
     const priceChanged = restockForm.newPrice !== p.price;
 
     setProducts((prev) =>
@@ -594,17 +596,18 @@ export default function AeroClubBar() {
         if (x.id !== p.id) return x;
         const existingLegacy = x.legacyStock || 0;
         const existingLegacyPrice = x.legacyPrice;
-        // Si le prix change : tout le stock courant + legacy devient legacy au prix courant
+        // Si le prix change : tout le stock frigo devient legacy au prix courant
+        // (le réappro va en réserve, pas en frigo)
         const newLegacyStock = priceChanged
-          ? x.stock + existingLegacy
+          ? x.stock
           : existingLegacy;
         const newLegacyPrice = priceChanged
           ? x.price
           : existingLegacyPrice;
         return {
           ...x,
-          stock: x.stock + restockForm.qty,
-          cost: restockForm.newCost,
+          stockReserve: (x.stockReserve ?? 0) + restockForm.qty,
+          cost: unitCost,
           price: restockForm.newPrice,
           legacyStock: newLegacyStock || undefined,
           legacyPrice: newLegacyPrice || undefined,
@@ -618,7 +621,7 @@ export default function AeroClubBar() {
       productId: p.id,
       productName: p.name,
       qty: restockForm.qty,
-      unitCost: restockForm.newCost,
+      unitCost,
       totalCost,
       method: restockForm.method,
     };
@@ -632,7 +635,7 @@ export default function AeroClubBar() {
       location: "reserve",
       purchaseDate: new Date().toISOString(),
       expiryDate: restockForm.expiryDate ? restockForm.expiryDate + "T23:59:59" : undefined,
-      unitCost: restockForm.newCost,
+      unitCost,
     };
     setBatches((prev) => [...prev, newBatch]);
 
@@ -3970,7 +3973,7 @@ export default function AeroClubBar() {
                   type="number"
                   min="1"
                   value={restockForm.qty}
-                  onChange={(e) => setRestockForm((f) => ({ ...f, qty: Math.max(1, parseInt(e.target.value) || 1) }))}
+                  onChange={(e) => { const newQty = Math.max(1, parseInt(e.target.value) || 1); setRestockForm((f) => ({ ...f, qty: newQty, newCost: Math.round(newQty * (restockingProduct?.cost || 0) * 100) / 100 })); }}
                   className="h-11 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-center text-base outline-none"
                 />
               </div>
@@ -3993,9 +3996,9 @@ export default function AeroClubBar() {
                 )}
               </div>
 
-              {/* Coût d'achat unitaire */}
+              {/* Prix total d'achat */}
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400 font-semibold">{"Coût d'achat unitaire"}</label>
+                <label className="text-xs text-slate-400 font-semibold">{"Prix total d'achat"}</label>
                 <input
                   type="number"
                   min="0"
@@ -4004,6 +4007,9 @@ export default function AeroClubBar() {
                   onChange={(e) => setRestockForm((f) => ({ ...f, newCost: Math.max(0, parseFloat(e.target.value) || 0) }))}
                   className="h-11 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-center text-base outline-none"
                 />
+                {restockForm.qty > 0 && (
+                  <span className="text-[10px] text-emerald-400">{"→ Prix unitaire : " + formatPrice(Math.round((restockForm.newCost / restockForm.qty) * 100) / 100)}</span>
+                )}
               </div>
 
               {/* Méthode de paiement */}
@@ -4033,7 +4039,7 @@ export default function AeroClubBar() {
               {/* Total */}
               <div className="bg-[#0f172a] rounded-xl p-3 flex justify-between items-center border border-slate-700">
                 <span className="text-sm text-slate-400">{"Total achat"}</span>
-                <span className="text-base font-extrabold text-red-400">{formatPrice(restockForm.qty * restockForm.newCost)}</span>
+                <span className="text-base font-extrabold text-red-400">{formatPrice(restockForm.newCost)}</span>
               </div>
             </div>
 
