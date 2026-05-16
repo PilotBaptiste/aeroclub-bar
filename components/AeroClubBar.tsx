@@ -3109,7 +3109,46 @@ export default function AeroClubBar() {
                 </button>
               </div>
 
-              {/* Member accounts */}
+              {/* Créer un membre */}
+              <div className="bg-[#0f172a] border border-emerald-800 rounded-xl p-4">
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block mb-3">{"+ Ajouter un membre"}</span>
+                <div className="flex gap-2">
+                  <input
+                    id="new-member-name"
+                    type="text"
+                    placeholder="Nom du membre"
+                    className="flex-1 h-10 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm px-3 outline-none"
+                  />
+                  <input
+                    id="new-member-balance"
+                    type="number"
+                    step="0.5"
+                    placeholder="Avoir (€)"
+                    className="w-24 h-10 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      const nameEl = document.getElementById("new-member-name") as HTMLInputElement;
+                      const balEl = document.getElementById("new-member-balance") as HTMLInputElement;
+                      const name = nameEl?.value?.trim();
+                      const bal = parseFloat(balEl?.value) || 0;
+                      if (!name) { showToast("Nom requis", "error"); return; }
+                      const existing = members.find((m) => normalizeNameFuzzy(m.name) === normalizeNameFuzzy(name));
+                      if (existing) {
+                        setMembers((prev) => prev.map((m) => normalizeNameFuzzy(m.name) === normalizeNameFuzzy(name) ? { ...m, balance: m.balance + bal } : m));
+                        showToast(name + " : avoir ajusté de " + formatPrice(bal));
+                      } else {
+                        setMembers((prev) => [...prev, { name, balance: bal }]);
+                        showToast(name + " ajouté" + (bal ? " avec " + formatPrice(bal) + " d'avoir" : ""));
+                      }
+                      nameEl.value = "";
+                      balEl.value = "";
+                    }}
+                    className="px-4 h-10 rounded-lg bg-emerald-600 text-white text-sm font-bold cursor-pointer active:scale-95"
+                  >{"+"}</button>
+                </div>
+              </div>
+
               {/* Member accounts */}
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                 {"Tous les membres"}
@@ -3538,6 +3577,66 @@ export default function AeroClubBar() {
                 </pre>
               </div>
               <div className="h-px bg-[#1e2d4a] my-3" />
+              <h3 className="text-base font-bold">{"\uD83D\uDCB0 Correction financi\u00E8re"}</h3>
+              <p className="text-xs text-slate-500 mb-2">{"Cr\u00E9er une transaction de correction pour ajuster le CA (ex: apr\u00E8s une perte de donn\u00E9es)"}</p>
+              <div className="bg-[#0f172a] border border-amber-800/50 rounded-xl p-4 flex flex-col gap-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Montant CA (\u20AC)"}</label>
+                    <input id="correction-total" type="number" step="0.01" placeholder="ex: 150.00" className="h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Co\u00FBt total (\u20AC)"}</label>
+                    <input id="correction-cost" type="number" step="0.01" placeholder="ex: 80.00" className="h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-slate-500 font-semibold uppercase">{"M\u00E9thode"}</label>
+                    <select id="correction-method" className="h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none">
+                      <option value="especes">{"Esp\u00E8ces"}</option>
+                      <option value="carte">{"Carte"}</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-slate-500 font-semibold uppercase">{"Note"}</label>
+                    <input id="correction-note" type="text" placeholder="Correction manuelle" className="h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm px-3 outline-none" />
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const total = parseFloat((document.getElementById("correction-total") as HTMLInputElement)?.value);
+                    const cost = parseFloat((document.getElementById("correction-cost") as HTMLInputElement)?.value) || 0;
+                    const method = (document.getElementById("correction-method") as HTMLSelectElement)?.value || "especes";
+                    const note = (document.getElementById("correction-note") as HTMLInputElement)?.value || "Correction manuelle";
+                    if (isNaN(total) || total === 0) { showToast("Montant requis", "error"); return; }
+                    if (!confirm("Cr\u00E9er une transaction de correction de " + formatPrice(total) + " ?")) return;
+                    const tx: Transaction = {
+                      id: "correction-" + Date.now().toString(36),
+                      items: "\uD83D\uDCDD " + note,
+                      total: Math.round(total * 100) / 100,
+                      totalCost: Math.round(cost * 100) / 100,
+                      buyer: "CORRECTION",
+                      date: new Date().toISOString(),
+                      method,
+                    };
+                    setTransactions((prev) => [tx, ...prev]);
+                    // Adjust treasury
+                    if (method === "especes") {
+                      setSettings((prev) => ({ ...prev, cashInBox: Math.round(((prev.cashInBox || 0) + total) * 100) / 100 }));
+                    } else {
+                      setSettings((prev) => ({ ...prev, cbReceived: Math.round(((prev.cbReceived || 0) + total) * 100) / 100 }));
+                    }
+                    (document.getElementById("correction-total") as HTMLInputElement).value = "";
+                    (document.getElementById("correction-cost") as HTMLInputElement).value = "";
+                    (document.getElementById("correction-note") as HTMLInputElement).value = "";
+                    showToast("Correction de " + formatPrice(total) + " ajout\u00E9e");
+                  }}
+                  className="py-2.5 rounded-xl bg-amber-600 text-black text-sm font-bold cursor-pointer active:scale-95"
+                >{"Cr\u00E9er la correction"}</button>
+              </div>
+
+              <div className="h-px bg-[#1e2d4a] my-3" />
               <h3 className="text-base font-bold">{"\uD83D\uDCC8 Export"}</h3>
               <button
                 onClick={() => {
@@ -3575,6 +3674,69 @@ export default function AeroClubBar() {
               >
                 {"Exporter en CSV"}
               </button>
+
+              <div className="h-px bg-[#1e2d4a] my-3" />
+              <h3 className="text-base font-bold">{"\uD83D\uDCBE Sauvegarde compl\u00E8te"}</h3>
+              <p className="text-xs text-slate-500 mb-2">{"Exporter ou restaurer TOUTES les donn\u00E9es (produits, ventes, membres, finances, param\u00E8tres)"}</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const backup = {
+                      exportDate: new Date().toISOString(),
+                      version: 1,
+                      products,
+                      transactions,
+                      settings,
+                      suggestions,
+                      members,
+                      procurements,
+                      coffeeCredits,
+                      batches,
+                    };
+                    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "aeroclub-backup-" + todayStr + ".json";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    showToast("Backup t\u00E9l\u00E9charg\u00E9 !");
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-[#1e2d4a] text-emerald-400 text-sm font-bold cursor-pointer hover:bg-[#253550]"
+                >{"\u2B07\uFE0F Exporter backup JSON"}</button>
+                <button
+                  onClick={() => {
+                    const input = document.createElement("input");
+                    input.type = "file";
+                    input.accept = ".json";
+                    input.onchange = async (e) => {
+                      const file = (e.target as HTMLInputElement).files?.[0];
+                      if (!file) return;
+                      try {
+                        const text = await file.text();
+                        const backup = JSON.parse(text);
+                        if (!backup.products || !backup.version) {
+                          showToast("Fichier invalide", "error");
+                          return;
+                        }
+                        if (!confirm("Restaurer le backup du " + (backup.exportDate ? new Date(backup.exportDate).toLocaleDateString("fr-FR") : "?") + " ?\n\nCela remplacera TOUTES les donn\u00E9es actuelles.")) return;
+                        if (backup.products) setProducts(backup.products);
+                        if (backup.transactions) setTransactions(backup.transactions);
+                        if (backup.settings) setSettings(backup.settings);
+                        if (backup.suggestions) setSuggestions(backup.suggestions);
+                        if (backup.members) setMembers(backup.members);
+                        if (backup.procurements) setProcurements(backup.procurements);
+                        if (backup.coffeeCredits) setCoffeeCredits(backup.coffeeCredits);
+                        if (backup.batches) setBatches(backup.batches);
+                        showToast("Backup restaur\u00E9 avec succ\u00E8s !");
+                      } catch { showToast("Erreur de lecture du fichier", "error"); }
+                    };
+                    input.click();
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-[#1e2d4a] text-amber-400 text-sm font-bold cursor-pointer hover:bg-[#253550]"
+                >{"\u2B06\uFE0F Restaurer backup JSON"}</button>
+              </div>
+
               <div className="h-px bg-[#1e2d4a] my-3" />
               <button
                 onClick={() => {
