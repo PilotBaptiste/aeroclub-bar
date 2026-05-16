@@ -427,6 +427,30 @@ export default function AeroClubBar() {
     if (!loading) debouncedSave("aeroclub-batches", batches);
   }, [batches, loading, debouncedSave]);
 
+  // Auto-backup vers Redis toutes les 5 minutes (clé séparée, ne peut pas être écrasée par la race condition)
+  useEffect(() => {
+    if (!hasLoaded.current && !loading) return;
+    const backupInterval = setInterval(() => {
+      if (!hasLoaded.current) return;
+      fetch("/api/backup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save" }),
+      }).catch(() => {});
+    }, 5 * 60 * 1000); // 5 minutes
+    // Premier backup 30s après le chargement
+    const initialBackup = setTimeout(() => {
+      if (hasLoaded.current) {
+        fetch("/api/backup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "save" }),
+        }).catch(() => {});
+      }
+    }, 30000);
+    return () => { clearInterval(backupInterval); clearTimeout(initialBackup); };
+  }, [loading]);
+
   // Nettoyer les timers SumUp et le clearCart au démontage du composant
   useEffect(() => {
     return () => {
@@ -3677,64 +3701,116 @@ export default function AeroClubBar() {
 
               <div className="h-px bg-[#1e2d4a] my-3" />
               <h3 className="text-base font-bold">{"\uD83D\uDCBE Sauvegarde compl\u00E8te"}</h3>
-              <p className="text-xs text-slate-500 mb-2">{"Exporter ou restaurer TOUTES les donn\u00E9es (produits, ventes, membres, finances, param\u00E8tres)"}</p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    const backup = {
-                      exportDate: new Date().toISOString(),
-                      version: 1,
-                      products,
-                      transactions,
-                      settings,
-                      suggestions,
-                      members,
-                      procurements,
-                      coffeeCredits,
-                      batches,
-                    };
-                    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = "aeroclub-backup-" + todayStr + ".json";
-                    a.click();
-                    URL.revokeObjectURL(url);
-                    showToast("Backup t\u00E9l\u00E9charg\u00E9 !");
-                  }}
-                  className="flex-1 py-2.5 rounded-xl bg-[#1e2d4a] text-emerald-400 text-sm font-bold cursor-pointer hover:bg-[#253550]"
-                >{"\u2B07\uFE0F Exporter backup JSON"}</button>
-                <button
-                  onClick={() => {
-                    const input = document.createElement("input");
-                    input.type = "file";
-                    input.accept = ".json";
-                    input.onchange = async (e) => {
-                      const file = (e.target as HTMLInputElement).files?.[0];
-                      if (!file) return;
+              <p className="text-xs text-slate-500 mb-2">{"Un backup automatique est sauv\u00E9 dans la base toutes les 5 min. Tu peux aussi sauvegarder/restaurer manuellement."}</p>
+
+              {/* Backup Redis (dans la base de donn\u00E9es) */}
+              <div className="bg-[#0f172a] border border-emerald-800/50 rounded-xl p-4 flex flex-col gap-3">
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">{"Backup serveur (Redis)"}</span>
+                <p className="text-[11px] text-slate-500">{"Sauvegard\u00E9 automatiquement toutes les 5 min. Si on perd les donn\u00E9es, on peut restaurer depuis ce backup."}</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
                       try {
-                        const text = await file.text();
-                        const backup = JSON.parse(text);
-                        if (!backup.products || !backup.version) {
-                          showToast("Fichier invalide", "error");
-                          return;
-                        }
-                        if (!confirm("Restaurer le backup du " + (backup.exportDate ? new Date(backup.exportDate).toLocaleDateString("fr-FR") : "?") + " ?\n\nCela remplacera TOUTES les donn\u00E9es actuelles.")) return;
-                        if (backup.products) setProducts(backup.products);
-                        if (backup.transactions) setTransactions(backup.transactions);
-                        if (backup.settings) setSettings(backup.settings);
-                        if (backup.suggestions) setSuggestions(backup.suggestions);
-                        if (backup.members) setMembers(backup.members);
-                        if (backup.procurements) setProcurements(backup.procurements);
-                        if (backup.coffeeCredits) setCoffeeCredits(backup.coffeeCredits);
-                        if (backup.batches) setBatches(backup.batches);
-                        showToast("Backup restaur\u00E9 avec succ\u00E8s !");
-                      } catch { showToast("Erreur de lecture du fichier", "error"); }
-                    };
-                    input.click();
+                        const res = await fetch("/api/backup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "save" }) });
+                        const d = await res.json();
+                        if (d.ok) showToast("Backup serveur cr\u00E9\u00E9 !");
+                        else showToast("Erreur: " + (d.error || "?"), "error");
+                      } catch { showToast("Erreur r\u00E9seau", "error"); }
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-emerald-700 text-white text-sm font-bold cursor-pointer active:scale-95"
+                  >{"\uD83D\uDCBE Sauvegarder maintenant"}</button>
+                  <button
+                    onClick={async () => {
+                      if (!confirm("Restaurer le dernier backup serveur ?\n\nCela remplacera TOUTES les donn\u00E9es actuelles par le backup.")) return;
+                      try {
+                        const res = await fetch("/api/backup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "restore" }) });
+                        const d = await res.json();
+                        if (d.ok) {
+                          showToast("Backup restaur\u00E9 ! Rechargement...");
+                          setTimeout(() => window.location.reload(), 1500);
+                        } else showToast("Erreur: " + (d.error || "Aucun backup trouv\u00E9"), "error");
+                      } catch { showToast("Erreur r\u00E9seau", "error"); }
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-amber-600 text-black text-sm font-bold cursor-pointer active:scale-95"
+                  >{"\uD83D\uDD04 Restaurer backup"}</button>
+                </div>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch("/api/backup");
+                      if (!res.ok) { showToast("Aucun backup trouv\u00E9", "error"); return; }
+                      const backup = await res.json();
+                      showToast("Backup du " + (backup._backupDate ? new Date(backup._backupDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "?"));
+                    } catch { showToast("Erreur r\u00E9seau", "error"); }
                   }}
-                  className="flex-1 py-2.5 rounded-xl bg-[#1e2d4a] text-amber-400 text-sm font-bold cursor-pointer hover:bg-[#253550]"
-                >{"\u2B06\uFE0F Restaurer backup JSON"}</button>
+                  className="py-1.5 text-[11px] text-slate-500 hover:text-slate-300 cursor-pointer"
+                >{"\u2139\uFE0F Voir la date du dernier backup"}</button>
+              </div>
+
+              {/* Backup fichier JSON (t\u00E9l\u00E9chargeable) */}
+              <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4 flex flex-col gap-3">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{"Backup fichier (JSON)"}</span>
+                <p className="text-[11px] text-slate-500">{"T\u00E9l\u00E9charger un fichier avec toutes les donn\u00E9es. Tu peux le r\u00E9injecter plus tard."}</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const backup = {
+                        exportDate: new Date().toISOString(),
+                        version: 1,
+                        products,
+                        transactions,
+                        settings,
+                        suggestions,
+                        members,
+                        procurements,
+                        coffeeCredits,
+                        batches,
+                      };
+                      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = "aeroclub-backup-" + todayStr + ".json";
+                      a.click();
+                      URL.revokeObjectURL(url);
+                      showToast("Fichier backup t\u00E9l\u00E9charg\u00E9 !");
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-[#1e2d4a] text-emerald-400 text-sm font-bold cursor-pointer hover:bg-[#253550]"
+                  >{"\u2B07\uFE0F T\u00E9l\u00E9charger"}</button>
+                  <button
+                    onClick={() => {
+                      const input = document.createElement("input");
+                      input.type = "file";
+                      input.accept = ".json";
+                      input.onchange = async (e) => {
+                        const file = (e.target as HTMLInputElement).files?.[0];
+                        if (!file) return;
+                        try {
+                          const text = await file.text();
+                          const backup = JSON.parse(text);
+                          if (!backup.products || !backup.version) {
+                            showToast("Fichier invalide", "error");
+                            return;
+                          }
+                          if (!confirm("Restaurer le backup du " + (backup.exportDate ? new Date(backup.exportDate).toLocaleDateString("fr-FR") : "?") + " ?\n\nCela remplacera TOUTES les donn\u00E9es actuelles dans la base.")) return;
+                          // Envoyer \u00E0 l'API pour \u00E9crire directement dans Redis
+                          const res = await fetch("/api/backup", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ action: "restore-upload", data: backup }),
+                          });
+                          const d = await res.json();
+                          if (d.ok) {
+                            showToast("Backup inject\u00E9 ! Rechargement...");
+                            setTimeout(() => window.location.reload(), 1500);
+                          } else showToast("Erreur: " + (d.error || "?"), "error");
+                        } catch { showToast("Erreur de lecture du fichier", "error"); }
+                      };
+                      input.click();
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-[#1e2d4a] text-amber-400 text-sm font-bold cursor-pointer hover:bg-[#253550]"
+                  >{"\u2B06\uFE0F Injecter fichier"}</button>
+                </div>
               </div>
 
               <div className="h-px bg-[#1e2d4a] my-3" />
