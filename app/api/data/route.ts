@@ -45,6 +45,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Key required" }, { status: 400 });
     if (!ALLOWED_KEYS.includes(key))
       return NextResponse.json({ error: "Invalid key" }, { status: 400 });
+
+    // Safety check: prevent overwriting real data with empty/default arrays
+    // If the new value is an array with <= 6 items (default products count),
+    // and the existing value has more items, block the write unless force=true
+    if (key === "aeroclub-products" && Array.isArray(value)) {
+      const existing = await kv.get(key);
+      if (Array.isArray(existing) && existing.length > 6 && value.length <= 6) {
+        console.warn(`BLOCKED: attempt to overwrite ${key} (${existing.length} items) with only ${value.length} items`);
+        return NextResponse.json({ error: "Blocked: would overwrite larger dataset with smaller one", blocked: true }, { status: 409 });
+      }
+    }
+
     await kv.set(key, value);
     return NextResponse.json({ ok: true });
   } catch (e) {

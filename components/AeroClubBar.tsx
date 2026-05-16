@@ -169,14 +169,26 @@ function formatDate(iso: string) {
 }
 
 // ─── API helpers for Vercel KV ───
-async function loadFromServer() {
+async function loadFromServer(): Promise<{ data: Record<string, unknown> | null; ok: boolean }> {
   try {
     const res = await fetch("/api/data");
-    if (!res.ok) return null;
-    return await res.json();
+    if (!res.ok) return { data: null, ok: false };
+    const json = await res.json();
+    if (json.error) return { data: null, ok: false };
+    return { data: json, ok: true };
   } catch {
-    return null;
+    return { data: null, ok: false };
   }
+}
+
+async function loadFromServerWithRetry(maxRetries = 3): Promise<{ data: Record<string, unknown> | null; ok: boolean }> {
+  for (let i = 0; i < maxRetries; i++) {
+    const result = await loadFromServer();
+    if (result.ok) return result;
+    // Wait before retrying (1s, 2s, 4s)
+    await new Promise((r) => setTimeout(r, Math.min(1000 * Math.pow(2, i), 4000)));
+  }
+  return { data: null, ok: false };
 }
 
 async function saveToServer(key: string, value: unknown): Promise<boolean> {
@@ -191,6 +203,22 @@ async function saveToServer(key: string, value: unknown): Promise<boolean> {
     console.error("Save error:", e);
     return false;
   }
+}
+
+// LocalStorage backup keys
+const LS_BACKUP_PREFIX = "aeroclub-backup-";
+function backupToLocalStorage(key: string, value: unknown) {
+  try {
+    localStorage.setItem(LS_BACKUP_PREFIX + key, JSON.stringify(value));
+    localStorage.setItem(LS_BACKUP_PREFIX + key + "-ts", Date.now().toString());
+  } catch { /* quota exceeded — ignore */ }
+}
+function restoreFromLocalStorage(key: string): unknown | null {
+  try {
+    const raw = localStorage.getItem(LS_BACKUP_PREFIX + key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
 }
 
 export default function AeroClubBar() {
@@ -252,6 +280,7 @@ export default function AeroClubBar() {
   const [bureauPinError, setBureauPinError] = useState(false);
   const [bureauUnlocked, setBureauUnlocked] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error">("idle");
+  const [loadFailed, setLoadFailed] = useState(false);
   const [procurements, setProcurements] = useState<Procurement[]>([]);
   const [restockingProduct, setRestockingProduct] = useState<Product | null>(null);
   const [restockForm, setRestockForm] = useState<{ qty: number; newPrice: number; newCost: number; method: "especes" | "carte"; expiryDate?: string }>({ qty: 1, newPrice: 0, newCost: 0, method: "especes" });
@@ -274,34 +303,68 @@ export default function AeroClubBar() {
   const lockRetriggerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Debounced save to avoid too many API calls
+  // CRITICAL: never save if load never succeeded (prevents overwriting real data with defaults)
   const debouncedSave = useCallback((key: string, value: unknown) => {
-    if (!hasLoaded.current) return; // ← AJOUTER CETTE LIGNE
+    if (!hasLoaded.current) return;
     if (saveTimeout.current[key]) clearTimeout(saveTimeout.current[key]);
     setSaveStatus("saving");
     saveTimeout.current[key] = setTimeout(async () => {
       const ok = await saveToServer(key, value);
       setSaveStatus(ok ? "idle" : "error");
-    }, 1000); // ← CHANGER 500 en 1000
+      // Backup to localStorage on every successful save
+      if (ok) backupToLocalStorage(key, value);
+    }, 1000);
   }, []);
 
-  // Load data from server
+  // Load data from server with retry + localStorage fallback
   useEffect(() => {
     (async () => {
-      const data = await loadFromServer();
-      if (data) {
-        if (data.products) setProducts(data.products);
-        if (data.transactions) setTransactions(data.transactions);
-        if (data.settings) setSettings(data.settings);
-        if (data.suggestions) setSuggestions(data.suggestions);
-        if (data.members) setMembers(data.members);
-        if (data.procurements) setProcurements(data.procurements);
-        if (data.coffeeCredits) setCoffeeCredits(data.coffeeCredits);
-        if (data.batches) setBatches(data.batches);
+      const { data, ok } = await loadFromServerWithRetry(3);
+      if (ok && data) {
+        // Server load succeeded — apply data
+        if (data.products) setProducts(data.products as Product[]);
+        if (data.transactions) setTransactions(data.transactions as Transaction[]);
+        if (data.settings) setSettings(data.settings as Settings);
+        if (data.suggestions) setSuggestions(data.suggestions as Suggestion[]);
+        if (data.members) setMembers(data.members as MemberAccount[]);
+        if (data.procurements) setProcurements(data.procurements as Procurement[]);
+        if (data.coffeeCredits) setCoffeeCredits(data.coffeeCredits as Record<string, number>);
+        if (data.batches) setBatches(data.batches as Batch[]);
+        // Immediately backup to localStorage
+        if (data.products) backupToLocalStorage("aeroclub-products", data.products);
+        if (data.transactions) backupToLocalStorage("aeroclub-transactions", data.transactions);
+        if (data.settings) backupToLocalStorage("aeroclub-settings", data.settings);
+        if (data.suggestions) backupToLocalStorage("aeroclub-suggestions", data.suggestions);
+        if (data.members) backupToLocalStorage("aeroclub-members", data.members);
+        if (data.procurements) backupToLocalStorage("aeroclub-procurements", data.procurements);
+        if (data.coffeeCredits) backupToLocalStorage("aeroclub-coffee-credits", data.coffeeCredits);
+        if (data.batches) backupToLocalStorage("aeroclub-batches", data.batches);
+        setLoading(false);
+        // Enable saves only after successful load + small delay for React state to settle
+        setTimeout(() => { hasLoaded.current = true; }, 2000);
+      } else {
+        // Server load FAILED — try localStorage backup
+        console.error("Server load failed after 3 retries, trying localStorage backup...");
+        const lsProducts = restoreFromLocalStorage("aeroclub-products");
+        const lsTransactions = restoreFromLocalStorage("aeroclub-transactions");
+        const lsSettings = restoreFromLocalStorage("aeroclub-settings");
+        const lsSuggestions = restoreFromLocalStorage("aeroclub-suggestions");
+        const lsMembers = restoreFromLocalStorage("aeroclub-members");
+        const lsProcurements = restoreFromLocalStorage("aeroclub-procurements");
+        const lsCoffeeCredits = restoreFromLocalStorage("aeroclub-coffee-credits");
+        const lsBatches = restoreFromLocalStorage("aeroclub-batches");
+        if (lsProducts) setProducts(lsProducts as Product[]);
+        if (lsTransactions) setTransactions(lsTransactions as Transaction[]);
+        if (lsSettings) setSettings(lsSettings as Settings);
+        if (lsSuggestions) setSuggestions(lsSuggestions as Suggestion[]);
+        if (lsMembers) setMembers(lsMembers as MemberAccount[]);
+        if (lsProcurements) setProcurements(lsProcurements as Procurement[]);
+        if (lsCoffeeCredits) setCoffeeCredits(lsCoffeeCredits as Record<string, number>);
+        if (lsBatches) setBatches(lsBatches as Batch[]);
+        setLoadFailed(true);
+        setLoading(false);
+        // CRITICAL: hasLoaded stays FALSE — saves are BLOCKED to prevent overwriting server data
       }
-      setLoading(false);
-      setTimeout(() => {
-        hasLoaded.current = true;
-      }, 2000);
     })();
   }, []);
 
@@ -1153,8 +1216,45 @@ export default function AeroClubBar() {
       </div>
     );
 
+  // Retry loading from server (e.g. after a failed load)
+  const retryLoad = async () => {
+    setLoading(true);
+    setLoadFailed(false);
+    const { data, ok } = await loadFromServerWithRetry(3);
+    if (ok && data) {
+      if (data.products) setProducts(data.products as Product[]);
+      if (data.transactions) setTransactions(data.transactions as Transaction[]);
+      if (data.settings) setSettings(data.settings as Settings);
+      if (data.suggestions) setSuggestions(data.suggestions as Suggestion[]);
+      if (data.members) setMembers(data.members as MemberAccount[]);
+      if (data.procurements) setProcurements(data.procurements as Procurement[]);
+      if (data.coffeeCredits) setCoffeeCredits(data.coffeeCredits as Record<string, number>);
+      if (data.batches) setBatches(data.batches as Batch[]);
+      setLoading(false);
+      setTimeout(() => { hasLoaded.current = true; }, 2000);
+    } else {
+      setLoadFailed(true);
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#0a0f1c] text-slate-200 relative overflow-hidden">
+      {/* CRITICAL: Warning banner when data load failed — saves are blocked */}
+      {loadFailed && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-red-600 text-white px-4 py-3 flex items-center justify-between gap-3 shadow-lg">
+          <div className="flex-1">
+            <p className="font-bold text-sm">{"⚠️ Connexion serveur échouée"}</p>
+            <p className="text-xs text-red-100">{"Les données affichées peuvent être obsolètes. Les modifications ne seront PAS sauvegardées tant que la connexion n'est pas rétablie."}</p>
+          </div>
+          <button
+            onClick={retryLoad}
+            className="px-4 py-2 bg-white text-red-600 rounded-lg text-sm font-bold whitespace-nowrap cursor-pointer active:scale-95"
+          >
+            {"🔄 Réessayer"}
+          </button>
+        </div>
+      )}
       {toast && (
         <div
           className="fixed top-5 left-1/2 -translate-x-1/2 px-6 py-3 rounded-xl text-white font-semibold text-sm z-50 shadow-2xl"
