@@ -14,6 +14,7 @@ interface Product {
   legacyPrice?: number;
   archived?: boolean;
   category?: string;
+  location?: "frigo" | "cafe" | "congelateur";
 }
 
 interface Batch {
@@ -236,7 +237,7 @@ export default function AeroClubBar() {
     total: number;
     buyer: string;
     method: string;
-    lockType: "cafe" | "frigo" | "both";
+    lockType: string;
   } | null>(null);
   const [sumupLoading, setSumupLoading] = useState(false);
   const [sumupError, setSumupError] = useState<string | null>(null);
@@ -245,13 +246,14 @@ export default function AeroClubBar() {
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
   const [showAddProduct, setShowAddProduct] = useState(false);
-  const [newProduct, setNewProduct] = useState<{ name: string; emoji: string; price: number; cost: number; stock: number; stockReserve: number; coffeeServings?: number }>({
+  const [newProduct, setNewProduct] = useState<{ name: string; emoji: string; price: number; cost: number; stock: number; stockReserve: number; coffeeServings?: number; location?: "frigo" | "cafe" | "congelateur" }>({
     name: "",
     emoji: "\uD83E\uDD64",
     price: 1.0,
     cost: 0.5,
     stock: 20,
     stockReserve: 0,
+    location: "frigo",
   });
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingTxFull, setEditingTxFull] = useState<{ tx: Transaction; lines: { productId: string; qty: number }[] } | null>(null);
@@ -877,18 +879,17 @@ export default function AeroClubBar() {
       }));
     }
 
-    // Deverrouille la bonne serrure selon le panier
-    const hasCafe = cart.some(
-      (c) =>
-        c.product.name.toLowerCase().includes("cafe") ||
-        c.product.name.toLowerCase().includes("café"),
-    );
-    const hasOther = cart.some(
-      (c) =>
-        !c.product.name.toLowerCase().includes("cafe") &&
-        !c.product.name.toLowerCase().includes("café"),
-    );
-    const lockType: "cafe" | "frigo" | "both" = hasCafe && hasOther ? "both" : hasCafe ? "cafe" : "frigo";
+    // Deverrouille la bonne serrure selon le champ location de chaque produit
+    const locationsNeeded = new Set<string>();
+    for (const c of cart) {
+      const loc = c.product.location || "frigo"; // défaut = frigo
+      locationsNeeded.add(loc);
+    }
+    const hasCafe = locationsNeeded.has("cafe");
+    const hasFrigo = locationsNeeded.has("frigo");
+    const hasCongelateur = locationsNeeded.has("congelateur");
+    // lockType simplifié pour l'affichage du retrigger
+    const lockType: string = locationsNeeded.size > 1 ? "both" : [...locationsNeeded][0] || "frigo";
 
     // Détecter produits multi-portions café (ex: "2x Cafés")
     const totalCoffeeServings = cart.reduce(
@@ -896,18 +897,19 @@ export default function AeroClubBar() {
       0,
     );
     if (totalCoffeeServings > 0) {
-      // Déclencher le frigo immédiatement si panier mixte, mais bloquer le café
-      if (hasOther) fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
-      // Afficher le modal café pour choisir combien utiliser maintenant
+      // Déclencher les serrures non-café immédiatement, bloquer le café pour le modal
+      if (hasFrigo) fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
+      if (hasCongelateur) fetch("/api/fridge?action=trigger&lock=congelateur").catch(() => {});
       const coffeeCartItem = cart.find((c) => c.product.coffeeServings && c.product.coffeeServings > 1);
-      // Le frigo a déjà été ouvert ci-dessus si mixte → le modal café ouvre uniquement le café
       setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType: "cafe", productId: coffeeCartItem?.product.id || "" });
     } else {
-      if (hasCafe && hasOther)
+      // Ouvrir chaque serrure nécessaire
+      if (locationsNeeded.size > 1) {
+        // Ouvrir tout si plus d'une serrure
         fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
-      else if (hasCafe)
-        fetch("/api/fridge?action=trigger&lock=cafe").catch(() => {});
-      else fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
+      } else {
+        fetch("/api/fridge?action=trigger&lock=" + ([...locationsNeeded][0] || "frigo")).catch(() => {});
+      }
     }
 
     const tx: Transaction = {
@@ -2117,7 +2119,9 @@ export default function AeroClubBar() {
                           ? "\u2615 Tiroir caf\u00e9 d\u00e9verrouill\u00e9 !"
                           : lastOrder.lockType === "frigo"
                             ? "\uD83C\uDF7A Frigo d\u00e9verrouill\u00e9 !"
-                            : "\u2615\uD83C\uDF7A Caf\u00e9 & Frigo d\u00e9verrouill\u00e9s !"}
+                            : lastOrder.lockType === "congelateur"
+                              ? "\u2744\uFE0F Cong\u00e9lateur d\u00e9verrouill\u00e9 !"
+                              : "\uD83D\uDD13 Serrures d\u00e9verrouill\u00e9es !"}
                       </p>
                       {lockRetriggerCountdown === null ? (
                         <button
@@ -2416,12 +2420,20 @@ export default function AeroClubBar() {
                     </button>
                     {/* Quick action bar */}
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-black/20 border-t border-white/5">
-                      <div className="flex-1 flex items-center gap-1.5 flex-wrap">
+                      <div className="flex-1 flex items-center gap-1 flex-wrap">
                         {getCategories().map((cat) => (
                           <button key={cat.id}
                             onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, category: x.category === cat.id ? undefined : cat.id } : x))}
                             className={"text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer " + (p.category === cat.id ? "bg-blue-600 text-white" : "bg-[#0f172a] text-slate-500 hover:text-slate-300")}
                           >{cat.emoji}</button>
+                        ))}
+                        <span className="text-slate-700 mx-0.5">{"|"}</span>
+                        {([["frigo", "\uD83E\uDDCA"], ["cafe", "\u2615"], ["congelateur", "\u2744\uFE0F"]] as const).map(([loc, emoji]) => (
+                          <button key={loc}
+                            onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, location: loc } : x))}
+                            className={"text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer " + ((p.location || "frigo") === loc ? "bg-cyan-600 text-white" : "bg-[#0f172a] text-slate-500 hover:text-slate-300")}
+                            title={loc === "frigo" ? "Frigo" : loc === "cafe" ? "Caf\u00E9" : "Cong\u00E9lateur"}
+                          >{emoji}</button>
                         ))}
                       </div>
                       <button
@@ -2541,6 +2553,16 @@ export default function AeroClubBar() {
                         onChange={(e) => setNewProduct({ ...newProduct, stockReserve: parseInt(e.target.value, 10) || 0 })}
                         className="h-12 rounded-lg border border-slate-700 bg-[#131b2e] text-purple-300 text-sm text-center outline-none" />
                     </div>
+                  </div>
+                  {/* Emplacement */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase">{"Emplacement :"}</span>
+                    {([["frigo", "\uD83E\uDDCA"], ["cafe", "\u2615"], ["congelateur", "\u2744\uFE0F"]] as const).map(([loc, emoji]) => (
+                      <button key={loc}
+                        onClick={() => setNewProduct({ ...newProduct, location: loc })}
+                        className={"text-xs px-2 py-1 rounded font-bold cursor-pointer " + ((newProduct.location || "frigo") === loc ? "bg-cyan-600 text-white" : "bg-[#0f172a] text-slate-500 border border-slate-700")}
+                      >{emoji + " " + (loc === "frigo" ? "Frigo" : loc === "cafe" ? "Caf\u00E9" : "Cong\u00E9lo")}</button>
+                    ))}
                   </div>
                   <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2.5 cursor-pointer mb-2">
                     <input type="checkbox" checked={(newProduct.coffeeServings || 1) >= 2}
@@ -3097,40 +3119,23 @@ export default function AeroClubBar() {
                 </div>
               </div>
 
-              <div className="flex gap-2 mb-2">
+              <div className="grid grid-cols-2 gap-2 mb-2">
                 <button
-                  onClick={() => {
-                    fetch("/api/fridge?action=trigger&lock=cafe").catch(
-                      () => {},
-                    );
-                    showToast("Cafe ouvert 15s !");
-                  }}
-                  className="flex-1 py-3 rounded-xl font-bold text-sm bg-amber-700 text-white active:scale-95 cursor-pointer"
-                >
-                  {"\u2615 Ouvrir cafe"}
-                </button>
+                  onClick={() => { fetch("/api/fridge?action=trigger&lock=cafe").catch(() => {}); showToast("Caf\u00E9 ouvert !"); }}
+                  className="py-3 rounded-xl font-bold text-sm bg-amber-700 text-white active:scale-95 cursor-pointer"
+                >{"\u2615 Ouvrir caf\u00E9"}</button>
                 <button
-                  onClick={() => {
-                    fetch("/api/fridge?action=trigger&lock=frigo").catch(
-                      () => {},
-                    );
-                    showToast("Frigo ouvert 15s !");
-                  }}
-                  className="flex-1 py-3 rounded-xl font-bold text-sm bg-blue-600 text-white active:scale-95 cursor-pointer"
-                >
-                  {"\uD83E\uDDCA Ouvrir frigo"}
-                </button>
+                  onClick={() => { fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {}); showToast("Frigo ouvert !"); }}
+                  className="py-3 rounded-xl font-bold text-sm bg-blue-600 text-white active:scale-95 cursor-pointer"
+                >{"\uD83E\uDDCA Ouvrir frigo"}</button>
                 <button
-                  onClick={() => {
-                    fetch("/api/fridge?action=trigger&lock=both").catch(
-                      () => {},
-                    );
-                    showToast("Tout ouvert 15s !");
-                  }}
-                  className="flex-1 py-3 rounded-xl font-bold text-sm bg-emerald-600 text-white active:scale-95 cursor-pointer"
-                >
-                  {"\uD83D\uDD13 Ouvrir tout"}
-                </button>
+                  onClick={() => { fetch("/api/fridge?action=trigger&lock=congelateur").catch(() => {}); showToast("Cong\u00E9lateur ouvert !"); }}
+                  className="py-3 rounded-xl font-bold text-sm bg-cyan-600 text-white active:scale-95 cursor-pointer"
+                >{"\u2744\uFE0F Ouvrir cong\u00E9lateur"}</button>
+                <button
+                  onClick={() => { fetch("/api/fridge?action=trigger&lock=both").catch(() => {}); showToast("Tout ouvert !"); }}
+                  className="py-3 rounded-xl font-bold text-sm bg-emerald-600 text-white active:scale-95 cursor-pointer"
+                >{"\uD83D\uDD13 Ouvrir tout"}</button>
               </div>
 
               {/* Créer un membre */}
@@ -4030,6 +4035,16 @@ export default function AeroClubBar() {
                   onChange={(e) => setEditingProduct({ ...editingProduct, stockReserve: parseInt(e.target.value, 10) || 0 })}
                   className="h-14 rounded-xl border border-slate-700 bg-[#0f172a] text-purple-300 text-sm text-center outline-none" />
               </div>
+            </div>
+            {/* Emplacement (serrure) */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs text-slate-400 font-semibold">{"Emplacement :"}</span>
+              {([["frigo", "\uD83E\uDDCA Frigo"], ["cafe", "\u2615 Caf\u00E9"], ["congelateur", "\u2744\uFE0F Cong\u00E9lateur"]] as const).map(([loc, label]) => (
+                <button key={loc}
+                  onClick={() => setEditingProduct({ ...editingProduct, location: loc })}
+                  className={"text-xs px-3 py-1.5 rounded-lg font-bold cursor-pointer transition " + ((editingProduct.location || "frigo") === loc ? "bg-cyan-600 text-white" : "bg-[#0f172a] text-slate-500 border border-slate-700")}
+                >{label}</button>
+              ))}
             </div>
             <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-xl px-3 py-3 cursor-pointer mb-3">
               <input type="checkbox" checked={(editingProduct.coffeeServings || 1) >= 2}
