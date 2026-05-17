@@ -19,13 +19,9 @@ export async function GET(request: Request) {
 
   try {
     if (action === "check") {
-      // 1 seul kv.get au lieu de 3
       const locks = ((await kv.get("aeroclub-locks")) as Locks | null) || EMPTY;
       const result = { cafe: locks.cafe === true, frigo: locks.frigo === true, congelateur: locks.congelateur === true, both: locks.both === true };
-      // Si plusieurs serrures individuelles sont actives, forcer "both" pour que l'ESP32 ouvre tout d'un coup
-      const activeCount = [result.cafe, result.frigo, result.congelateur].filter(Boolean).length;
-      if (activeCount > 1) result.both = true;
-      // Reset seulement si un verrou était actif (1 kv.set au lieu de 3)
+      // Reset seulement si un verrou était actif
       if (result.cafe || result.frigo || result.congelateur || result.both) {
         await kv.set("aeroclub-locks", EMPTY);
       }
@@ -39,10 +35,18 @@ export async function GET(request: Request) {
     if (action === "trigger") {
       // Read-modify-write pour ne pas écraser un trigger concurrent
       const current = ((await kv.get("aeroclub-locks")) as Locks | null) || { ...EMPTY };
-      if (lock === "cafe") current.cafe = true;
-      else if (lock === "frigo") current.frigo = true;
-      else if (lock === "congelateur") current.congelateur = true;
-      else current.both = true;
+      // Supporte les locks séparés par virgule (ex: "cafe,frigo")
+      const locks = lock ? lock.split(",") : [];
+      for (const l of locks) {
+        if (l === "cafe") current.cafe = true;
+        else if (l === "frigo") current.frigo = true;
+        else if (l === "congelateur") current.congelateur = true;
+        else if (l === "both") current.both = true;
+      }
+      // Fallback si aucun lock reconnu
+      if (!current.cafe && !current.frigo && !current.congelateur && !current.both) {
+        current.both = true;
+      }
       await kv.set("aeroclub-locks", current);
       return NextResponse.json({ ok: true, lock: lock || "both" });
     }

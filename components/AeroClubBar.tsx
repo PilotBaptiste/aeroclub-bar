@@ -294,7 +294,7 @@ export default function AeroClubBar() {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [newCategoryForm, setNewCategoryForm] = useState<{ label: string; emoji: string; hasCupCost: boolean } | null>(null);
   const [coffeeCredits, setCoffeeCredits] = useState<Record<string, number>>({});
-  const [coffeeModal, setCoffeeModal] = useState<{ buyer: string; totalServings: number; lockType: "cafe" | "both"; productId: string } | null>(null);
+  const [coffeeModal, setCoffeeModal] = useState<{ buyer: string; totalServings: number; lockType: string; productId: string } | null>(null);
   const [coffeeAvoirUsedInCheckout, setCoffeeAvoirUsedInCheckout] = useState(false);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
@@ -872,8 +872,8 @@ export default function AeroClubBar() {
     const hasCafe = locationsNeeded.has("cafe");
     const hasFrigo = locationsNeeded.has("frigo");
     const hasCongelateur = locationsNeeded.has("congelateur");
-    // lockType simplifié pour l'affichage du retrigger
-    const lockType: string = locationsNeeded.size > 1 ? "both" : [...locationsNeeded][0] || "frigo";
+    // lockType = les serrures nécessaires séparées par virgule (ex: "cafe,frigo")
+    const lockType: string = [...locationsNeeded].join(",");
 
     // Détecter produits multi-portions café (ex: "2x Cafés")
     const totalCoffeeServings = cart.reduce(
@@ -883,14 +883,10 @@ export default function AeroClubBar() {
     if (totalCoffeeServings > 0) {
       // Modal café d'abord → les serrures s'ouvrent APRÈS le choix
       const coffeeCartItem = cart.find((c) => c.product.coffeeServings && c.product.coffeeServings > 1);
-      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType: lockType as "cafe" | "both", productId: coffeeCartItem?.product.id || "" });
+      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType, productId: coffeeCartItem?.product.id || "" });
     } else {
       // Pas de café multi-portions → ouvrir les serrures immédiatement
-      if (locationsNeeded.size > 1) {
-        fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
-      } else {
-        fetch("/api/fridge?action=trigger&lock=" + ([...locationsNeeded][0] || "frigo")).catch(() => {});
-      }
+      fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
     }
 
     const tx: Transaction = {
