@@ -22,6 +22,9 @@ export async function GET(request: Request) {
       // 1 seul kv.get au lieu de 3
       const locks = ((await kv.get("aeroclub-locks")) as Locks | null) || EMPTY;
       const result = { cafe: locks.cafe === true, frigo: locks.frigo === true, congelateur: locks.congelateur === true, both: locks.both === true };
+      // Si plusieurs serrures individuelles sont actives, forcer "both" pour que l'ESP32 ouvre tout d'un coup
+      const activeCount = [result.cafe, result.frigo, result.congelateur].filter(Boolean).length;
+      if (activeCount > 1) result.both = true;
       // Reset seulement si un verrou était actif (1 kv.set au lieu de 3)
       if (result.cafe || result.frigo || result.congelateur || result.both) {
         await kv.set("aeroclub-locks", EMPTY);

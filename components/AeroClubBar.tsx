@@ -875,25 +875,21 @@ export default function AeroClubBar() {
     // lockType simplifié pour l'affichage du retrigger
     const lockType: string = locationsNeeded.size > 1 ? "both" : [...locationsNeeded][0] || "frigo";
 
-    // Détecter produits multi-portions café (ex: "2x Cafés")
+    // Ouvrir TOUTES les serrures nécessaires immédiatement
+    if (locationsNeeded.size > 1) {
+      fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
+    } else {
+      fetch("/api/fridge?action=trigger&lock=" + ([...locationsNeeded][0] || "frigo")).catch(() => {});
+    }
+
+    // Détecter produits multi-portions café (ex: "2x Cafés") → modal pour les avoirs
     const totalCoffeeServings = cart.reduce(
       (s, c) => s + ((c.product.coffeeServings && c.product.coffeeServings > 1) ? c.qty * c.product.coffeeServings : 0),
       0,
     );
     if (totalCoffeeServings > 0) {
-      // Déclencher les serrures non-café immédiatement, bloquer le café pour le modal
-      if (hasFrigo) fetch("/api/fridge?action=trigger&lock=frigo").catch(() => {});
-      if (hasCongelateur) fetch("/api/fridge?action=trigger&lock=congelateur").catch(() => {});
       const coffeeCartItem = cart.find((c) => c.product.coffeeServings && c.product.coffeeServings > 1);
-      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType: "cafe", productId: coffeeCartItem?.product.id || "" });
-    } else {
-      // Ouvrir chaque serrure nécessaire
-      if (locationsNeeded.size > 1) {
-        // Ouvrir tout si plus d'une serrure
-        fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
-      } else {
-        fetch("/api/fridge?action=trigger&lock=" + ([...locationsNeeded][0] || "frigo")).catch(() => {});
-      }
+      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType: lockType as "cafe" | "both", productId: coffeeCartItem?.product.id || "" });
     }
 
     const tx: Transaction = {
@@ -948,7 +944,6 @@ export default function AeroClubBar() {
         return { ...p, stock: Math.max(0, p.stock - usedNow), legacyStock: Math.max(0, (p.legacyStock || 0) - fromLegacy) };
       }));
     }
-    fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
     setCoffeeModal(null);
   };
 
