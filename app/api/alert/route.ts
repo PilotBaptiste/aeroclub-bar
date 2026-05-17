@@ -20,21 +20,31 @@ async function sendTelegram(message: string) {
   if (!res.ok) throw new Error("Telegram error: " + (await res.text()));
 }
 
-// ─── POST : alerte stock bas (appelé par le frontend) ───
+// ─── POST : alerte stock (appelé par le frontend) ───
 export async function POST(request: Request) {
   try {
-    const { productName, stock } = await request.json();
-    const message =
-      "⚠️ STOCK BAS - Aero-Club Bar\n\n" +
-      "📦 " +
-      productName +
-      " : " +
-      stock +
-      " restant" +
-      (stock > 1 ? "s" : "") +
-      "\n\nPensez a reapprovisionner !";
+    const { productName, stock, level } = await request.json();
+    let message: string;
+
+    if (level === "critical" || stock === 0) {
+      message =
+        "🚨 <b>RUPTURE DE STOCK</b> - Aero-Club Bar\n\n" +
+        "📦 <b>" + productName + "</b> : 0 restant !\n\n" +
+        "⚠️ Réapprovisionnement urgent nécessaire !";
+    } else if (level === "alert" || stock <= 2) {
+      message =
+        "⚠️ <b>STOCK BAS</b> - Aero-Club Bar\n\n" +
+        "📦 <b>" + productName + "</b> : " + stock + " restant" + (stock > 1 ? "s" : "") + "\n\n" +
+        "Pensez à réapprovisionner bientôt.";
+    } else {
+      // info — stock faible (≤5) mais pas critique
+      message =
+        "ℹ️ Stock faible - Aero-Club Bar\n\n" +
+        "📦 " + productName + " : " + stock + " restant" + (stock > 1 ? "s" : "");
+    }
+
     await sendTelegram(message);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, level: level || "alert" });
   } catch (e) {
     console.error("Alert error:", e);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

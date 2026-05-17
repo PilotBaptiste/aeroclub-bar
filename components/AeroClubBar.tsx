@@ -841,18 +841,23 @@ export default function AeroClubBar() {
       const cartProductIds = cartSnapshot.map((c) => c.product.id);
       for (const p of updated) {
         if (!cartProductIds.includes(p.id)) continue;
-        if (p.stock > 0 && p.stock <= 5) {
-          fetch("/api/alert", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ productName: p.name, stock: p.stock }),
-          }).catch(() => {});
-        }
         if (p.stock === 0) {
           fetch("/api/alert", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ productName: p.name, stock: 0 }),
+            body: JSON.stringify({ productName: p.name, stock: 0, level: "critical" }),
+          }).catch(() => {});
+        } else if (p.stock <= 2) {
+          fetch("/api/alert", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ productName: p.name, stock: p.stock, level: "alert" }),
+          }).catch(() => {});
+        } else if (p.stock <= 5) {
+          fetch("/api/alert", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ productName: p.name, stock: p.stock, level: "info" }),
           }).catch(() => {});
         }
       }
@@ -2421,7 +2426,7 @@ export default function AeroClubBar() {
                       {/* Stock summary */}
                       <div className="text-right shrink-0">
                         <div className="flex items-center gap-1.5 text-xs font-bold">
-                          <span className={p.stock <= 5 ? "text-orange-400" : "text-white"}>
+                          <span className={p.stock <= 2 ? "text-red-400" : p.stock <= 5 ? "text-orange-400" : "text-white"}>
                             {"\uD83E\uDDCA " + p.stock}
                           </span>
                           <span className="text-slate-600">{"\u00B7"}</span>
