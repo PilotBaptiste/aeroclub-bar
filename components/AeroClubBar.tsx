@@ -297,6 +297,7 @@ export default function AeroClubBar() {
   const [coffeeAvoirUsedInCheckout, setCoffeeAvoirUsedInCheckout] = useState(false);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
+  const [editingMember, setEditingMember] = useState<{ name: string; newName: string; balance: number; coffee: number } | null>(null);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false);
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1014,17 +1015,6 @@ export default function AeroClubBar() {
     setProducts((prev) => prev.filter((p) => p.id !== id));
     showToast("Produit supprime", "info");
   };
-  const moveProduct = (id: string, dir: -1 | 1) => {
-    setProducts((prev) => {
-      const idx = prev.findIndex((p) => p.id === id);
-      if (idx < 0) return prev;
-      const newIdx = idx + dir;
-      if (newIdx < 0 || newIdx >= prev.length) return prev;
-      const arr = [...prev];
-      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
-      return arr;
-    });
-  };
   const saveEditProduct = () => {
     if (!editingProduct || !editingProduct.name.trim()) return;
     setProducts((prev) =>
@@ -1049,44 +1039,55 @@ export default function AeroClubBar() {
     showToast("Merci pour votre suggestion !");
   };
 
-  const renameMember = (oldName: string) => {
-    const newName = prompt("Nouveau nom pour " + oldName + " :", oldName);
-    if (!newName || !newName.trim() || newName.trim() === oldName) return;
-    const trimmed = newName.trim();
+  const openMemberModal = (name: string) => {
+    const bal = getMemberBalance(name);
+    const coffee = coffeeCredits[name] || 0;
+    setEditingMember({ name, newName: name, balance: bal, coffee });
+  };
+
+  const saveMember = () => {
+    if (!editingMember) return;
+    const { name: oldName, newName, balance, coffee } = editingMember;
+    const trimmedNew = newName.trim();
+    if (!trimmedNew) { showToast("Nom requis", "error"); return; }
     const oldKey = normalizeNameFuzzy(oldName);
-    // Rename in members
-    setMembers((prev) => {
-      const exists = prev.find((m) => normalizeNameFuzzy(m.name) === oldKey);
-      if (exists)
-        return prev.map((m) =>
-          normalizeNameFuzzy(m.name) === oldKey ? { ...m, name: trimmed } : m,
-        );
-      return prev; // présent uniquement dans les transactions → pas de nouveau membre
-    });
-    // Rename in ALL transactions (match toutes les variantes : casse, ordre tokens)
-    setTransactions((prev) =>
-      prev.map((t) =>
-        normalizeNameFuzzy(t.buyer) === oldKey ? { ...t, buyer: trimmed } : t,
-      ),
-    );
-    // Transférer les avoirs café vers le nouveau nom
+
+    // Update or create member with new balance
+    const existingMember = members.find((m) => normalizeNameFuzzy(m.name) === oldKey);
+    if (existingMember) {
+      setMembers((prev) => prev.map((m) =>
+        normalizeNameFuzzy(m.name) === oldKey ? { ...m, name: trimmedNew, balance } : m
+      ));
+    } else {
+      setMembers((prev) => [...prev, { name: trimmedNew, balance }]);
+    }
+
+    // Rename in transactions if name changed
+    if (trimmedNew !== oldName) {
+      setTransactions((prev) => prev.map((t) =>
+        normalizeNameFuzzy(t.buyer) === oldKey ? { ...t, buyer: trimmedNew } : t
+      ));
+    }
+
+    // Update coffee credits
     setCoffeeCredits((prev) => {
-      const credit = prev[oldName];
-      if (!credit) return prev;
       const next = { ...prev };
-      delete next[oldName];
-      next[trimmed] = (next[trimmed] || 0) + credit;
+      // Remove old name entry
+      if (oldName in next) delete next[oldName];
+      // Set new value (or remove if 0)
+      if (coffee > 0) {
+        next[trimmedNew] = coffee;
+      } else {
+        delete next[trimmedNew];
+      }
       return next;
     });
-    showToast("Membre renomme : " + trimmed);
+
+    setEditingMember(null);
+    showToast(trimmedNew !== oldName ? "Membre modifie : " + trimmedNew : "Membre modifie");
   };
 
   const deleteMember = (name: string) => {
-    const msg =
-      "Supprimer " +
-      name +
-      " ? Cela supprimera aussi son avoir et son historique de transactions.";
-    if (!confirm(msg)) return;
     const nameKey = normalizeNameFuzzy(name);
     setMembers((prev) =>
       prev.filter((m) => normalizeNameFuzzy(m.name) !== nameKey),
@@ -1094,6 +1095,12 @@ export default function AeroClubBar() {
     setTransactions((prev) =>
       prev.filter((t) => normalizeNameFuzzy(t.buyer || "") !== nameKey),
     );
+    setCoffeeCredits((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    setEditingMember(null);
     showToast("Membre et transactions supprimes", "info");
   };
 
@@ -2374,16 +2381,27 @@ export default function AeroClubBar() {
                       onClick={() => setDetailProduct(p)}
                       className="flex items-center gap-3 px-3 py-3 w-full text-left cursor-pointer active:bg-[#1e2d4a] transition"
                     >
-                      {/* Reorder */}
-                      <div className="flex flex-col gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <button disabled={idx === 0} onClick={() => moveProduct(p.id, -1)}
-                          className="w-6 h-6 rounded text-[10px] text-slate-500 hover:text-white bg-[#0f172a] flex items-center justify-center cursor-pointer disabled:opacity-20">
-                          {"\u25B2"}
-                        </button>
-                        <button disabled={idx === products.filter(x => !x.archived).length - 1} onClick={() => moveProduct(p.id, 1)}
-                          className="w-6 h-6 rounded text-[10px] text-slate-500 hover:text-white bg-[#0f172a] flex items-center justify-center cursor-pointer disabled:opacity-20">
-                          {"\u25BC"}
-                        </button>
+                      {/* Reorder number */}
+                      <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="number"
+                          min={1}
+                          max={products.filter(x => !x.archived).length}
+                          value={idx + 1}
+                          onChange={(e) => {
+                            const target = parseInt(e.target.value) - 1;
+                            if (isNaN(target) || target < 0 || target >= products.filter(x => !x.archived).length) return;
+                            setProducts((prev) => {
+                              const active = prev.filter(x => !x.archived);
+                              const archived = prev.filter(x => x.archived);
+                              const item = active[idx];
+                              const without = [...active.slice(0, idx), ...active.slice(idx + 1)];
+                              without.splice(target, 0, item);
+                              return [...without, ...archived];
+                            });
+                          }}
+                          className="w-8 h-8 rounded-lg bg-[#0f172a] border border-slate-700 text-center text-xs font-bold text-slate-400 outline-none focus:border-blue-500 focus:text-white"
+                        />
                       </div>
                       {/* Icon */}
                       <span className="w-10 h-10 flex items-center justify-center shrink-0">
@@ -3203,100 +3221,34 @@ export default function AeroClubBar() {
                   <div className="flex flex-col gap-1">
                     {allNames.map((name) => {
                       const bal = getMemberBalance(name);
+                      const cof = coffeeCredits[name] || 0;
                       return (
-                        <div
+                        <button
                           key={name}
-                          className="flex items-center gap-2 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3.5 py-2.5"
+                          onClick={() => openMemberModal(name)}
+                          className="flex items-center gap-2.5 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3.5 py-3 w-full text-left cursor-pointer active:bg-[#1e2d4a] transition hover:border-[#2a3f6a]"
                         >
-                          <span className="text-sm font-semibold flex-1">
+                          <span className="w-8 h-8 rounded-full bg-[#0a1628] flex items-center justify-center text-sm font-bold text-slate-400 shrink-0">
+                            {name.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="text-sm font-semibold flex-1 truncate">
                             {name}
                           </span>
                           {bal !== 0 && (
-                            <span
-                              className={
-                                "text-sm font-bold " +
-                                (bal > 0 ? "text-emerald-400" : "text-red-400")
-                              }
-                            >
+                            <span className={"text-sm font-bold " + (bal > 0 ? "text-emerald-400" : "text-red-400")}>
                               {formatPrice(bal)}
                             </span>
                           )}
-                          {bal === 0 && (coffeeCredits[name] || 0) === 0 && (
-                            <span className="text-xs text-slate-600">
-                              {"Pas d\u0027avoir"}
+                          {cof > 0 && (
+                            <span className="flex items-center gap-1 text-xs bg-amber-900/30 border border-amber-700/40 text-amber-400 font-semibold px-2 py-0.5 rounded-lg">
+                              {"☕ " + cof}
                             </span>
                           )}
-                          {(coffeeCredits[name] || 0) > 0 && (
-                            <button
-                              onClick={() => {
-                                setCoffeeCredits((prev) => {
-                                  const next = { ...prev, [name]: (prev[name] || 1) - 1 };
-                                  if (next[name] <= 0) delete next[name];
-                                  return next;
-                                });
-                                showToast("Avoir café utilisé pour " + name.split(" ")[0]);
-                              }}
-                              className="flex items-center gap-1 text-xs bg-amber-900/30 border border-amber-700/40 text-amber-400 font-semibold px-2 py-1 rounded-lg cursor-pointer hover:bg-amber-700/40"
-                              title="Utiliser 1 avoir café"
-                            >
-                              {"☕ " + (coffeeCredits[name] || 0)}
-                            </button>
+                          {bal === 0 && cof === 0 && (
+                            <span className="text-xs text-slate-600">{"Pas d'avoir"}</span>
                           )}
-                          <button
-                            onClick={() => renameMember(name)}
-                            className="text-xs text-slate-500 hover:text-blue-400 cursor-pointer"
-                            title="Renommer"
-                          >
-                            {"\u270F\uFE0F"}
-                          </button>
-                          <button
-                            onClick={() => {
-                              const v = prompt(
-                                "Nouveau solde pour " +
-                                  name +
-                                  " (actuel: " +
-                                  bal +
-                                  ") :",
-                              );
-                              if (v !== null) {
-                                const n = parseFloat(v);
-                                if (!isNaN(n)) {
-                                  const existing = members.find(
-                                    (m) =>
-                                      normalizeNameFuzzy(m.name) ===
-                                      normalizeNameFuzzy(name),
-                                  );
-                                  if (existing) {
-                                    setMembers((prev) =>
-                                      prev.map((x) =>
-                                        x.name === existing.name
-                                          ? { ...x, balance: n }
-                                          : x,
-                                      ),
-                                    );
-                                  } else {
-                                    setMembers((prev) => [
-                                      ...prev,
-                                      { name, balance: n },
-                                    ]);
-                                  }
-                                  showToast("Solde modifie");
-                                }
-                              }
-                            }}
-                            className="text-xs text-slate-500 hover:text-amber-500 cursor-pointer"
-                            title="Modifier solde"
-                          >
-                            {"\uD83D\uDCB0"}
-                          </button>
-                          <button
-                            onClick={() => deleteMember(name)}
-                            className="text-red-500 opacity-40 hover:opacity-100 text-sm cursor-pointer"
-                            title="Supprimer"
-                          >
-                            {"\u2715"}
-                          </button>
-                        </div>
+                          <span className="text-slate-600 text-sm shrink-0">{"›"}</span>
+                        </button>
                       );
                     })}
                   </div>
@@ -4409,6 +4361,97 @@ export default function AeroClubBar() {
               >
                 {"✓ Confirmer"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal membre : édition complète ── */}
+      {editingMember && (
+        <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4" onClick={() => setEditingMember(null)}>
+          <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-2xl p-6 max-w-sm w-full flex flex-col gap-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              <span className="w-12 h-12 rounded-full bg-[#0a1628] flex items-center justify-center text-xl font-bold text-slate-300">
+                {editingMember.name.charAt(0).toUpperCase()}
+              </span>
+              <div className="flex-1">
+                <h2 className="text-lg font-bold text-white">{"Modifier membre"}</h2>
+                <p className="text-xs text-slate-500">{editingMember.name}</p>
+              </div>
+              <button onClick={() => setEditingMember(null)} className="text-slate-500 hover:text-white text-xl cursor-pointer">{"✕"}</button>
+            </div>
+
+            {/* Nom */}
+            <div>
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1.5">{"Nom"}</label>
+              <input
+                type="text"
+                value={editingMember.newName}
+                onChange={(e) => setEditingMember({ ...editingMember, newName: e.target.value })}
+                className="w-full h-11 rounded-lg border border-slate-700 bg-[#0a1628] text-white text-sm px-3 outline-none focus:border-blue-500"
+              />
+            </div>
+
+            {/* Avoir € */}
+            <div>
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1.5">{"Avoir (€)"}</label>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setEditingMember({ ...editingMember, balance: editingMember.balance - 0.5 })}
+                  className="w-9 h-9 rounded-lg bg-red-900/30 border border-red-700/40 text-red-400 font-bold text-lg flex items-center justify-center cursor-pointer">
+                  {"-"}
+                </button>
+                <input
+                  type="number"
+                  step="0.5"
+                  value={editingMember.balance}
+                  onChange={(e) => setEditingMember({ ...editingMember, balance: parseFloat(e.target.value) || 0 })}
+                  className={"flex-1 h-11 rounded-lg border text-center text-lg font-bold outline-none " + (editingMember.balance > 0 ? "border-emerald-700/50 bg-emerald-900/20 text-emerald-400" : editingMember.balance < 0 ? "border-red-700/50 bg-red-900/20 text-red-400" : "border-slate-700 bg-[#0a1628] text-white")}
+                />
+                <button onClick={() => setEditingMember({ ...editingMember, balance: editingMember.balance + 0.5 })}
+                  className="w-9 h-9 rounded-lg bg-emerald-900/30 border border-emerald-700/40 text-emerald-400 font-bold text-lg flex items-center justify-center cursor-pointer">
+                  {"+"}
+                </button>
+              </div>
+            </div>
+
+            {/* Avoir café */}
+            <div>
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1.5">{"☕ Avoirs café"}</label>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setEditingMember({ ...editingMember, coffee: Math.max(0, editingMember.coffee - 1) })}
+                  className="w-9 h-9 rounded-lg bg-red-900/30 border border-red-700/40 text-red-400 font-bold text-lg flex items-center justify-center cursor-pointer">
+                  {"-"}
+                </button>
+                <input
+                  type="number"
+                  min="0"
+                  value={editingMember.coffee}
+                  onChange={(e) => setEditingMember({ ...editingMember, coffee: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="flex-1 h-11 rounded-lg border border-amber-700/50 bg-amber-900/20 text-amber-400 text-center text-lg font-bold outline-none"
+                />
+                <button onClick={() => setEditingMember({ ...editingMember, coffee: editingMember.coffee + 1 })}
+                  className="w-9 h-9 rounded-lg bg-amber-900/30 border border-amber-700/40 text-amber-400 font-bold text-lg flex items-center justify-center cursor-pointer">
+                  {"+"}
+                </button>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => { if (confirm("Supprimer " + editingMember.name + " et tout son historique ?")) deleteMember(editingMember.name); }}
+                className="px-3 h-10 rounded-lg border border-red-700/40 bg-red-900/20 text-red-400 text-xs font-bold cursor-pointer hover:bg-red-900/40"
+              >{"Supprimer"}</button>
+              <div className="flex-1" />
+              <button
+                onClick={() => setEditingMember(null)}
+                className="px-4 h-10 rounded-lg border border-slate-700 text-slate-400 text-sm font-bold cursor-pointer hover:bg-slate-800"
+              >{"Annuler"}</button>
+              <button
+                onClick={saveMember}
+                className="px-5 h-10 rounded-lg bg-blue-600 text-white text-sm font-bold cursor-pointer active:scale-95 hover:bg-blue-500"
+              >{"Enregistrer"}</button>
             </div>
           </div>
         </div>
