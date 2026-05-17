@@ -82,10 +82,11 @@ interface Settings {
   clubName: string;
   adminPin: string;
   bureauPin?: string;
-  cashInBox?: number;
-  cbReceived?: number;
-  cashInitialFund?: number;
-  cbInitialFund?: number;
+  cashInBox?: number;       // reprise trésorerie espèces
+  cbReceived?: number;      // reprise trésorerie CB
+  cashInitialFund?: number; // reprise CA espèces
+  cbInitialFund?: number;   // reprise CA CB
+  costReprise?: number;     // reprise coûts (avant suivi)
   cupCost?: number;
   sumupFeeRate?: number;
   categories?: Category[];
@@ -1205,8 +1206,6 @@ export default function AeroClubBar() {
   const sumupRate = (settings.sumupFeeRate ?? 2.5) / 100;
   const totalSumupFees = Math.round(transactions.filter((t) => t.method === "carte").reduce((s, t) => s + t.total * sumupRate, 0) * 100) / 100;
   const totalProfitNet = Math.round((totalProfit - totalSumupFees) * 100) / 100;
-  const marginPct =
-    totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0;
   const todayCost = todayTx.reduce((s, t) => s + (t.totalCost || 0), 0);
   const todayProfit = todayRevenue - todayCost;
   const lowStock = products.filter((p) => effectiveStock(p) <= 5);
@@ -1223,19 +1222,23 @@ export default function AeroClubBar() {
     return [...seen.values()];
   })();
 
-  // ── CA et trésorerie calculés (reprise + transactions) ──
+  // ── CA calculé (reprise CA + ventes) ──
   const txCashRevenue = transactions.filter((t) => t.method === "especes").reduce((s, t) => s + t.total, 0);
   const txCBRevenue = transactions.filter((t) => t.method === "carte").reduce((s, t) => s + t.total, 0);
-  const caEspeces = (settings.cashInBox || 0) + txCashRevenue;
-  const caCB = (settings.cbReceived || 0) + txCBRevenue;
+  const caEspeces = (settings.cashInitialFund || 0) + txCashRevenue;
+  const caCB = (settings.cbInitialFund || 0) + txCBRevenue;
   const caTotal = caEspeces + caCB;
-  // Trésorerie = reprise + encaissements - achats fournisseurs
+  // ── Coûts calculés (reprise coûts + coûts des ventes) ──
+  const trackedCosts = transactions.reduce((s, t) => s + (t.totalCost || 0), 0);
+  const totalCostsWithReprise = (settings.costReprise || 0) + trackedCosts;
+  // ── Trésorerie calculée (reprise tréso + encaissements - achats fournisseurs) ──
   const cashFromSales = transactions.filter((t) => t.method === "especes").reduce((s, t) => s + (t.amountPaid || t.total), 0);
   const cashFromRestocks = procurements.filter((p) => p.method === "especes").reduce((s, p) => s + p.totalCost, 0);
   const cbFromRestocks = procurements.filter((p) => p.method === "carte").reduce((s, p) => s + p.totalCost, 0);
   const treasuryCash = (settings.cashInBox || 0) + cashFromSales - cashFromRestocks;
   const treasuryCB = (settings.cbReceived || 0) + txCBRevenue - cbFromRestocks;
   const treasuryTotal = treasuryCash + treasuryCB;
+  const marginPct = caTotal > 0 ? Math.round(((caTotal - totalCostsWithReprise) / caTotal) * 100) : 0;
 
   if (loading)
     return (
@@ -2601,123 +2604,146 @@ export default function AeroClubBar() {
 
           {activeAdminTab === "finance" && (
             <div className="flex flex-col gap-3">
-              {/* CA Total */}
-              <div className="rounded-xl border-2 bg-[#131b2e] border-amber-500/60 p-4">
-                <div className="flex items-center justify-between">
+              {/* ── CHIFFRE D'AFFAIRES ── */}
+              <div className="rounded-xl border-2 bg-[#131b2e] border-amber-500/60 overflow-hidden">
+                <div className="p-4 flex items-center justify-between">
                   <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">{"Chiffre d\u0027affaires total"}</span>
                   <span className="text-2xl font-extrabold text-amber-500">{formatPrice(caTotal)}</span>
                 </div>
+                <div className="grid grid-cols-2 gap-0 divide-x divide-white/5 border-t border-white/5">
+                  <div className="p-3">
+                    <span className="text-[9px] text-slate-600 block">{"Espèces"}</span>
+                    <span className="text-lg font-bold text-amber-400">{formatPrice(caEspeces)}</span>
+                    <span className="text-[9px] text-slate-600 block">{"Reprise " + formatPrice(settings.cashInitialFund || 0) + " + ventes " + formatPrice(txCashRevenue)}</span>
+                  </div>
+                  <div className="p-3">
+                    <span className="text-[9px] text-slate-600 block">{"CB"}</span>
+                    <span className="text-lg font-bold text-blue-400">{formatPrice(caCB)}</span>
+                    <span className="text-[9px] text-slate-600 block">{"Reprise " + formatPrice(settings.cbInitialFund || 0) + " + ventes " + formatPrice(txCBRevenue)}</span>
+                  </div>
+                </div>
               </div>
 
-              {/* CA Espèces + CA CB avec reprise éditable */}
+              {/* ── BÉNÉFICE ── */}
+              <div className="rounded-xl border bg-[#131b2e] border-emerald-800 overflow-hidden">
+                <div className="p-4 flex items-center justify-between">
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">{"Bénéfice"}</span>
+                  <span className={"text-2xl font-extrabold " + ((caTotal - totalCostsWithReprise) >= 0 ? "text-emerald-400" : "text-red-400")}>
+                    {formatPrice(caTotal - totalCostsWithReprise)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-0 divide-x divide-white/5 border-t border-white/5">
+                  <div className="p-3">
+                    <span className="text-[9px] text-slate-600 block">{"CA"}</span>
+                    <span className="text-sm font-bold text-amber-400">{formatPrice(caTotal)}</span>
+                  </div>
+                  <div className="p-3">
+                    <span className="text-[9px] text-slate-600 block">{"Coûts"}</span>
+                    <span className="text-sm font-bold text-red-400">{formatPrice(totalCostsWithReprise)}</span>
+                  </div>
+                  <div className="p-3">
+                    <span className="text-[9px] text-slate-600 block">{"Marge"}</span>
+                    <span className={"text-sm font-bold " + (marginPct >= 0 ? "text-emerald-400" : "text-red-400")}>{marginPct + "%"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── TRÉSORERIE ── */}
               <div className="rounded-xl border bg-[#131b2e] border-[#1e2d4a] overflow-hidden">
-                <div className="grid grid-cols-2 gap-0 divide-x divide-white/5">
-                  <div className="p-4">
-                    <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"CA Espèces"}</span>
-                    <span className="text-xl font-extrabold text-amber-500 block">{formatPrice(caEspeces)}</span>
-                    <span className="text-[9px] text-slate-600 block mt-1">{"Ventes : " + formatPrice(txCashRevenue)}</span>
-                  </div>
-                  <div className="p-4">
-                    <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"CA CB"}</span>
-                    <span className="text-xl font-extrabold text-blue-400 block">{formatPrice(caCB)}</span>
-                    <span className="text-[9px] text-slate-600 block mt-1">{"Ventes : " + formatPrice(txCBRevenue)}</span>
-                  </div>
+                <div className="p-4 flex items-center justify-between">
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">{"Trésorerie disponible"}</span>
+                  <span className="text-2xl font-extrabold text-amber-500">{formatPrice(treasuryTotal)}</span>
                 </div>
-                <div className="border-t border-white/5 px-4 py-3">
-                  <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block mb-2">{"Reprise (montant initial avant suivi)"}</span>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[9px] text-slate-600 block mb-1">{"Espèces"}</label>
-                      <input
-                        type="number" step="0.5"
-                        defaultValue={settings.cashInBox || 0}
-                        key={"reprise-cash-" + (settings.cashInBox || 0)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            const v = parseFloat((e.target as HTMLInputElement).value);
-                            if (!isNaN(v)) {
-                              setSettings((prev) => ({ ...prev, cashInBox: v }));
-                              showToast("Reprise espèces : " + formatPrice(v));
-                            }
-                          }
-                        }}
-                        onBlur={(e) => {
-                          const v = parseFloat(e.target.value);
-                          if (!isNaN(v) && v !== (settings.cashInBox || 0)) {
-                            setSettings((prev) => ({ ...prev, cashInBox: v }));
-                            showToast("Reprise espèces : " + formatPrice(v));
-                          }
-                        }}
-                        className="w-full h-8 rounded-lg border border-slate-700 bg-[#0a1628] text-amber-400 text-sm text-center font-bold outline-none focus:border-amber-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[9px] text-slate-600 block mb-1">{"CB"}</label>
-                      <input
-                        type="number" step="0.5"
-                        defaultValue={settings.cbReceived || 0}
-                        key={"reprise-cb-" + (settings.cbReceived || 0)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            const v = parseFloat((e.target as HTMLInputElement).value);
-                            if (!isNaN(v)) {
-                              setSettings((prev) => ({ ...prev, cbReceived: v }));
-                              showToast("Reprise CB : " + formatPrice(v));
-                            }
-                          }
-                        }}
-                        onBlur={(e) => {
-                          const v = parseFloat(e.target.value);
-                          if (!isNaN(v) && v !== (settings.cbReceived || 0)) {
-                            setSettings((prev) => ({ ...prev, cbReceived: v }));
-                            showToast("Reprise CB : " + formatPrice(v));
-                          }
-                        }}
-                        className="w-full h-8 rounded-lg border border-slate-700 bg-[#0a1628] text-blue-400 text-sm text-center font-bold outline-none focus:border-blue-500"
-                      />
-                    </div>
-                  </div>
-                  <span className="text-[9px] text-slate-600 block mt-2">{"Modifier la reprise remplace la valeur (pas d\u0027ajout). Les ventes s\u0027ajoutent automatiquement."}</span>
-                </div>
-              </div>
-
-              {/* Bénéfice + Marge */}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl p-4 border bg-[#131b2e] border-emerald-800">
-                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">{"Bénéfice brut"}</span>
-                  <span className={"text-xl font-extrabold " + (totalProfit >= 0 ? "text-emerald-400" : "text-red-400")}>
-                    {formatPrice(totalProfit)}
-                  </span>
-                </div>
-                <div className="rounded-xl p-4 border bg-[#131b2e] border-[#1e2d4a]">
-                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">{"Marge"}</span>
-                  <span className={"text-xl font-extrabold " + (marginPct >= 0 ? "text-emerald-400" : "text-red-400")}>
-                    {marginPct + "%"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Trésorerie réelle */}
-              <div className="rounded-xl border bg-[#131b2e] border-[#1e2d4a] p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">{"Trésorerie (encaissé - achats)"}</span>
-                  <span className="text-lg font-extrabold text-amber-500">{formatPrice(treasuryTotal)}</span>
-                </div>
-                <div className="grid grid-cols-3 gap-0 divide-x divide-white/5">
-                  <div>
+                <div className="grid grid-cols-3 gap-0 divide-x divide-white/5 border-t border-white/5">
+                  <div className="p-3">
                     <span className="text-[9px] text-slate-600 block">{"Espèces"}</span>
                     <span className="text-sm font-bold text-amber-400">{formatPrice(treasuryCash)}</span>
                   </div>
-                  <div className="pl-3">
+                  <div className="p-3">
                     <span className="text-[9px] text-slate-600 block">{"CB"}</span>
                     <span className="text-sm font-bold text-blue-400">{formatPrice(treasuryCB)}</span>
                   </div>
-                  <div className="pl-3">
+                  <div className="p-3">
                     <span className="text-[9px] text-slate-600 block">{"Avoirs membres"}</span>
                     <span className="text-sm font-bold text-emerald-400">{formatPrice(members.reduce((s, m) => s + Math.max(0, m.balance), 0))}</span>
                   </div>
                 </div>
               </div>
+
+              {/* ── REPRISES (saisie initiale) ── */}
+              <details className="rounded-xl border bg-[#0f172a] border-[#1e2d4a] overflow-hidden">
+                <summary className="px-4 py-3 cursor-pointer text-xs font-bold text-slate-400 uppercase tracking-wider hover:text-white">
+                  {"\u270F\uFE0F Modifier les reprises (valeurs avant suivi)"}
+                </summary>
+                <div className="px-4 pb-4 flex flex-col gap-3">
+                  <span className="text-[9px] text-slate-600">{"Entrez les montants d\u0027avant la remise à zéro. Modifier remplace la valeur."}</span>
+
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-2">{"Reprise CA"}</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] text-slate-600 block mb-1">{"CA Espèces"}</label>
+                        <input type="number" step="0.5"
+                          defaultValue={settings.cashInitialFund || 0}
+                          key={"rca-cash-" + (settings.cashInitialFund || 0)}
+                          onBlur={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, cashInitialFund: v })); showToast("Reprise CA espèces : " + formatPrice(v)); } }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, cashInitialFund: v })); showToast("Reprise CA espèces : " + formatPrice(v)); } } }}
+                          className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-amber-400 text-sm text-center font-bold outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-slate-600 block mb-1">{"CA CB"}</label>
+                        <input type="number" step="0.5"
+                          defaultValue={settings.cbInitialFund || 0}
+                          key={"rca-cb-" + (settings.cbInitialFund || 0)}
+                          onBlur={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, cbInitialFund: v })); showToast("Reprise CA CB : " + formatPrice(v)); } }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, cbInitialFund: v })); showToast("Reprise CA CB : " + formatPrice(v)); } } }}
+                          className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-blue-400 text-sm text-center font-bold outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-2">{"Reprise Coûts"}</span>
+                    <input type="number" step="0.5"
+                      defaultValue={settings.costReprise || 0}
+                      key={"rcost-" + (settings.costReprise || 0)}
+                      onBlur={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, costReprise: v })); showToast("Reprise coûts : " + formatPrice(v)); } }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, costReprise: v })); showToast("Reprise coûts : " + formatPrice(v)); } } }}
+                      className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-red-400 text-sm text-center font-bold outline-none focus:border-red-500"
+                    />
+                    <span className="text-[9px] text-slate-600 block mt-1">{"Total coûts d\u0027achat avant suivi (déduit du CA pour le bénéfice)"}</span>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-2">{"Reprise Trésorerie"}</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] text-slate-600 block mb-1">{"Espèces en caisse"}</label>
+                        <input type="number" step="0.5"
+                          defaultValue={settings.cashInBox || 0}
+                          key={"rtreso-cash-" + (settings.cashInBox || 0)}
+                          onBlur={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, cashInBox: v })); showToast("Tréso espèces : " + formatPrice(v)); } }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, cashInBox: v })); showToast("Tréso espèces : " + formatPrice(v)); } } }}
+                          className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-amber-400 text-sm text-center font-bold outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-slate-600 block mb-1">{"CB disponible"}</label>
+                        <input type="number" step="0.5"
+                          defaultValue={settings.cbReceived || 0}
+                          key={"rtreso-cb-" + (settings.cbReceived || 0)}
+                          onBlur={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, cbReceived: v })); showToast("Tréso CB : " + formatPrice(v)); } }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) { setSettings((prev) => ({ ...prev, cbReceived: v })); showToast("Tréso CB : " + formatPrice(v)); } } }}
+                          className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-blue-400 text-sm text-center font-bold outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+                    <span className="text-[9px] text-slate-600 block mt-1">{"Argent disponible au moment de la reprise. Les ventes ajoutent, les réappros déduisent."}</span>
+                  </div>
+                </div>
+              </details>
 
               {/* Today */}
               <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4">
