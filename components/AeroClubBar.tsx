@@ -875,21 +875,22 @@ export default function AeroClubBar() {
     // lockType simplifié pour l'affichage du retrigger
     const lockType: string = locationsNeeded.size > 1 ? "both" : [...locationsNeeded][0] || "frigo";
 
-    // Ouvrir TOUTES les serrures nécessaires immédiatement
-    if (locationsNeeded.size > 1) {
-      fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
-    } else {
-      fetch("/api/fridge?action=trigger&lock=" + ([...locationsNeeded][0] || "frigo")).catch(() => {});
-    }
-
-    // Détecter produits multi-portions café (ex: "2x Cafés") → modal pour les avoirs
+    // Détecter produits multi-portions café (ex: "2x Cafés")
     const totalCoffeeServings = cart.reduce(
       (s, c) => s + ((c.product.coffeeServings && c.product.coffeeServings > 1) ? c.qty * c.product.coffeeServings : 0),
       0,
     );
     if (totalCoffeeServings > 0) {
+      // Modal café d'abord → les serrures s'ouvrent APRÈS le choix
       const coffeeCartItem = cart.find((c) => c.product.coffeeServings && c.product.coffeeServings > 1);
       setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType: lockType as "cafe" | "both", productId: coffeeCartItem?.product.id || "" });
+    } else {
+      // Pas de café multi-portions → ouvrir les serrures immédiatement
+      if (locationsNeeded.size > 1) {
+        fetch("/api/fridge?action=trigger&lock=both").catch(() => {});
+      } else {
+        fetch("/api/fridge?action=trigger&lock=" + ([...locationsNeeded][0] || "frigo")).catch(() => {});
+      }
     }
 
     const tx: Transaction = {
@@ -944,6 +945,8 @@ export default function AeroClubBar() {
         return { ...p, stock: Math.max(0, p.stock - usedNow), legacyStock: Math.max(0, (p.legacyStock || 0) - fromLegacy) };
       }));
     }
+    // Ouvrir les serrures APRÈS le choix café
+    fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
     setCoffeeModal(null);
   };
 
