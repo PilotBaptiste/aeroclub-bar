@@ -729,18 +729,6 @@ export default function AeroClubBar() {
     };
     setBatches((prev) => [...prev, newBatch]);
 
-    if (restockForm.method === "especes") {
-      setSettings((prev) => ({
-        ...prev,
-        cashInBox: Math.round(((prev.cashInBox || 0) - totalCost) * 100) / 100,
-      }));
-    } else {
-      setSettings((prev) => ({
-        ...prev,
-        cbReceived: Math.round(((prev.cbReceived || 0) - totalCost) * 100) / 100,
-      }));
-    }
-
     showToast(
       "Réappro " + p.name + " : +" + restockForm.qty + " unités — " + formatPrice(totalCost) + " débité",
     );
@@ -872,17 +860,6 @@ export default function AeroClubBar() {
       if (change > 0) {
         updateMemberBalance(canonicalBuyer, change);
       }
-      // Update cash in box
-      setSettings((prev) => ({
-        ...prev,
-        cashInBox: Math.round(((prev.cashInBox || 0) + amountPaid) * 100) / 100,
-      }));
-    } else if (method === "carte") {
-      setSettings((prev) => ({
-        ...prev,
-        cbReceived:
-          Math.round(((prev.cbReceived || 0) + cartTotal) * 100) / 100,
-      }));
     }
 
     // Deverrouille la bonne serrure selon le champ location de chaque produit
@@ -1245,6 +1222,20 @@ export default function AeroClubBar() {
     }
     return [...seen.values()];
   })();
+
+  // ── CA et trésorerie calculés (reprise + transactions) ──
+  const txCashRevenue = transactions.filter((t) => t.method === "especes").reduce((s, t) => s + t.total, 0);
+  const txCBRevenue = transactions.filter((t) => t.method === "carte").reduce((s, t) => s + t.total, 0);
+  const caEspeces = (settings.cashInBox || 0) + txCashRevenue;
+  const caCB = (settings.cbReceived || 0) + txCBRevenue;
+  const caTotal = caEspeces + caCB;
+  // Trésorerie = reprise + encaissements - achats fournisseurs
+  const cashFromSales = transactions.filter((t) => t.method === "especes").reduce((s, t) => s + (t.amountPaid || t.total), 0);
+  const cashFromRestocks = procurements.filter((p) => p.method === "especes").reduce((s, p) => s + p.totalCost, 0);
+  const cbFromRestocks = procurements.filter((p) => p.method === "carte").reduce((s, p) => s + p.totalCost, 0);
+  const treasuryCash = (settings.cashInBox || 0) + cashFromSales - cashFromRestocks;
+  const treasuryCB = (settings.cbReceived || 0) + txCBRevenue - cbFromRestocks;
+  const treasuryTotal = treasuryCash + treasuryCB;
 
   if (loading)
     return (
@@ -2610,28 +2601,90 @@ export default function AeroClubBar() {
 
           {activeAdminTab === "finance" && (
             <div className="flex flex-col gap-3">
-              {/* Summary cards */}
+              {/* CA Total */}
+              <div className="rounded-xl border-2 bg-[#131b2e] border-amber-500/60 p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">{"Chiffre d\u0027affaires total"}</span>
+                  <span className="text-2xl font-extrabold text-amber-500">{formatPrice(caTotal)}</span>
+                </div>
+              </div>
+
+              {/* CA Espèces + CA CB avec reprise éditable */}
+              <div className="rounded-xl border bg-[#131b2e] border-[#1e2d4a] overflow-hidden">
+                <div className="grid grid-cols-2 gap-0 divide-x divide-white/5">
+                  <div className="p-4">
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"CA Espèces"}</span>
+                    <span className="text-xl font-extrabold text-amber-500 block">{formatPrice(caEspeces)}</span>
+                    <span className="text-[9px] text-slate-600 block mt-1">{"Ventes : " + formatPrice(txCashRevenue)}</span>
+                  </div>
+                  <div className="p-4">
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"CA CB"}</span>
+                    <span className="text-xl font-extrabold text-blue-400 block">{formatPrice(caCB)}</span>
+                    <span className="text-[9px] text-slate-600 block mt-1">{"Ventes : " + formatPrice(txCBRevenue)}</span>
+                  </div>
+                </div>
+                <div className="border-t border-white/5 px-4 py-3">
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block mb-2">{"Reprise (montant initial avant suivi)"}</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[9px] text-slate-600 block mb-1">{"Espèces"}</label>
+                      <input
+                        type="number" step="0.5"
+                        defaultValue={settings.cashInBox || 0}
+                        key={"reprise-cash-" + (settings.cashInBox || 0)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const v = parseFloat((e.target as HTMLInputElement).value);
+                            if (!isNaN(v)) {
+                              setSettings((prev) => ({ ...prev, cashInBox: v }));
+                              showToast("Reprise espèces : " + formatPrice(v));
+                            }
+                          }
+                        }}
+                        onBlur={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v) && v !== (settings.cashInBox || 0)) {
+                            setSettings((prev) => ({ ...prev, cashInBox: v }));
+                            showToast("Reprise espèces : " + formatPrice(v));
+                          }
+                        }}
+                        className="w-full h-8 rounded-lg border border-slate-700 bg-[#0a1628] text-amber-400 text-sm text-center font-bold outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-slate-600 block mb-1">{"CB"}</label>
+                      <input
+                        type="number" step="0.5"
+                        defaultValue={settings.cbReceived || 0}
+                        key={"reprise-cb-" + (settings.cbReceived || 0)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const v = parseFloat((e.target as HTMLInputElement).value);
+                            if (!isNaN(v)) {
+                              setSettings((prev) => ({ ...prev, cbReceived: v }));
+                              showToast("Reprise CB : " + formatPrice(v));
+                            }
+                          }
+                        }}
+                        onBlur={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v) && v !== (settings.cbReceived || 0)) {
+                            setSettings((prev) => ({ ...prev, cbReceived: v }));
+                            showToast("Reprise CB : " + formatPrice(v));
+                          }
+                        }}
+                        className="w-full h-8 rounded-lg border border-slate-700 bg-[#0a1628] text-blue-400 text-sm text-center font-bold outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <span className="text-[9px] text-slate-600 block mt-2">{"Modifier la reprise remplace la valeur (pas d\u0027ajout). Les ventes s\u0027ajoutent automatiquement."}</span>
+                </div>
+              </div>
+
+              {/* Bénéfice + Marge */}
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl p-4 border bg-[#131b2e] border-[#1e2d4a]">
-                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                    {"Chiffre d\u0027affaires total"}
-                  </span>
-                  <span className="text-xl font-extrabold text-amber-500">
-                    {formatPrice(totalRevenue)}
-                  </span>
-                </div>
-                <div className="rounded-xl p-4 border bg-[#131b2e] border-[#1e2d4a]">
-                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                    {"Cout total"}
-                  </span>
-                  <span className="text-xl font-extrabold text-red-400">
-                    {formatPrice(totalCost)}
-                  </span>
-                </div>
                 <div className="rounded-xl p-4 border bg-[#131b2e] border-emerald-800">
-                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                    {"Bénéfice brut"}
-                  </span>
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase block">{"Bénéfice brut"}</span>
                   <span className={"text-xl font-extrabold " + (totalProfit >= 0 ? "text-emerald-400" : "text-red-400")}>
                     {formatPrice(totalProfit)}
                   </span>
@@ -2643,103 +2696,28 @@ export default function AeroClubBar() {
                   </span>
                 </div>
               </div>
-              {/* Frais SumUp + bénéfice net */}
-              {totalSumupFees > 0 && (
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-xl p-4 border bg-[#131b2e] border-blue-900">
-                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                      {"Frais SumUp (" + (settings.sumupFeeRate ?? 2.5) + "%)"}
-                    </span>
-                    <span className="text-xl font-extrabold text-blue-400">
-                      {"- " + formatPrice(totalSumupFees)}
-                    </span>
-                    <span className="text-[10px] text-slate-600 block mt-0.5">
-                      {"Sur " + formatPrice(transactions.filter(t => t.method === "carte").reduce((s,t) => s + t.total, 0)) + " CB"}
-                    </span>
+
+              {/* Trésorerie réelle */}
+              <div className="rounded-xl border bg-[#131b2e] border-[#1e2d4a] p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">{"Trésorerie (encaissé - achats)"}</span>
+                  <span className="text-lg font-extrabold text-amber-500">{formatPrice(treasuryTotal)}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-0 divide-x divide-white/5">
+                  <div>
+                    <span className="text-[9px] text-slate-600 block">{"Espèces"}</span>
+                    <span className="text-sm font-bold text-amber-400">{formatPrice(treasuryCash)}</span>
                   </div>
-                  <div className="rounded-xl p-4 border-2 bg-[#0f172a] border-emerald-600">
-                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">
-                      {"Bénéfice net réel"}
-                    </span>
-                    <span className={"text-xl font-extrabold " + (totalProfitNet >= 0 ? "text-emerald-400" : "text-red-400")}>
-                      {formatPrice(totalProfitNet)}
-                    </span>
-                    <span className="text-[10px] text-slate-600 block mt-0.5">
-                      {"Après frais SumUp"}
-                    </span>
+                  <div className="pl-3">
+                    <span className="text-[9px] text-slate-600 block">{"CB"}</span>
+                    <span className="text-sm font-bold text-blue-400">{formatPrice(treasuryCB)}</span>
+                  </div>
+                  <div className="pl-3">
+                    <span className="text-[9px] text-slate-600 block">{"Avoirs membres"}</span>
+                    <span className="text-sm font-bold text-emerald-400">{formatPrice(members.reduce((s, m) => s + Math.max(0, m.balance), 0))}</span>
                   </div>
                 </div>
-              )}
-
-              {/* Trésorerie actuelle */}
-              {(() => {
-                const totalTreasury = (settings.cashInBox || 0) + (settings.cbReceived || 0);
-                return (
-                  <div className="rounded-xl border-2 bg-[#131b2e] border-amber-500/60 overflow-hidden">
-                    <div className="px-4 pt-3 pb-2 border-b border-amber-500/20">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
-                          {"Trésorerie actuelle"}
-                        </span>
-                        <span className="text-2xl font-extrabold text-amber-500">
-                          {formatPrice(totalTreasury)}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-slate-600 block mt-0.5">
-                        {"CA & bénéfice calculés depuis l'historique des ventes — non affectés par les corrections ci-dessous"}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-0 divide-x divide-white/5">
-                      <div className="px-3 py-3">
-                        <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"Espèces"}</span>
-                        <span className="text-lg font-extrabold text-amber-500 block">
-                          {formatPrice(settings.cashInBox || 0)}
-                        </span>
-                        <input
-                          type="number" step="0.5" placeholder="Corriger..."
-                          className="w-full h-7 rounded border border-slate-700 bg-[#0f172a] text-white text-xs text-center outline-none mt-1.5"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              const v = parseFloat((e.target as HTMLInputElement).value);
-                              if (!isNaN(v)) {
-                                setSettings((prev) => ({ ...prev, cashInBox: v }));
-                                (e.target as HTMLInputElement).value = "";
-                                showToast("Caisse espèces mise à jour");
-                              }
-                            }
-                          }}
-                        />
-                      </div>
-                      <div className="px-3 py-3">
-                        <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"CB"}</span>
-                        <span className="text-lg font-extrabold text-blue-400 block">
-                          {formatPrice(settings.cbReceived || 0)}
-                        </span>
-                        <input
-                          type="number" step="0.5" placeholder="Corriger..."
-                          className="w-full h-7 rounded border border-slate-700 bg-[#0f172a] text-white text-xs text-center outline-none mt-1.5"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              const v = parseFloat((e.target as HTMLInputElement).value);
-                              if (!isNaN(v)) {
-                                setSettings((prev) => ({ ...prev, cbReceived: v }));
-                                (e.target as HTMLInputElement).value = "";
-                                showToast("Montant CB mis à jour");
-                              }
-                            }
-                          }}
-                        />
-                      </div>
-                      <div className="px-3 py-3">
-                        <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1">{"Avoirs"}</span>
-                        <span className="text-lg font-extrabold text-emerald-400 block">
-                          {formatPrice(members.reduce((s, m) => s + Math.max(0, m.balance), 0))}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
+              </div>
 
               {/* Today */}
               <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4">
@@ -3032,113 +3010,25 @@ export default function AeroClubBar() {
 
           {activeAdminTab === "members" && (
             <div className="flex flex-col gap-2">
-              {/* Cash in box */}
-              <div className="grid grid-cols-2 gap-3 mb-2">
-                <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4">
-                  <span className="text-xs font-bold text-amber-500 uppercase tracking-wider block mb-2">
-                    {"Caisse especes"}
-                  </span>
-                  <span className="text-2xl font-extrabold text-amber-500">
-                    {formatPrice(settings.cashInBox || 0)}
-                  </span>
-                  <input
-                    type="number"
-                    step="0.5"
-                    placeholder="Ajuster..."
-                    className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none mt-2"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const v = parseFloat(
-                          (e.target as HTMLInputElement).value,
-                        );
-                        if (!isNaN(v)) {
-                          setSettings((prev) => ({ ...prev, cashInBox: v }));
-                          (e.target as HTMLInputElement).value = "";
-                          showToast("Caisse mise a jour");
-                        }
-                      }
-                    }}
-                  />
+              {/* Résumé CA rapide */}
+              <div className="rounded-xl border bg-[#131b2e] border-[#1e2d4a] p-4 mb-2">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">{"Chiffre d\u0027affaires"}</span>
+                  <span className="text-lg font-extrabold text-amber-500">{formatPrice(caTotal)}</span>
                 </div>
-                <div className="bg-[#0f172a] border border-blue-900 rounded-xl p-4">
-                  <span className="text-xs font-bold text-blue-400 uppercase tracking-wider block mb-2">
-                    {"Recu par CB"}
-                  </span>
-                  <span className="text-2xl font-extrabold text-blue-400">
-                    {formatPrice(settings.cbReceived || 0)}
-                  </span>
-                  <input
-                    type="number"
-                    step="0.5"
-                    placeholder="Ajuster..."
-                    className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none mt-2"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const v = parseFloat(
-                          (e.target as HTMLInputElement).value,
-                        );
-                        if (!isNaN(v)) {
-                          setSettings((prev) => ({ ...prev, cbReceived: v }));
-                          (e.target as HTMLInputElement).value = "";
-                          showToast("CB mise a jour");
-                        }
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mb-2">
-                <div className="bg-[#0f172a] border border-slate-700 rounded-xl p-4">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                    {"Fond initial especes"}
-                  </span>
-                  <span className="text-lg font-extrabold text-slate-300">
-                    {formatPrice(settings.cashInitialFund || 0)}
-                  </span>
-                  <input
-                    type="number"
-                    step="0.5"
-                    placeholder="Fond de depart..."
-                    className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none mt-2"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const v = parseFloat(
-                          (e.target as HTMLInputElement).value,
-                        );
-                        if (!isNaN(v)) {
-                          setSettings((prev) => ({ ...prev, cashInitialFund: v }));
-                          (e.target as HTMLInputElement).value = "";
-                          showToast("Fond initial especes mis a jour");
-                        }
-                      }
-                    }}
-                  />
-                </div>
-                <div className="bg-[#0f172a] border border-slate-700 rounded-xl p-4">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                    {"Fond initial CB"}
-                  </span>
-                  <span className="text-lg font-extrabold text-slate-300">
-                    {formatPrice(settings.cbInitialFund || 0)}
-                  </span>
-                  <input
-                    type="number"
-                    step="0.5"
-                    placeholder="Fond de depart..."
-                    className="w-full h-9 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none mt-2"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const v = parseFloat(
-                          (e.target as HTMLInputElement).value,
-                        );
-                        if (!isNaN(v)) {
-                          setSettings((prev) => ({ ...prev, cbInitialFund: v }));
-                          (e.target as HTMLInputElement).value = "";
-                          showToast("Fond initial CB mis a jour");
-                        }
-                      }
-                    }}
-                  />
+                <div className="grid grid-cols-3 gap-0 divide-x divide-white/5">
+                  <div>
+                    <span className="text-[9px] text-slate-600 block">{"Espèces"}</span>
+                    <span className="text-sm font-bold text-amber-400">{formatPrice(caEspeces)}</span>
+                  </div>
+                  <div className="pl-3">
+                    <span className="text-[9px] text-slate-600 block">{"CB"}</span>
+                    <span className="text-sm font-bold text-blue-400">{formatPrice(caCB)}</span>
+                  </div>
+                  <div className="pl-3">
+                    <span className="text-[9px] text-slate-600 block">{"Avoirs"}</span>
+                    <span className="text-sm font-bold text-emerald-400">{formatPrice(members.reduce((s, m) => s + Math.max(0, m.balance), 0))}</span>
+                  </div>
                 </div>
               </div>
 
@@ -3607,12 +3497,6 @@ export default function AeroClubBar() {
                       method,
                     };
                     setTransactions((prev) => [tx, ...prev]);
-                    // Adjust treasury
-                    if (method === "especes") {
-                      setSettings((prev) => ({ ...prev, cashInBox: Math.round(((prev.cashInBox || 0) + total) * 100) / 100 }));
-                    } else {
-                      setSettings((prev) => ({ ...prev, cbReceived: Math.round(((prev.cbReceived || 0) + total) * 100) / 100 }));
-                    }
                     (document.getElementById("correction-total") as HTMLInputElement).value = "";
                     (document.getElementById("correction-cost") as HTMLInputElement).value = "";
                     (document.getElementById("correction-note") as HTMLInputElement).value = "";
