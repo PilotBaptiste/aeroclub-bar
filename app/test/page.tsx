@@ -1,5 +1,5 @@
-import AeroClubBar from "../../components/AeroClubBar";
+import AeroClubBarV2 from "../../components/AeroClubBarV2";
 
 export default function TestPage() {
-  return <AeroClubBar />;
+  return <AeroClubBarV2 />;
 }
