@@ -7,43 +7,42 @@
  *
  * Fonctionnement :
  *   - Poll /api/fridge?action=check toutes les 2s pour les serrures
- *   - Envoie les temperatures toutes les 30s via /api/temperature
+ *   - Envoie les temperatures toutes les 30s via POST /api/temperature
  *   - Les relais cafe/frigo = active LOW (pas de jumper) -> LOW = ouvert
  *   - Le relais congelateur = active HIGH (jumper)       -> HIGH = ouvert
+ *   - Activation decalee 500ms entre relais pour eviter chute de courant
  *   - Les DS18B20 utilisent le protocole OneWire (1 fil data + pull-up 4.7k)
  *
- * Librairies requises (installer via Arduino IDE > Gestionnaire de bibliotheques) :
- *   - OneWire         (par Jim Studt)
+ * Librairies requises (Arduino IDE > Gestionnaire de bibliotheques) :
+ *   - OneWire           (par Jim Studt)
  *   - DallasTemperature (par Miles Burton)
  */
 
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
-// ============================================================
-// CONFIGURATION - A MODIFIER SELON TON RESEAU
-// ============================================================
-const char* WIFI_SSID     = "REMPLACER_PAR_TON_SSID";
-const char* WIFI_PASSWORD = "REMPLACER_PAR_TON_MOT_DE_PASSE";
-const char* SERVER_URL    = "https://aeroclub-bar.vercel.app";
-// ============================================================
+// === CONFIG ===
+const char* WIFI_SSID     = "ACBA-H7";
+const char* WIFI_PASSWORD = "villemarie-H7";
+const char* API_URL       = "https://aeroclub-bar.vercel.app/api/fridge";
+const char* TEMP_URL      = "https://aeroclub-bar.vercel.app/api/temperature";
+// ==============
 
 // --- PINS RELAIS (serrures) ---
-#define RELAY_CAFE        5
-#define RELAY_FRIGO       18
-#define RELAY_CONGELATEUR 19
+const int RELAY_CAFE        = 5;
+const int RELAY_FRIGO       = 18;
+const int RELAY_CONGELATEUR = 19;
 
 // --- PINS CAPTEURS DS18B20 ---
-#define TEMP_FRIGO_PIN    4    // DS18B20 du frigo
-#define TEMP_CONGEL_PIN   15   // DS18B20 du congelateur
+const int TEMP_FRIGO_PIN  = 4;   // DS18B20 du frigo
+const int TEMP_CONGEL_PIN = 15;  // DS18B20 du congelateur
 
 // --- TIMING ---
-#define POLL_INTERVAL     2000   // Poll serrures toutes les 2s
-#define TEMP_INTERVAL     30000  // Envoi temperatures toutes les 30s
-#define UNLOCK_DURATION   5000   // Serrure ouverte pendant 5s
-#define WIFI_RETRY_DELAY  5000   // Retry WiFi toutes les 5s
+const unsigned long POLL_INTERVAL = 2000;   // Poll serrures toutes les 2s
+const unsigned long TEMP_INTERVAL = 30000;  // Envoi temperatures toutes les 30s
 
 // --- OBJETS CAPTEURS ---
 OneWire oneWireFrigo(TEMP_FRIGO_PIN);
@@ -54,12 +53,6 @@ DallasTemperature capteurCongel(&oneWireCongel);
 // --- VARIABLES ---
 unsigned long lastPoll = 0;
 unsigned long lastTemp = 0;
-unsigned long cafeUnlockTime = 0;
-unsigned long frigoUnlockTime = 0;
-unsigned long congelateurUnlockTime = 0;
-bool cafeOpen = false;
-bool frigoOpen = false;
-bool congelateurOpen = false;
 
 // Dernieres temperatures lues
 float tempFrigo = -127.0;
@@ -67,21 +60,15 @@ float tempCongel = -127.0;
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n=== AEROCLUB ESP32 - Demarrage ===");
+  delay(1000);
 
   // --- Init relais ---
   pinMode(RELAY_CAFE, OUTPUT);
   pinMode(RELAY_FRIGO, OUTPUT);
   pinMode(RELAY_CONGELATEUR, OUTPUT);
-
-  // Etat initial : tout verrouille
-  // Cafe & Frigo = active LOW -> HIGH = verrouille
-  digitalWrite(RELAY_CAFE, HIGH);
-  digitalWrite(RELAY_FRIGO, HIGH);
-  // Congelateur = active HIGH -> LOW = verrouille
-  digitalWrite(RELAY_CONGELATEUR, LOW);
-
-  Serial.println("Relais initialises (tout verrouille)");
+  digitalWrite(RELAY_CAFE, HIGH);       // HIGH = verrouille (actif LOW)
+  digitalWrite(RELAY_FRIGO, HIGH);      // HIGH = verrouille (actif LOW)
+  digitalWrite(RELAY_CONGELATEUR, LOW); // LOW = verrouille (actif HIGH, jumper)
 
   // --- Init capteurs temperature ---
   capteurFrigo.begin();
@@ -89,36 +76,55 @@ void setup() {
 
   int nbFrigo = capteurFrigo.getDeviceCount();
   int nbCongel = capteurCongel.getDeviceCount();
-  Serial.printf("Capteurs trouves - Frigo: %d, Congelateur: %d\n", nbFrigo, nbCongel);
 
-  if (nbFrigo == 0) Serial.println("ATTENTION: Aucun DS18B20 sur pin 4 (frigo)!");
-  if (nbCongel == 0) Serial.println("ATTENTION: Aucun DS18B20 sur pin 15 (congelateur)!");
-
-  // Resolution 12 bits (precision 0.0625C, conversion ~750ms)
-  capteurFrigo.setResolution(12);
-  capteurCongel.setResolution(12);
-  // Mode asynchrone pour ne pas bloquer la boucle
-  capteurFrigo.setWaitForConversion(false);
-  capteurCongel.setWaitForConversion(false);
+  Serial.println();
+  Serial.println("=== AERO-CLUB DU BASSIN D'ARCACHON ===");
+  Serial.println("=== ESP32 : Serrures + Temperatures ===");
+  Serial.printf("Capteurs DS18B20 - Frigo: %d, Congelateur: %d\n", nbFrigo, nbCongel);
+  if (nbFrigo == 0) Serial.println("  ATTENTION: Aucun DS18B20 sur pin 4 (frigo) !");
+  if (nbCongel == 0) Serial.println("  ATTENTION: Aucun DS18B20 sur pin 15 (congelateur) !");
 
   // --- WiFi ---
-  connectWiFi();
+  Serial.print("Connexion au WiFi : ");
+  Serial.println(WIFI_SSID);
 
-  // Premiere lecture temperature immediatement
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println();
+    Serial.println("WiFi connecte !");
+    Serial.print("Adresse IP : ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println();
+    Serial.println("ERREUR : WiFi non connecte !");
+  }
+
+  // --- Premiere lecture temperature ---
   capteurFrigo.requestTemperatures();
   capteurCongel.requestTemperatures();
-  delay(800); // Attendre la premiere conversion
+  delay(800); // Attendre la premiere conversion (12 bits = ~750ms)
   lireTemperatures();
   envoyerTemperatures();
 
-  Serial.println("=== Initialisation terminee ===\n");
+  Serial.println("=== Initialisation terminee ===");
+  Serial.println();
 }
 
 void loop() {
-  // Reconnecter WiFi si deconnecte
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi deconnecte, reconnexion...");
-    connectWiFi();
+    WiFi.disconnect();
+    delay(1000);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    delay(5000);
+    return;
   }
 
   unsigned long now = millis();
@@ -132,53 +138,11 @@ void loop() {
   // --- ENVOI TEMPERATURES (toutes les 30s) ---
   if (now - lastTemp >= TEMP_INTERVAL) {
     lastTemp = now;
-    // Lancer la conversion (asynchrone)
     capteurFrigo.requestTemperatures();
     capteurCongel.requestTemperatures();
-    // La lecture se fera au prochain cycle (~750ms plus tard c'est OK)
-    // On lit les valeurs precedentes et on envoie
+    delay(800); // Attendre conversion 12 bits
     lireTemperatures();
     envoyerTemperatures();
-  }
-
-  // --- GESTION TIMERS SERRURES ---
-  if (cafeOpen && now - cafeUnlockTime >= UNLOCK_DURATION) {
-    digitalWrite(RELAY_CAFE, HIGH); // Verrouiller (active LOW)
-    cafeOpen = false;
-    Serial.println("Cafe: VERROUILLE (timeout)");
-  }
-
-  if (frigoOpen && now - frigoUnlockTime >= UNLOCK_DURATION) {
-    digitalWrite(RELAY_FRIGO, HIGH); // Verrouiller (active LOW)
-    frigoOpen = false;
-    Serial.println("Frigo: VERROUILLE (timeout)");
-  }
-
-  if (congelateurOpen && now - congelateurUnlockTime >= UNLOCK_DURATION) {
-    digitalWrite(RELAY_CONGELATEUR, LOW); // Verrouiller (active HIGH)
-    congelateurOpen = false;
-    Serial.println("Congelateur: VERROUILLE (timeout)");
-  }
-}
-
-// ============================================================
-// WIFI
-// ============================================================
-void connectWiFi() {
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.printf("Connexion WiFi '%s'", WIFI_SSID);
-
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\nWiFi connecte! IP: %s\n", WiFi.localIP().toString().c_str());
-  } else {
-    Serial.println("\nEchec WiFi - retry dans 5s");
   }
 }
 
@@ -186,61 +150,60 @@ void connectWiFi() {
 // POLL SERRURES (API /api/fridge?action=check)
 // ============================================================
 void pollSerrures() {
-  if (WiFi.status() != WL_CONNECTED) return;
-
+  WiFiClientSecure client;
+  client.setInsecure(); // Necessaire pour HTTPS sur ESP32
   HTTPClient http;
-  String url = String(SERVER_URL) + "/api/fridge?action=check";
-  http.begin(url);
-  http.setTimeout(5000);
+  String checkUrl = String(API_URL) + "?action=check";
 
-  int code = http.GET();
+  if (http.begin(client, checkUrl)) {
+    int httpCode = http.GET();
+    if (httpCode == 200) {
+      String body = http.getString();
 
-  if (code == 200) {
-    String body = http.getString();
+      // Lire chaque flag individuellement
+      bool needCafe = body.indexOf("\"cafe\":true") >= 0;
+      bool needFrigo = body.indexOf("\"frigo\":true") >= 0;
+      bool needCongelateur = body.indexOf("\"congelateur\":true") >= 0;
 
-    // Parse JSON simple (evite ArduinoJson pour reduire la taille)
-    bool triggerCafe = body.indexOf("\"cafe\":true") >= 0;
-    bool triggerFrigo = body.indexOf("\"frigo\":true") >= 0;
-    bool triggerCongelateur = body.indexOf("\"congelateur\":true") >= 0;
-    bool triggerBoth = body.indexOf("\"both\":true") >= 0;
+      // "both" = fallback, ouvrir tout
+      if (body.indexOf("\"both\":true") >= 0) {
+        needCafe = true;
+        needFrigo = true;
+        needCongelateur = true;
+      }
 
-    unsigned long now = millis();
+      http.end();
 
-    if (triggerCafe || triggerBoth) {
-      digitalWrite(RELAY_CAFE, LOW); // Deverrouiller (active LOW)
-      cafeOpen = true;
-      cafeUnlockTime = now;
-      Serial.println(">>> Cafe: DEVERROUILLE");
+      if (!needCafe && !needFrigo && !needCongelateur) return;
+
+      Serial.print(">>> DEVERROUILLAGE:");
+      if (needCafe) Serial.print(" CAFE");
+      if (needFrigo) Serial.print(" FRIGO");
+      if (needCongelateur) Serial.print(" CONGELATEUR");
+      Serial.println(" <<<");
+
+      // Activation decalee (500ms entre chaque) pour eviter chute de courant
+      if (needCafe) { digitalWrite(RELAY_CAFE, LOW); delay(500); }
+      if (needFrigo) { digitalWrite(RELAY_FRIGO, LOW); delay(500); }
+      if (needCongelateur) { digitalWrite(RELAY_CONGELATEUR, HIGH); }
+
+      delay(5000); // Maintenir ouvert 5 secondes
+
+      // Verrouiller tout ce qui a ete ouvert
+      if (needCongelateur) digitalWrite(RELAY_CONGELATEUR, LOW);
+      if (needFrigo) digitalWrite(RELAY_FRIGO, HIGH);
+      if (needCafe) digitalWrite(RELAY_CAFE, HIGH);
+      Serial.println(">>> VERROUILLE <<<");
+
+      // Confirmer a l'API
+      HTTPClient h2;
+      if (h2.begin(client, String(API_URL) + "?action=done")) { h2.GET(); h2.end(); }
+    } else {
+      Serial.print("Erreur HTTP : ");
+      Serial.println(httpCode);
     }
-
-    if (triggerFrigo || triggerBoth) {
-      digitalWrite(RELAY_FRIGO, LOW); // Deverrouiller (active LOW)
-      frigoOpen = true;
-      frigoUnlockTime = now;
-      Serial.println(">>> Frigo: DEVERROUILLE");
-    }
-
-    if (triggerCongelateur || triggerBoth) {
-      digitalWrite(RELAY_CONGELATEUR, HIGH); // Deverrouiller (active HIGH)
-      congelateurOpen = true;
-      congelateurUnlockTime = now;
-      Serial.println(">>> Congelateur: DEVERROUILLE");
-    }
-
-    // Confirmer la reception
-    if (triggerCafe || triggerFrigo || triggerCongelateur || triggerBoth) {
-      HTTPClient http2;
-      http2.begin(String(SERVER_URL) + "/api/fridge?action=done");
-      http2.GET();
-      http2.end();
-    }
-  } else if (code > 0) {
-    Serial.printf("Poll HTTP %d\n", code);
-  } else {
-    Serial.printf("Poll erreur: %s\n", http.errorToString(code).c_str());
+    http.end();
   }
-
-  http.end();
 }
 
 // ============================================================
@@ -266,7 +229,7 @@ void lireTemperatures() {
 }
 
 // ============================================================
-// ENVOI TEMPERATURES AU SERVEUR
+// ENVOI TEMPERATURES AU SERVEUR (POST /api/temperature)
 // ============================================================
 void envoyerTemperatures() {
   if (WiFi.status() != WL_CONNECTED) return;
@@ -275,27 +238,29 @@ void envoyerTemperatures() {
     return;
   }
 
+  WiFiClientSecure client;
+  client.setInsecure();
   HTTPClient http;
-  String url = String(SERVER_URL) + "/api/temperature";
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-  http.setTimeout(5000);
 
-  // JSON payload
-  String json = "{";
-  json += "\"frigo\":";
-  json += (tempFrigo != -127.0) ? String(tempFrigo, 1) : "null";
-  json += ",\"congelateur\":";
-  json += (tempCongel != -127.0) ? String(tempCongel, 1) : "null";
-  json += "}";
+  if (http.begin(client, TEMP_URL)) {
+    http.addHeader("Content-Type", "application/json");
 
-  int code = http.POST(json);
+    // JSON payload
+    String json = "{";
+    json += "\"frigo\":";
+    json += (tempFrigo != -127.0) ? String(tempFrigo, 1) : "null";
+    json += ",\"congelateur\":";
+    json += (tempCongel != -127.0) ? String(tempCongel, 1) : "null";
+    json += "}";
 
-  if (code == 200) {
-    Serial.println("Temperatures envoyees OK");
-  } else {
-    Serial.printf("Envoi temperature HTTP %d\n", code);
+    int code = http.POST(json);
+
+    if (code == 200) {
+      Serial.println("Temperatures envoyees OK");
+    } else {
+      Serial.printf("Envoi temperature HTTP %d\n", code);
+    }
+
+    http.end();
   }
-
-  http.end();
 }
