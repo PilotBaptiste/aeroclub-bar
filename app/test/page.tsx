@@ -348,10 +348,10 @@ export default function TestPage() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-5 pb-32">
+      <main className={"max-w-4xl mx-auto px-5 " + (showAllProducts ? "pb-6" : "pb-32")}>
 
         {/* ═══════════ HERO CAROUSEL ═══════════ */}
-        {currentHero && (
+        {currentHero && !showAllProducts && (
           <section className="mt-5 mb-6">
             <div className="relative overflow-hidden rounded-3xl gradient-bg p-8 min-h-[220px] flex items-center"
               style={{ animation: "pulse-glow 3s ease-in-out infinite" }}
@@ -415,7 +415,7 @@ export default function TestPage() {
         )}
 
         {/* ═══════════ COMBO CAFÉ + MADELEINE ═══════════ */}
-        {combo && (
+        {combo && !showAllProducts && (
           <section className="mb-6 fade-up" style={{ animationDelay: "0.2s", animationFillMode: "both" }}>
             <div className="relative overflow-hidden rounded-3xl border border-pink-800/30 bg-gradient-to-br from-[#1a0d1e] via-[#151025] to-[#0d1520] p-6">
               {/* Sparkle decorations */}
@@ -593,7 +593,7 @@ export default function TestPage() {
         )}
 
         {/* ═══════════ INFOS PRATIQUES ═══════════ */}
-        <section className="mb-8 fade-up" style={{ animationDelay: "0.4s", animationFillMode: "both" }}>
+        {!showAllProducts && <section className="mb-8 fade-up" style={{ animationDelay: "0.4s", animationFillMode: "both" }}>
           <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-5">
             <div className="flex items-center gap-2 mb-4">
               <span className="text-lg">{"ℹ️"}</span>
@@ -630,7 +630,7 @@ export default function TestPage() {
               </div>
             </div>
           </div>
-        </section>
+        </section>}
 
       </main>
 
