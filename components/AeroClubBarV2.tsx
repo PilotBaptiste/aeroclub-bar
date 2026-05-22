@@ -1033,8 +1033,13 @@ export default function AeroClubBarV2() {
       amountPaid,
     };
     setTransactions((prev) => [tx, ...prev]);
+    // Inclure les madeleines dans le récapitulatif si ajoutées
+    const orderItems: CartItem[] = [...cart];
+    if (madeleineAdded && madeleineProduct && madeleineOfferQty > 0) {
+      orderItems.push({ product: madeleineProduct, qty: madeleineOfferQty });
+    }
     setLastOrder({
-      items: [...cart],
+      items: orderItems,
       total: checkoutTotal,
       buyer: canonicalBuyer,
       method,
@@ -1829,8 +1834,16 @@ export default function AeroClubBarV2() {
                         </div>
                       ))}
                     </div>
-                    {/* ── Offre madeleine (avant paiement) ── */}
-                    {madeleineOfferQty > 0 && madeleineProduct && (
+                    {/* ── Offre madeleine (avant paiement) — masqué si avoir café+madeleine dispo ── */}
+                    {madeleineOfferQty > 0 && madeleineProduct && (() => {
+                      const bk = normalizeNameFuzzy(buyerName.trim());
+                      const cn = buyerName.trim() ? (members.find((m) => normalizeNameFuzzy(m.name) === bk)?.name || buyerName.trim()) : "";
+                      const hasCafAvoir = cn ? (coffeeCredits[cn] || 0) > 0 : false;
+                      const hasMadAvoir = cn ? (madeleineCredits[cn] || 0) > 0 : false;
+                      const cartHasCaf = cart.some((c) => c.product.name.toLowerCase().includes("café") || c.product.name.toLowerCase().includes("cafe") || !!(c.product.coffeeServings && c.product.coffeeServings > 1));
+                      if (hasCafAvoir && hasMadAvoir && cartHasCaf && !coffeeAvoirUsedInCheckout) return null;
+                      return true;
+                    })() && (
                       <div className={
                         "rounded-xl p-3 mb-3 border transition-all " +
                         (madeleineAdded
@@ -1995,9 +2008,9 @@ export default function AeroClubBarV2() {
                                   {" • "}
                                   {(addonProduct?.emoji || "🧁") + " " + (addonProduct?.name || "Madeleine") + " → dans le frigo"}
                                 </p>
-                                {madCredit > 1 && (
+                                {madCredit - 1 > 0 && (
                                   <p className="text-[11px] text-pink-400/60 mt-1">
-                                    {"(" + (madCredit - 1) + " restante" + (madCredit - 1 > 1 ? "s" : "") + " en avoir)"}
+                                    {"(" + (madCredit - 1) + " restante" + (madCredit - 1 > 1 ? "s" : "") + " en avoir apres)"}
                                   </p>
                                 )}
                               </div>
@@ -2051,8 +2064,10 @@ export default function AeroClubBarV2() {
                               {hasMadeleine ? "☕ 1 cafe + 🧁 1 madeleine" : "☕ Utiliser mon avoir cafe"}
                               <span className="block text-sm font-semibold opacity-70 mt-0.5">
                                 {hasMadeleine
-                                  ? "(" + cafCredit + " cafe + " + madCredit + " madeleine en avoir)"
-                                  : cafCredit > 1 ? "(" + cafCredit + " avoir" + (cafCredit > 1 ? "s" : "") + " cafe restant" + (cafCredit > 1 ? "s" : "") + ")" : ""}
+                                  ? (cafCredit - 1 > 0 || madCredit - 1 > 0
+                                    ? "(" + (cafCredit - 1 > 0 ? (cafCredit - 1) + " cafe" : "") + (cafCredit - 1 > 0 && madCredit - 1 > 0 ? " + " : "") + (madCredit - 1 > 0 ? (madCredit - 1) + " madeleine" : "") + " restant" + (cafCredit - 1 + madCredit - 1 > 1 ? "s" : "") + ")"
+                                    : "")
+                                  : cafCredit > 1 ? "(" + (cafCredit - 1) + " avoir" + (cafCredit - 1 > 1 ? "s" : "") + " cafe restant" + (cafCredit - 1 > 1 ? "s" : "") + ")" : ""}
                               </span>
                             </button>
                             {cart.length === 0 && (
