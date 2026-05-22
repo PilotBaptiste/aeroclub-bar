@@ -2656,6 +2656,28 @@ export default function AeroClubBar() {
                       className="w-4 h-4 accent-amber-500" />
                     <span className="text-xs text-amber-400 font-semibold">{"\u2615 Double portion caf\u00E9"}</span>
                   </label>
+                  <label className="flex items-center gap-3 bg-pink-900/20 border border-pink-700/40 rounded-lg px-3 py-2.5 cursor-pointer mb-2">
+                    <input type="checkbox" checked={!!newProduct.coffeeAddon}
+                      onChange={(e) => setNewProduct({ ...newProduct, coffeeAddon: e.target.checked || undefined, coffeeAddonQty: e.target.checked ? 2 : undefined, coffeeAddonPrice: e.target.checked ? 0.80 : undefined })}
+                      className="w-4 h-4 accent-pink-500" />
+                    <span className="text-xs text-pink-400 font-semibold">{"\uD83E\uDDC1 Vendu uniquement avec le cafe"}</span>
+                  </label>
+                  {newProduct.coffeeAddon && (
+                    <div className="flex gap-2 mb-2">
+                      <div className="flex-1">
+                        <label className="text-[10px] text-slate-500 block mb-1">{"Qte par lot"}</label>
+                        <input type="number" value={newProduct.coffeeAddonQty || 2} min={1}
+                          onChange={(e) => setNewProduct({ ...newProduct, coffeeAddonQty: parseInt(e.target.value) || 2 })}
+                          className="w-full bg-[#0f172a] border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[10px] text-slate-500 block mb-1">{"Prix du lot (\u20AC)"}</label>
+                        <input type="number" step="0.1" value={newProduct.coffeeAddonPrice || 0.80} min={0}
+                          onChange={(e) => setNewProduct({ ...newProduct, coffeeAddonPrice: parseFloat(e.target.value) || 0.80 })}
+                          className="w-full bg-[#0f172a] border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
+                      </div>
+                    </div>
+                  )}
                   <div className="flex gap-2">
                     <button onClick={addProduct}
                       className="flex-1 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-bold cursor-pointer">
@@ -3986,8 +4008,30 @@ export default function AeroClubBar() {
               <input type="checkbox" checked={(editingProduct.coffeeServings || 1) >= 2}
                 onChange={(e) => setEditingProduct({ ...editingProduct, coffeeServings: e.target.checked ? 2 : undefined })}
                 className="w-5 h-5 accent-amber-500" />
-              <span className="text-xs text-amber-400 font-semibold">{"\u2615 Double portion caf\u00E9 (2 tasses)"}</span>
+              <span className="text-xs text-amber-400 font-semibold">{"\u2615 Double portion cafe (2 tasses)"}</span>
             </label>
+            <label className="flex items-center gap-3 bg-pink-900/20 border border-pink-700/40 rounded-xl px-3 py-3 cursor-pointer mb-3">
+              <input type="checkbox" checked={!!editingProduct.coffeeAddon}
+                onChange={(e) => setEditingProduct({ ...editingProduct, coffeeAddon: e.target.checked || undefined, coffeeAddonQty: e.target.checked ? (editingProduct.coffeeAddonQty || 2) : undefined, coffeeAddonPrice: e.target.checked ? (editingProduct.coffeeAddonPrice || 0.80) : undefined })}
+                className="w-5 h-5 accent-pink-500" />
+              <span className="text-xs text-pink-400 font-semibold">{"\uD83E\uDDC1 Vendu uniquement avec le cafe"}</span>
+            </label>
+            {editingProduct.coffeeAddon && (
+              <div className="flex gap-2 mb-3">
+                <div className="flex-1">
+                  <label className="text-[10px] text-slate-500 block mb-1">{"Qte par lot"}</label>
+                  <input type="number" value={editingProduct.coffeeAddonQty || 2} min={1}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, coffeeAddonQty: parseInt(e.target.value) || 2 })}
+                    className="w-full bg-[#0f172a] border border-slate-700 rounded-lg px-3 py-2.5 text-white text-sm" />
+                </div>
+                <div className="flex-1">
+                  <label className="text-[10px] text-slate-500 block mb-1">{"Prix du lot (\u20AC)"}</label>
+                  <input type="number" step="0.1" value={editingProduct.coffeeAddonPrice || 0.80} min={0}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, coffeeAddonPrice: parseFloat(e.target.value) || 0.80 })}
+                    className="w-full bg-[#0f172a] border border-slate-700 rounded-lg px-3 py-2.5 text-white text-sm" />
+                </div>
+              </div>
+            )}
             <div className="flex gap-2">
               <button onClick={saveEditProduct}
                 className="flex-1 py-3.5 rounded-xl bg-emerald-600 text-white text-sm font-bold cursor-pointer active:scale-95">
