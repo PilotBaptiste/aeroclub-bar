@@ -10,6 +10,7 @@ export async function GET() {
     const members = await kv.get("aeroclub-members");
     const procurements = await kv.get("aeroclub-procurements");
     const coffeeCredits = await kv.get("aeroclub-coffee-credits");
+    const madeleineCredits = await kv.get("aeroclub-madeleine-credits");
     const batches = await kv.get("aeroclub-batches");
     return NextResponse.json({
       products: products || null,
@@ -19,6 +20,7 @@ export async function GET() {
       members: members || null,
       procurements: procurements || null,
       coffeeCredits: coffeeCredits || null,
+      madeleineCredits: madeleineCredits || null,
       batches: batches || null,
     });
   } catch (e) {
@@ -35,6 +37,7 @@ const ALLOWED_KEYS = [
   "aeroclub-members",
   "aeroclub-procurements",
   "aeroclub-coffee-credits",
+  "aeroclub-madeleine-credits",
   "aeroclub-batches",
 ];
 

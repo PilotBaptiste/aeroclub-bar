@@ -15,6 +15,9 @@ interface Product {
   archived?: boolean;
   category?: string;
   location?: "frigo" | "cafe" | "congelateur";
+  coffeeAddon?: boolean;       // vendu uniquement avec le café (masqué en vente)
+  coffeeAddonQty?: number;     // qté offerte par achat café (ex: 2 madeleines)
+  coffeeAddonPrice?: number;   // prix du lot (ex: 0.80€ pour 2)
 }
 
 interface Batch {
@@ -294,7 +297,11 @@ export default function AeroClubBar() {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [newCategoryForm, setNewCategoryForm] = useState<{ label: string; emoji: string; hasCupCost: boolean } | null>(null);
   const [coffeeCredits, setCoffeeCredits] = useState<Record<string, number>>({});
-  const [coffeeModal, setCoffeeModal] = useState<{ buyer: string; totalServings: number; lockType: string; productId: string } | null>(null);
+  const [madeleineCredits, setMadeleineCredits] = useState<Record<string, number>>({});
+  const [coffeeModal, setCoffeeModal] = useState<{
+    buyer: string; totalServings: number; lockType: string; productId: string;
+    step: "coffee" | "madeleine"; usedNow?: number;
+  } | null>(null);
   const [coffeeAvoirUsedInCheckout, setCoffeeAvoirUsedInCheckout] = useState(false);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
@@ -333,6 +340,7 @@ export default function AeroClubBar() {
         if (data.members) setMembers(data.members as MemberAccount[]);
         if (data.procurements) setProcurements(data.procurements as Procurement[]);
         if (data.coffeeCredits) setCoffeeCredits(data.coffeeCredits as Record<string, number>);
+        if (data.madeleineCredits) setMadeleineCredits(data.madeleineCredits as Record<string, number>);
         if (data.batches) setBatches(data.batches as Batch[]);
         // Immediately backup to localStorage
         if (data.products) backupToLocalStorage("aeroclub-products", data.products);
@@ -342,6 +350,7 @@ export default function AeroClubBar() {
         if (data.members) backupToLocalStorage("aeroclub-members", data.members);
         if (data.procurements) backupToLocalStorage("aeroclub-procurements", data.procurements);
         if (data.coffeeCredits) backupToLocalStorage("aeroclub-coffee-credits", data.coffeeCredits);
+        if (data.madeleineCredits) backupToLocalStorage("aeroclub-madeleine-credits", data.madeleineCredits);
         if (data.batches) backupToLocalStorage("aeroclub-batches", data.batches);
         setLoading(false);
         // Enable saves only after successful load + small delay for React state to settle
@@ -356,6 +365,7 @@ export default function AeroClubBar() {
         const lsMembers = restoreFromLocalStorage("aeroclub-members");
         const lsProcurements = restoreFromLocalStorage("aeroclub-procurements");
         const lsCoffeeCredits = restoreFromLocalStorage("aeroclub-coffee-credits");
+        const lsMadeleineCredits = restoreFromLocalStorage("aeroclub-madeleine-credits");
         const lsBatches = restoreFromLocalStorage("aeroclub-batches");
         if (lsProducts) setProducts(lsProducts as Product[]);
         if (lsTransactions) setTransactions(lsTransactions as Transaction[]);
@@ -364,6 +374,7 @@ export default function AeroClubBar() {
         if (lsMembers) setMembers(lsMembers as MemberAccount[]);
         if (lsProcurements) setProcurements(lsProcurements as Procurement[]);
         if (lsCoffeeCredits) setCoffeeCredits(lsCoffeeCredits as Record<string, number>);
+        if (lsMadeleineCredits) setMadeleineCredits(lsMadeleineCredits as Record<string, number>);
         if (lsBatches) setBatches(lsBatches as Batch[]);
         setLoadFailed(true);
         setLoading(false);
@@ -427,6 +438,9 @@ export default function AeroClubBar() {
   useEffect(() => {
     if (!loading) debouncedSave("aeroclub-coffee-credits", coffeeCredits);
   }, [coffeeCredits, loading, debouncedSave]);
+  useEffect(() => {
+    if (!loading) debouncedSave("aeroclub-madeleine-credits", madeleineCredits);
+  }, [madeleineCredits, loading, debouncedSave]);
   useEffect(() => {
     if (!loading) debouncedSave("aeroclub-batches", batches);
   }, [batches, loading, debouncedSave]);
@@ -883,7 +897,7 @@ export default function AeroClubBar() {
     if (totalCoffeeServings > 0) {
       // Modal café d'abord → les serrures s'ouvrent APRÈS le choix
       const coffeeCartItem = cart.find((c) => c.product.coffeeServings && c.product.coffeeServings > 1);
-      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType, productId: coffeeCartItem?.product.id || "" });
+      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType, productId: coffeeCartItem?.product.id || "", step: "coffee" });
     } else {
       // Pas de café multi-portions → ouvrir les serrures immédiatement
       fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
@@ -931,9 +945,9 @@ export default function AeroClubBar() {
         ...prev,
         [coffeeModal.buyer]: (prev[coffeeModal.buyer] || 0) + remaining,
       }));
-      showToast(coffeeModal.buyer.split(" ")[0] + " a " + ((coffeeCredits[coffeeModal.buyer] || 0) + remaining) + " avoir(s) café ☕");
+      showToast(coffeeModal.buyer.split(" ")[0] + " a " + ((coffeeCredits[coffeeModal.buyer] || 0) + remaining) + " avoir(s) cafe ☕");
     }
-    // Déduire uniquement les capsules réellement consommées maintenant
+    // Deduire uniquement les capsules reellement consommees maintenant
     if (coffeeModal.productId) {
       setProducts((prev) => prev.map((p) => {
         if (p.id !== coffeeModal.productId) return p;
@@ -941,8 +955,68 @@ export default function AeroClubBar() {
         return { ...p, stock: Math.max(0, p.stock - usedNow), legacyStock: Math.max(0, (p.legacyStock || 0) - fromLegacy) };
       }));
     }
-    // Ouvrir les serrures APRÈS le choix café
-    fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
+    // Chercher un produit coffeeAddon (madeleine) en stock
+    const addonProduct = products.find((p) => p.coffeeAddon && !p.archived && p.stock > 0);
+    if (addonProduct) {
+      // Passer a l'etape madeleine au lieu de fermer
+      setCoffeeModal({ ...coffeeModal, step: "madeleine", usedNow });
+    } else {
+      // Pas de madeleine dispo → ouvrir les serrures et fermer
+      fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
+      setCoffeeModal(null);
+    }
+  };
+
+  const handleMadeleineChoice = (takeNow: number) => {
+    if (!coffeeModal) return;
+    const addonProduct = products.find((p) => p.coffeeAddon && !p.archived);
+    const totalAddon = addonProduct?.coffeeAddonQty || 2;
+    const addonPrice = addonProduct?.coffeeAddonPrice || 0.80;
+    const saveLater = totalAddon - takeNow;
+
+    if (takeNow > 0 || saveLater > 0) {
+      // Deduire stock madeleine (seulement celles prises maintenant)
+      if (addonProduct && takeNow > 0) {
+        setProducts((prev) => prev.map((p) =>
+          p.id === addonProduct.id ? { ...p, stock: Math.max(0, p.stock - takeNow) } : p
+        ));
+      }
+      // Sauvegarder les madeleines pour plus tard
+      if (saveLater > 0) {
+        setMadeleineCredits((prev) => ({
+          ...prev,
+          [coffeeModal.buyer]: (prev[coffeeModal.buyer] || 0) + saveLater,
+        }));
+      }
+      // Ajouter la transaction madeleine
+      const tx: Transaction = {
+        id: Date.now().toString(36) + "m",
+        items: totalAddon + "x " + (addonProduct?.name || "Madeleine"),
+        total: addonPrice,
+        totalCost: (addonProduct?.cost || 0.40) * totalAddon,
+        buyer: coffeeModal.buyer,
+        date: new Date().toISOString(),
+        method: lastOrder?.method || "especes",
+      };
+      setTransactions((prev) => [tx, ...prev]);
+      showToast(
+        takeNow > 0 && saveLater > 0
+          ? (addonProduct?.emoji || "🧁") + " " + takeNow + " maintenant, " + saveLater + " en avoir !"
+          : takeNow > 0
+            ? (addonProduct?.emoji || "🧁") + " " + takeNow + " madeleine" + (takeNow > 1 ? "s" : "") + " !"
+            : (addonProduct?.emoji || "🧁") + " " + saveLater + " en avoir pour la prochaine fois !"
+      );
+    }
+
+    // Mettre a jour le lockType si madeleine prise maintenant (besoin du frigo)
+    let finalLockType = coffeeModal.lockType;
+    if (takeNow > 0 && addonProduct?.location) {
+      const locks = new Set(finalLockType.split(","));
+      locks.add(addonProduct.location);
+      finalLockType = [...locks].join(",");
+    }
+    // Ouvrir les serrures
+    fetch("/api/fridge?action=trigger&lock=" + finalLockType).catch(() => {});
     setCoffeeModal(null);
   };
 
@@ -1255,6 +1329,7 @@ export default function AeroClubBar() {
       if (data.members) setMembers(data.members as MemberAccount[]);
       if (data.procurements) setProcurements(data.procurements as Procurement[]);
       if (data.coffeeCredits) setCoffeeCredits(data.coffeeCredits as Record<string, number>);
+      if (data.madeleineCredits) setMadeleineCredits(data.madeleineCredits as Record<string, number>);
       if (data.batches) setBatches(data.batches as Batch[]);
       setLoading(false);
       setTimeout(() => { hasLoaded.current = true; }, 2000);
@@ -1332,7 +1407,7 @@ export default function AeroClubBar() {
             </div>
           )}
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 w-full max-w-3xl">
-            {products.filter((p) => !p.archived && (!saleCategory || p.category === saleCategory)).map((p) => {
+            {products.filter((p) => !p.archived && !p.coffeeAddon && (!saleCategory || p.category === saleCategory)).map((p) => {
               const out = effectiveStock(p) <= 0;
               const qty = getCartQty(p.id);
               return (
@@ -4366,22 +4441,22 @@ export default function AeroClubBar() {
         </div>
       )}
 
-      {/* ── Modal café : choisir combien de portions utiliser ── */}
-      {coffeeModal && (
+      {/* ── Modal café multi-step : café → madeleine ── */}
+      {coffeeModal && coffeeModal.step === "coffee" && (
         <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#131b2e] border border-amber-700/40 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-2xl">
             <div className="text-4xl text-center">{"☕"}</div>
             <h2 className="text-lg font-bold text-white text-center">
-              {"Combien de cafés maintenant ?"}
+              {"Combien de cafes maintenant ?"}
             </h2>
             <p className="text-sm text-slate-400 text-center">
               {coffeeModal.buyer.split(" ")[0]}
-              {" a acheté "}
-              <span className="text-amber-400 font-bold">{coffeeModal.totalServings + " café" + (coffeeModal.totalServings > 1 ? "s" : "")}</span>
+              {" a achete "}
+              <span className="text-amber-400 font-bold">{coffeeModal.totalServings + " cafe" + (coffeeModal.totalServings > 1 ? "s" : "")}</span>
               {"."}
               {(coffeeCredits[coffeeModal.buyer] || 0) > 0 && (
                 <span className="block mt-1 text-emerald-400 font-semibold">
-                  {"☕ " + (coffeeCredits[coffeeModal.buyer] || 0) + " avoir(s) café existant(s)"}
+                  {"☕ " + (coffeeCredits[coffeeModal.buyer] || 0) + " avoir(s) cafe existant(s)"}
                 </span>
               )}
             </p>
@@ -4399,7 +4474,7 @@ export default function AeroClubBar() {
                         : "border border-amber-600 bg-amber-900/20 text-amber-300")
                     }
                   >
-                    <span>{n === coffeeModal.totalServings ? "☕".repeat(n) + " Les " + n + " cafés" : "☕".repeat(n) + " " + n + " café" + (n > 1 ? "s" : "") + " maintenant"}</span>
+                    <span>{n === coffeeModal.totalServings ? "☕".repeat(n) + " Les " + n + " cafes" : "☕".repeat(n) + " " + n + " cafe" + (n > 1 ? "s" : "") + " maintenant"}</span>
                     {leftover > 0 && (
                       <span className="text-xs text-slate-400 font-normal">
                         {"→ +" + leftover + " avoir"}
@@ -4412,6 +4487,83 @@ export default function AeroClubBar() {
           </div>
         </div>
       )}
+
+      {/* ── Modal madeleine : offre avec le café ── */}
+      {coffeeModal && coffeeModal.step === "madeleine" && (() => {
+        const addonProduct = products.find((p) => p.coffeeAddon && !p.archived);
+        const addonEmoji = addonProduct?.emoji || "🧁";
+        const addonName = addonProduct?.name || "Madeleine";
+        const addonQty = addonProduct?.coffeeAddonQty || 2;
+        const addonPrice = addonProduct?.coffeeAddonPrice || 0.80;
+        const usedNow = coffeeModal.usedNow || 0;
+        const savedCoffees = coffeeModal.totalServings - usedNow;
+        return (
+          <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4">
+            <div className="bg-[#131b2e] border border-amber-700/40 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-2xl">
+              <div className="text-4xl text-center">{addonEmoji}</div>
+              <h2 className="text-lg font-bold text-white text-center">
+                {"Ajouter " + addonQty + " " + addonName + "s ?"}
+              </h2>
+              <p className="text-center text-amber-400 font-bold text-xl">
+                {addonPrice.toFixed(2).replace(".", ",") + " € les " + addonQty}
+              </p>
+              {savedCoffees > 0 && (
+                <p className="text-sm text-slate-400 text-center bg-slate-800/50 rounded-lg p-3">
+                  {"💡 Vous avez "}{savedCoffees}{" cafe"}{savedCoffees > 1 ? "s" : ""}{" en avoir. Vous pouvez prendre "}{usedNow > 0 ? usedNow : 0}{" "}{addonName}{" maintenant et recuperer "}{usedNow > 0 ? addonQty - usedNow : addonQty}{" la prochaine fois avec votre avoir !"}
+                </p>
+              )}
+              <div className="flex flex-col gap-2 mt-2">
+                {/* Option : toutes maintenant */}
+                {usedNow >= addonQty && (
+                  <button
+                    onClick={() => handleMadeleineChoice(addonQty)}
+                    className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 bg-emerald-600 text-white px-5"
+                  >
+                    {addonEmoji + " Oui, les " + addonQty + " maintenant !"}
+                  </button>
+                )}
+                {/* Option : X maintenant, Y en avoir (si cafes sauves) */}
+                {usedNow > 0 && usedNow < addonQty && (
+                  <button
+                    onClick={() => handleMadeleineChoice(usedNow)}
+                    className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 bg-emerald-600 text-white px-5"
+                  >
+                    {addonEmoji + " " + usedNow + " maintenant, " + (addonQty - usedNow) + " en avoir"}
+                  </button>
+                )}
+                {/* Option : toutes en avoir (0 cafe maintenant) */}
+                {usedNow === 0 && (
+                  <button
+                    onClick={() => handleMadeleineChoice(0)}
+                    className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 border border-amber-600 bg-amber-900/20 text-amber-300 px-5"
+                  >
+                    {addonEmoji + " Les " + addonQty + " en avoir (prochains cafes)"}
+                  </button>
+                )}
+                {/* Option : toutes maintenant même si café sauvé */}
+                {usedNow > 0 && usedNow < addonQty && (
+                  <button
+                    onClick={() => handleMadeleineChoice(addonQty)}
+                    className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 border border-amber-600 bg-amber-900/20 text-amber-300 px-5"
+                  >
+                    {addonEmoji + " Les " + addonQty + " maintenant quand meme"}
+                  </button>
+                )}
+                {/* Non merci */}
+                <button
+                  onClick={() => {
+                    fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
+                    setCoffeeModal(null);
+                  }}
+                  className="w-full py-3 rounded-xl text-sm cursor-pointer active:scale-95 text-slate-500 hover:text-slate-300"
+                >
+                  {"Non merci"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

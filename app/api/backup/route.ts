@@ -9,6 +9,7 @@ const DATA_KEYS = [
   "aeroclub-members",
   "aeroclub-procurements",
   "aeroclub-coffee-credits",
+  "aeroclub-madeleine-credits",
   "aeroclub-batches",
 ];
 
@@ -75,6 +76,7 @@ export async function POST(request: Request) {
         members: "aeroclub-members",
         procurements: "aeroclub-procurements",
         coffeeCredits: "aeroclub-coffee-credits",
+        madeleineCredits: "aeroclub-madeleine-credits",
         batches: "aeroclub-batches",
       };
       for (const [jsonKey, redisKey] of Object.entries(keyMap)) {
