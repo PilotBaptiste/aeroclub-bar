@@ -325,12 +325,12 @@ export default function TestPage() {
 
       {/* ═══════════ HEADER ═══════════ */}
       <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#0a0f1e]/80 border-b border-white/5">
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">{"✈️"}</span>
+        <div className="max-w-4xl mx-auto px-5 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">{"✈️"}</span>
             <div>
-              <h1 className="text-sm font-black tracking-tight shimmer-text">{"AERO-CLUB BAR"}</h1>
-              <p className="text-[10px] text-slate-500 font-medium tracking-wider">{"BASSIN D'ARCACHON"}</p>
+              <h1 className="text-base font-black tracking-tight shimmer-text">{"AERO-CLUB BAR"}</h1>
+              <p className="text-[11px] text-slate-500 font-medium tracking-wider">{"BASSIN D'ARCACHON"}</p>
             </div>
           </div>
           {/* Cart button */}
@@ -348,12 +348,12 @@ export default function TestPage() {
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto px-4 pb-32">
+      <main className="max-w-4xl mx-auto px-5 pb-32">
 
         {/* ═══════════ HERO CAROUSEL ═══════════ */}
         {currentHero && (
           <section className="mt-5 mb-6">
-            <div className="relative overflow-hidden rounded-2xl gradient-bg p-6 min-h-[180px] flex items-center"
+            <div className="relative overflow-hidden rounded-3xl gradient-bg p-8 min-h-[220px] flex items-center"
               style={{ animation: "pulse-glow 3s ease-in-out infinite" }}
             >
               {/* Background decoration */}
@@ -362,25 +362,25 @@ export default function TestPage() {
                 <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl" />
               </div>
 
-              <div className={`relative flex items-center gap-5 w-full ${heroAnim === "slideIn" ? "slide-in" : "slide-out"}`}>
+              <div className={`relative flex items-center gap-8 w-full ${heroAnim === "slideIn" ? "slide-in" : "slide-out"}`}>
                 <div className="flex-shrink-0 float-anim">
-                  <div className="w-20 h-20 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center shadow-2xl border border-white/10">
-                    <ProductIcon emoji={currentHero.emoji} size="text-5xl" />
+                  <div className="w-28 h-28 rounded-3xl bg-white/10 backdrop-blur-sm flex items-center justify-center shadow-2xl border border-white/10">
+                    <ProductIcon emoji={currentHero.emoji} size="text-6xl" />
                   </div>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-amber-500/80">{"Populaire"}</span>
-                    <span className="w-6 h-px bg-amber-500/30" />
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-xs font-bold uppercase tracking-widest text-amber-500/80">{"Populaire"}</span>
+                    <span className="w-8 h-px bg-amber-500/30" />
                   </div>
-                  <h2 className="text-2xl font-black text-white leading-tight truncate">{currentHero.name}</h2>
-                  <div className="flex items-center gap-3 mt-2">
-                    <span className="text-2xl font-black text-amber-400">{formatPrice(currentHero.price)}</span>
+                  <h2 className="text-3xl font-black text-white leading-tight truncate">{currentHero.name}</h2>
+                  <div className="flex items-center gap-4 mt-3">
+                    <span className="text-3xl font-black text-amber-400">{formatPrice(currentHero.price)}</span>
                     <button
                       onClick={() => { if (currentHero.stock > 0) addToCart(currentHero); }}
                       disabled={currentHero.stock === 0}
                       className={
-                        "px-4 py-1.5 rounded-full text-xs font-bold transition-all active:scale-90 " +
+                        "px-6 py-2.5 rounded-full text-sm font-bold transition-all active:scale-90 " +
                         (currentHero.stock > 0
                           ? "bg-amber-500 text-black hover:bg-amber-400 cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.3)]"
                           : "bg-slate-700 text-slate-500 cursor-not-allowed")
@@ -417,41 +417,42 @@ export default function TestPage() {
         {/* ═══════════ COMBO CAFÉ + MADELEINE ═══════════ */}
         {combo && (
           <section className="mb-6 fade-up" style={{ animationDelay: "0.2s", animationFillMode: "both" }}>
-            <div className="relative overflow-hidden rounded-2xl border border-pink-800/30 bg-gradient-to-br from-[#1a0d1e] via-[#151025] to-[#0d1520] p-5">
+            <div className="relative overflow-hidden rounded-3xl border border-pink-800/30 bg-gradient-to-br from-[#1a0d1e] via-[#151025] to-[#0d1520] p-6">
               {/* Sparkle decorations */}
-              <div className="absolute top-3 right-4 text-xs" style={{ animation: "tagFloat 2s ease-in-out infinite" }}>{"✨"}</div>
-              <div className="absolute bottom-4 right-8 text-xs" style={{ animation: "tagFloat 2.5s ease-in-out infinite 0.5s" }}>{"✨"}</div>
+              <div className="absolute top-4 right-5 text-sm" style={{ animation: "tagFloat 2s ease-in-out infinite" }}>{"✨"}</div>
+              <div className="absolute bottom-5 right-10 text-sm" style={{ animation: "tagFloat 2.5s ease-in-out infinite 0.5s" }}>{"✨"}</div>
+              <div className="absolute top-12 right-20 text-xs" style={{ animation: "tagFloat 3s ease-in-out infinite 1s" }}>{"✨"}</div>
 
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-pink-400">{"Offre Combo"}</span>
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-xs font-bold uppercase tracking-widest text-pink-400">{"Offre Combo"}</span>
                 <span className="flex-1 h-px bg-pink-800/30" />
-                <span className="text-[10px] font-bold text-pink-300 bg-pink-500/15 px-2 py-0.5 rounded-full">{"Nouveau"}</span>
+                <span className="text-xs font-bold text-pink-300 bg-pink-500/15 px-3 py-1 rounded-full">{"Nouveau"}</span>
               </div>
 
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-6">
                 {/* Café */}
-                <div className="flex items-center gap-2" style={{ animation: "comboSlide 0.6s cubic-bezier(.22,1,.36,1) 0.3s both" }}>
-                  <div className="w-14 h-14 rounded-xl bg-amber-900/30 border border-amber-700/30 flex items-center justify-center">
-                    <ProductIcon emoji={combo.cafe.emoji} size="text-3xl" />
+                <div style={{ animation: "comboSlide 0.6s cubic-bezier(.22,1,.36,1) 0.3s both" }}>
+                  <div className="w-20 h-20 rounded-2xl bg-amber-900/30 border border-amber-700/30 flex items-center justify-center">
+                    <ProductIcon emoji={combo.cafe.emoji} size="text-5xl" />
                   </div>
                 </div>
 
-                <span className="text-2xl font-black text-pink-400" style={{ animation: "comboPop 0.5s cubic-bezier(.22,1,.36,1) 0.5s both" }}>{"+"}</span>
+                <span className="text-3xl font-black text-pink-400" style={{ animation: "comboPop 0.5s cubic-bezier(.22,1,.36,1) 0.5s both" }}>{"+"}</span>
 
                 {/* Madeleine */}
-                <div className="flex items-center gap-2" style={{ animation: "comboSlide 0.6s cubic-bezier(.22,1,.36,1) 0.6s both" }}>
-                  <div className="w-14 h-14 rounded-xl bg-pink-900/30 border border-pink-700/30 flex items-center justify-center">
-                    <ProductIcon emoji={combo.addon.emoji} size="text-3xl" />
+                <div style={{ animation: "comboSlide 0.6s cubic-bezier(.22,1,.36,1) 0.6s both" }}>
+                  <div className="w-20 h-20 rounded-2xl bg-pink-900/30 border border-pink-700/30 flex items-center justify-center">
+                    <ProductIcon emoji={combo.addon.emoji} size="text-5xl" />
                   </div>
                 </div>
 
-                <div className="flex-1 min-w-0 ml-1">
-                  <p className="text-sm font-bold text-white leading-tight">
+                <div className="flex-1 min-w-0 ml-2">
+                  <p className="text-lg font-bold text-white leading-tight">
                     {combo.cafe.name}
                     <span className="text-pink-300">{" + " + (combo.addon.coffeeAddonQty || 2) + " " + combo.addon.name + "s"}</span>
                   </p>
-                  <div className="flex items-baseline gap-2 mt-1">
-                    <span className="text-xl font-black text-amber-400">{formatPrice(combo.totalPrice)}</span>
+                  <div className="flex items-baseline gap-3 mt-2">
+                    <span className="text-2xl font-black text-amber-400">{formatPrice(combo.totalPrice)}</span>
                   </div>
                 </div>
               </div>
@@ -460,7 +461,7 @@ export default function TestPage() {
                 onClick={() => { if (combo.cafe.stock > 0) addToCart(combo.cafe); }}
                 disabled={combo.cafe.stock === 0}
                 className={
-                  "w-full mt-4 py-3 rounded-xl font-bold text-sm transition-all active:scale-95 " +
+                  "w-full mt-5 py-4 rounded-2xl font-bold text-base transition-all active:scale-95 " +
                   (combo.cafe.stock > 0
                     ? "bg-gradient-to-r from-amber-600 to-pink-600 text-white cursor-pointer shadow-[0_0_25px_rgba(219,39,119,0.2)]"
                     : "bg-slate-800 text-slate-600 cursor-not-allowed")
@@ -479,30 +480,29 @@ export default function TestPage() {
               <span className="text-base font-black text-white">{"🔥 Top ventes"}</span>
               <span className="flex-1 h-px bg-white/5" />
             </div>
-            <div className="grid grid-cols-3 gap-2.5">
-              {popularProducts.slice(0, 6).map((p, i) => (
+            <div className="grid grid-cols-6 gap-3">
+              {popularProducts.slice(0, 12).map((p, i) => (
                 <button
                   key={p.id}
                   onClick={() => { if (p.stock > 0) addToCart(p); }}
                   disabled={p.stock === 0}
                   className={
-                    "relative flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all active:scale-90 cursor-pointer fade-up " +
+                    "relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border transition-all active:scale-90 cursor-pointer fade-up " +
                     (addedProductId === p.id
                       ? "bg-amber-500/20 border-amber-500/50 scale-95"
                       : p.stock === 0
                         ? "bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed"
                         : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-amber-500/20")
                   }
-                  style={{ animationDelay: (0.05 * i) + "s", animationFillMode: "both" }}
+                  style={{ animationDelay: (0.04 * i) + "s", animationFillMode: "both" }}
                 >
                   {stockBadge(p.stock)}
                   <div className={addedProductId === p.id ? "pop-in" : ""}>
-                    <ProductIcon emoji={p.emoji} size="text-3xl" />
+                    <ProductIcon emoji={p.emoji} size="text-4xl" />
                   </div>
-                  <span className="text-[11px] font-bold text-white/90 text-center leading-tight line-clamp-2">{p.name}</span>
-                  <span className="text-xs font-black text-amber-400">{formatPrice(p.price)}</span>
-                  {/* Sales count */}
-                  <span className="text-[9px] text-slate-500 font-medium">
+                  <span className="text-xs font-bold text-white/90 text-center leading-tight line-clamp-2">{p.name}</span>
+                  <span className="text-sm font-black text-amber-400">{formatPrice(p.price)}</span>
+                  <span className="text-[10px] text-slate-500 font-medium">
                     {p.salesCount + " vendu" + (p.salesCount > 1 ? "s" : "")}
                   </span>
                 </button>
@@ -515,7 +515,7 @@ export default function TestPage() {
         {!showAllProducts ? (
           <button
             onClick={() => { setShowAllProducts(true); Sound.pop(); }}
-            className="w-full py-4 rounded-2xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] text-white font-bold text-sm transition-all active:scale-95 cursor-pointer mb-6 flex items-center justify-center gap-2"
+            className="w-full py-5 rounded-2xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] text-white font-bold text-base transition-all active:scale-95 cursor-pointer mb-6 flex items-center justify-center gap-3"
           >
             <span>{"📦 Voir tous les produits"}</span>
             <span className="text-slate-500 text-xs font-medium">{"(" + products.length + ")"}</span>
@@ -561,14 +561,14 @@ export default function TestPage() {
             </div>
 
             {/* Product grid */}
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-6 gap-3">
               {filteredProducts.map((p, i) => (
                 <button
                   key={p.id}
                   onClick={() => { if (p.stock > 0) addToCart(p); }}
                   disabled={p.stock === 0}
                   className={
-                    "relative flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all active:scale-90 cursor-pointer fade-up " +
+                    "relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border transition-all active:scale-90 cursor-pointer fade-up " +
                     (addedProductId === p.id
                       ? "bg-amber-500/20 border-amber-500/50"
                       : p.stock === 0
@@ -579,12 +579,12 @@ export default function TestPage() {
                 >
                   {stockBadge(p.stock)}
                   <div className={addedProductId === p.id ? "pop-in" : ""}>
-                    <ProductIcon emoji={p.emoji} size="text-3xl" />
+                    <ProductIcon emoji={p.emoji} size="text-4xl" />
                   </div>
-                  <span className="text-[11px] font-bold text-white/90 text-center leading-tight line-clamp-2">{p.name}</span>
-                  <span className="text-xs font-black text-amber-400">{formatPrice(p.price)}</span>
+                  <span className="text-xs font-bold text-white/90 text-center leading-tight line-clamp-2">{p.name}</span>
+                  <span className="text-sm font-black text-amber-400">{formatPrice(p.price)}</span>
                   {p.stock <= 5 && p.stock > 0 && (
-                    <span className="text-[9px] text-amber-500/60">{"Plus que " + p.stock}</span>
+                    <span className="text-[10px] text-amber-500/60">{"Plus que " + p.stock}</span>
                   )}
                 </button>
               ))}
@@ -594,12 +594,12 @@ export default function TestPage() {
 
         {/* ═══════════ INFOS PRATIQUES ═══════════ */}
         <section className="mb-8 fade-up" style={{ animationDelay: "0.4s", animationFillMode: "both" }}>
-          <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-base">{"ℹ️"}</span>
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{"Infos pratiques"}</span>
+          <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-lg">{"ℹ️"}</span>
+              <span className="text-sm font-bold text-slate-400 uppercase tracking-wider">{"Infos pratiques"}</span>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className="grid grid-cols-4 gap-4 text-sm">
               <div className="flex items-start gap-2">
                 <span className="text-base">{"☕"}</span>
                 <div>
@@ -640,7 +640,7 @@ export default function TestPage() {
           {/* Floating cart bar */}
           {!cartOpen && (
             <div className="fixed bottom-0 left-0 right-0 z-40">
-              <div className="max-w-lg mx-auto px-4 pb-4">
+              <div className="max-w-4xl mx-auto px-5 pb-4">
                 <button
                   onClick={() => { setCartOpen(true); Sound.pop(); }}
                   className="w-full flex items-center justify-between px-5 py-4 rounded-2xl bg-amber-500 text-black font-bold shadow-[0_-4px_30px_rgba(245,158,11,0.3)] active:scale-95 transition-all cursor-pointer"
@@ -664,7 +664,7 @@ export default function TestPage() {
                 onClick={(e) => e.stopPropagation()}
                 style={{ animation: "slideUp 0.35s cubic-bezier(.22,1,.36,1)" }}
               >
-                <div className="max-w-lg mx-auto bg-[#0f1628] border-t border-amber-500/20 rounded-t-3xl">
+                <div className="max-w-4xl mx-auto bg-[#0f1628] border-t border-amber-500/20 rounded-t-3xl">
                   {/* Handle */}
                   <div className="flex justify-center pt-3 pb-1">
                     <div className="w-10 h-1 rounded-full bg-white/10" />
