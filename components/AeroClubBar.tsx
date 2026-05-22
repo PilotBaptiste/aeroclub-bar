@@ -1749,9 +1749,16 @@ export default function AeroClubBar() {
                               {"☕ " + canonical.split(" ")[0] + " a " + cafCredit + " avoir" + (cafCredit > 1 ? "s" : "") + " cafe"}
                             </p>
                             {hasMadeleine && (
-                              <p className="text-xs text-pink-400 font-semibold text-center">
-                                {(addonProduct?.emoji || "🧁") + " + " + madCredit + " " + (addonProduct?.name || "madeleine") + " en avoir !"}
-                              </p>
+                              <div className="bg-pink-900/20 border border-pink-700/30 rounded-xl p-3 text-center">
+                                <p className="text-sm text-pink-300 font-bold">
+                                  {(addonProduct?.emoji || "🧁") + " 1 " + (addonProduct?.name || "madeleine") + " avec ce cafe"}
+                                </p>
+                                {madCredit > 1 && (
+                                  <p className="text-[11px] text-pink-400/60 mt-1">
+                                    {"(" + (madCredit - 1) + " restante" + (madCredit - 1 > 1 ? "s" : "") + " en avoir)"}
+                                  </p>
+                                )}
+                              </div>
                             )}
                             <button
                               onClick={() => {
@@ -1790,17 +1797,21 @@ export default function AeroClubBar() {
                                 setCart(remaining);
                                 if (remaining.length > 0) {
                                   setCoffeeAvoirUsedInCheckout(true);
-                                  showToast(hasMadeleine ? "☕ Cafe + 🧁 Madeleine — passez au paiement" : "☕ Cafe deverrouille — passez au paiement");
+                                  showToast(hasMadeleine ? "☕ 1 cafe + 🧁 1 madeleine — passez au paiement" : "☕ Cafe deverrouille — passez au paiement");
                                 } else {
-                                  showToast(hasMadeleine ? "☕ Cafe + 🧁 Madeleine deverrouilles !" : "☕ Tiroir cafe deverrouille !");
+                                  showToast(hasMadeleine ? "☕ 1 cafe + 🧁 1 madeleine deverrouilles !" : "☕ Tiroir cafe deverrouille !");
                                   clearCart();
                                   setBuyerName("");
                                 }
                               }}
                               className="w-full py-4 rounded-xl font-extrabold text-lg bg-amber-500 text-black active:scale-95 cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.3)]"
                             >
-                              {hasMadeleine ? "☕ Cafe + 🧁 Madeleine (avoir)" : "☕ Utiliser mon avoir cafe"}
-                              {cafCredit > 1 && <span className="block text-sm font-semibold opacity-70 mt-0.5">{"(" + cafCredit + " avoir" + (cafCredit > 1 ? "s" : "") + " cafe restant" + (cafCredit > 1 ? "s" : "") + ")"}</span>}
+                              {hasMadeleine ? "☕ 1 cafe + 🧁 1 madeleine" : "☕ Utiliser mon avoir cafe"}
+                              <span className="block text-sm font-semibold opacity-70 mt-0.5">
+                                {hasMadeleine
+                                  ? "(" + cafCredit + " cafe + " + madCredit + " madeleine en avoir)"
+                                  : cafCredit > 1 ? "(" + cafCredit + " avoir" + (cafCredit > 1 ? "s" : "") + " cafe restant" + (cafCredit > 1 ? "s" : "") + ")" : ""}
+                              </span>
                             </button>
                             {cart.length === 0 && (
                               <p className="text-[11px] text-slate-600 text-center">{hasMadeleine ? "Ouvre le cafe + le frigo sans paiement" : "Ouvre le tiroir cafe sans paiement"}</p>
@@ -4572,11 +4583,27 @@ export default function AeroClubBar() {
               <p className="text-center text-amber-400 font-bold text-xl">
                 {addonPrice.toFixed(2).replace(".", ",") + " € les " + addonQty}
               </p>
-              {savedCoffees > 0 && (
-                <p className="text-sm text-slate-400 text-center bg-slate-800/50 rounded-lg p-3">
-                  {"💡 Vous avez "}{savedCoffees}{" cafe"}{savedCoffees > 1 ? "s" : ""}{" en avoir. Vous pouvez prendre "}{usedNow > 0 ? usedNow : 0}{" "}{addonName}{" maintenant et recuperer "}{usedNow > 0 ? addonQty - usedNow : addonQty}{" la prochaine fois avec votre avoir !"}
-                </p>
-              )}
+              <div className="bg-slate-800/50 rounded-xl p-3 text-sm text-center">
+                {usedNow >= addonQty ? (
+                  <p className="text-slate-300">
+                    {"Vous prenez " + usedNow + " cafe" + (usedNow > 1 ? "s" : "") + " maintenant."}
+                    <br />
+                    <span className="text-pink-300 font-semibold">{addonEmoji + " " + addonQty + " " + addonName + "s a recuperer au frigo !"}</span>
+                  </p>
+                ) : usedNow > 0 ? (
+                  <p className="text-slate-300">
+                    {"Vous prenez " + usedNow + " cafe maintenant, " + savedCoffees + " en avoir."}
+                    <br />
+                    <span className="text-pink-300 font-semibold">{addonEmoji + " " + usedNow + " " + addonName + " maintenant + " + (addonQty - usedNow) + " avec votre prochain cafe !"}</span>
+                  </p>
+                ) : (
+                  <p className="text-slate-300">
+                    {"Tous les cafes en avoir."}
+                    <br />
+                    <span className="text-pink-300 font-semibold">{addonEmoji + " " + addonQty + " " + addonName + "s avec vos prochains cafes !"}</span>
+                  </p>
+                )}
+              </div>
               <div className="flex flex-col gap-2 mt-2">
                 {/* Option : toutes maintenant */}
                 {usedNow >= addonQty && (
@@ -4584,25 +4611,17 @@ export default function AeroClubBar() {
                     onClick={() => handleMadeleineChoice(addonQty)}
                     className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 bg-emerald-600 text-white px-5"
                   >
-                    {addonEmoji + " Oui, les " + addonQty + " maintenant !"}
+                    {addonEmoji + " Oui ! " + addonQty + " " + addonName + "s maintenant"}
                   </button>
                 )}
-                {/* Option : X maintenant, Y en avoir (si cafes sauves) */}
+                {/* Option : X maintenant, Y en avoir (recommande) */}
                 {usedNow > 0 && usedNow < addonQty && (
                   <button
                     onClick={() => handleMadeleineChoice(usedNow)}
-                    className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 bg-emerald-600 text-white px-5"
+                    className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 bg-emerald-600 text-white px-5 flex flex-col items-center"
                   >
-                    {addonEmoji + " " + usedNow + " maintenant, " + (addonQty - usedNow) + " en avoir"}
-                  </button>
-                )}
-                {/* Option : toutes en avoir (0 cafe maintenant) */}
-                {usedNow === 0 && (
-                  <button
-                    onClick={() => handleMadeleineChoice(0)}
-                    className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 border border-amber-600 bg-amber-900/20 text-amber-300 px-5"
-                  >
-                    {addonEmoji + " Les " + addonQty + " en avoir (prochains cafes)"}
+                    <span>{addonEmoji + " " + usedNow + " maintenant + " + (addonQty - usedNow) + " en avoir"}</span>
+                    <span className="text-[11px] font-normal text-emerald-200 mt-0.5">{"La " + addonName + " en avoir sera avec votre prochain cafe"}</span>
                   </button>
                 )}
                 {/* Option : toutes maintenant même si café sauvé */}
@@ -4611,7 +4630,16 @@ export default function AeroClubBar() {
                     onClick={() => handleMadeleineChoice(addonQty)}
                     className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 border border-amber-600 bg-amber-900/20 text-amber-300 px-5"
                   >
-                    {addonEmoji + " Les " + addonQty + " maintenant quand meme"}
+                    {addonEmoji + " Les " + addonQty + " maintenant"}
+                  </button>
+                )}
+                {/* Option : toutes en avoir (0 cafe maintenant) */}
+                {usedNow === 0 && (
+                  <button
+                    onClick={() => handleMadeleineChoice(0)}
+                    className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 bg-emerald-600 text-white px-5"
+                  >
+                    {addonEmoji + " " + addonQty + " en avoir (prochains cafes)"}
                   </button>
                 )}
                 {/* Non merci */}
