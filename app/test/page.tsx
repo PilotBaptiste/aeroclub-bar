@@ -489,20 +489,14 @@ export default function TestPage() {
             </div>
           </button>
           {/* Temperatures */}
-          {(temperatures.frigo !== null || temperatures.congelateur !== null) && (
-            <div className="flex items-center gap-3">
-              {temperatures.frigo !== null && (
-                <span className={"text-[11px] font-bold " + (temperatures.frigo > 8 ? "text-red-400" : temperatures.frigo > 5 ? "text-amber-400" : "text-emerald-400")}>
-                  {"🧊 " + temperatures.frigo.toFixed(1) + "°"}
-                </span>
-              )}
-              {temperatures.congelateur !== null && (
-                <span className={"text-[11px] font-bold " + (temperatures.congelateur > -15 ? "text-red-400" : temperatures.congelateur > -18 ? "text-amber-400" : "text-emerald-400")}>
-                  {"❄️ " + temperatures.congelateur.toFixed(1) + "°"}
-                </span>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            <span className={"text-[11px] font-bold " + (temperatures.frigo === null ? "text-slate-600" : temperatures.frigo > 8 ? "text-red-400" : temperatures.frigo > 5 ? "text-amber-400" : "text-emerald-400")}>
+              {"🧊 " + (temperatures.frigo !== null ? temperatures.frigo.toFixed(1) + "°" : "--")}
+            </span>
+            <span className={"text-[11px] font-bold " + (temperatures.congelateur === null ? "text-slate-600" : temperatures.congelateur > -15 ? "text-red-400" : temperatures.congelateur > -18 ? "text-amber-400" : "text-emerald-400")}>
+              {"❄️ " + (temperatures.congelateur !== null ? temperatures.congelateur.toFixed(1) + "°" : "--")}
+            </span>
+          </div>
           <div className="flex items-center gap-3">
             {/* Admin button */}
             <button onClick={() => { if (view === "admin") { setView("sale"); } else { setView("admin"); setPinInput(""); } Sound.pop(); }}
@@ -708,29 +702,27 @@ export default function TestPage() {
           ) : (
             <div>
               {/* Temperatures */}
-              {(temperatures.frigo !== null || temperatures.congelateur !== null) && (
-                <div className="grid grid-cols-2 gap-3 mb-6">
-                  <div className={"rounded-2xl p-4 text-center border " + (temperatures.frigo !== null && temperatures.frigo > 8 ? "bg-red-950/50 border-red-800/50" : "bg-white/[0.03] border-white/5")}>
-                    <span className={"block text-2xl font-black " + (temperatures.frigo === null ? "text-slate-600" : temperatures.frigo > 8 ? "text-red-400" : temperatures.frigo > 5 ? "text-amber-400" : "text-emerald-400")}>
-                      {temperatures.frigo !== null ? "🧊 " + temperatures.frigo.toFixed(1) + "°C" : "🧊 --"}
-                    </span>
-                    <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">{"Frigo"}</span>
-                    {temperatures.frigo !== null && temperatures.frigo > 8 && <p className="text-[10px] text-red-400 font-bold mt-1">{"⚠ Temperature trop haute !"}</p>}
-                  </div>
-                  <div className={"rounded-2xl p-4 text-center border " + (temperatures.congelateur !== null && temperatures.congelateur > -15 ? "bg-red-950/50 border-red-800/50" : "bg-white/[0.03] border-white/5")}>
-                    <span className={"block text-2xl font-black " + (temperatures.congelateur === null ? "text-slate-600" : temperatures.congelateur > -15 ? "text-red-400" : temperatures.congelateur > -18 ? "text-amber-400" : "text-emerald-400")}>
-                      {temperatures.congelateur !== null ? "❄️ " + temperatures.congelateur.toFixed(1) + "°C" : "❄️ --"}
-                    </span>
-                    <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">{"Congelateur"}</span>
-                    {temperatures.congelateur !== null && temperatures.congelateur > -15 && <p className="text-[10px] text-red-400 font-bold mt-1">{"⚠ Temperature trop haute !"}</p>}
-                  </div>
-                  {temperatures.lastUpdate && (
-                    <p className="col-span-2 text-[10px] text-slate-600 text-center -mt-1">
-                      {"Derniere mise a jour : " + new Date(temperatures.lastUpdate).toLocaleTimeString("fr-FR")}
-                    </p>
-                  )}
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                <div className={"rounded-2xl p-4 text-center border " + (temperatures.frigo !== null && temperatures.frigo > 8 ? "bg-red-950/50 border-red-800/50" : "bg-white/[0.03] border-white/5")}>
+                  <span className={"block text-2xl font-black " + (temperatures.frigo === null ? "text-slate-600" : temperatures.frigo > 8 ? "text-red-400" : temperatures.frigo > 5 ? "text-amber-400" : "text-emerald-400")}>
+                    {temperatures.frigo !== null ? "🧊 " + temperatures.frigo.toFixed(1) + "°C" : "🧊 --"}
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">{"Frigo"}</span>
+                  {temperatures.frigo !== null && temperatures.frigo > 8 && <p className="text-[10px] text-red-400 font-bold mt-1">{"⚠ Temperature trop haute !"}</p>}
                 </div>
-              )}
+                <div className={"rounded-2xl p-4 text-center border " + (temperatures.congelateur !== null && temperatures.congelateur > -15 ? "bg-red-950/50 border-red-800/50" : "bg-white/[0.03] border-white/5")}>
+                  <span className={"block text-2xl font-black " + (temperatures.congelateur === null ? "text-slate-600" : temperatures.congelateur > -15 ? "text-red-400" : temperatures.congelateur > -18 ? "text-amber-400" : "text-emerald-400")}>
+                    {temperatures.congelateur !== null ? "❄️ " + temperatures.congelateur.toFixed(1) + "°C" : "❄️ --"}
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">{"Congelateur"}</span>
+                  {temperatures.congelateur !== null && temperatures.congelateur > -15 && <p className="text-[10px] text-red-400 font-bold mt-1">{"⚠ Temperature trop haute !"}</p>}
+                </div>
+                {temperatures.lastUpdate && (
+                  <p className="col-span-2 text-[10px] text-slate-600 text-center -mt-1">
+                    {"Derniere mise a jour : " + new Date(temperatures.lastUpdate).toLocaleTimeString("fr-FR")}
+                  </p>
+                )}
+              </div>
 
               {/* Admin tabs */}
               <div className="flex gap-2 mb-6">
