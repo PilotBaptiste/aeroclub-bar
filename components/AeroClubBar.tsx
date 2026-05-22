@@ -301,8 +301,10 @@ export default function AeroClubBar() {
   const [coffeeModal, setCoffeeModal] = useState<{
     buyer: string; totalServings: number; lockType: string; productId: string;
     step: "coffee" | "madeleine"; usedNow?: number;
+    totalMadeleines?: number;
   } | null>(null);
   const [coffeeAvoirUsedInCheckout, setCoffeeAvoirUsedInCheckout] = useState(false);
+  const [madeleineAdded, setMadeleineAdded] = useState(false);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [editingMember, setEditingMember] = useState<{ name: string; newName: string; balance: number; coffee: number } | null>(null);
@@ -537,6 +539,23 @@ export default function AeroClubBar() {
   );
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
 
+  // ── Madeleine addon calculations ──
+  const madeleineProduct = products.find((p) => p.coffeeAddon && !p.archived && p.stock > 0);
+  const coffeeUnitsInCart = cart.reduce((s, c) => {
+    if (c.product.coffeeServings && c.product.coffeeServings > 1) return s + c.qty;
+    return s;
+  }, 0);
+  const madeleineOfferQty = madeleineProduct && coffeeUnitsInCart > 0 ? coffeeUnitsInCart * (madeleineProduct.coffeeAddonQty || 2) : 0;
+  const madeleineOfferPrice = madeleineProduct && coffeeUnitsInCart > 0 ? coffeeUnitsInCart * (madeleineProduct.coffeeAddonPrice || 0.80) : 0;
+  const madeleineOfferCost = madeleineProduct && coffeeUnitsInCart > 0 ? coffeeUnitsInCart * (madeleineProduct.cost || 0.40) * (madeleineProduct.coffeeAddonQty || 2) : 0;
+  const checkoutTotal = cartTotal + (madeleineAdded ? madeleineOfferPrice : 0);
+  const checkoutTotalCost = cartTotalCost + (madeleineAdded ? madeleineOfferCost : 0);
+
+  // Reset madeleine addon when no coffee in cart
+  useEffect(() => {
+    if (coffeeUnitsInCart === 0) setMadeleineAdded(false);
+  }, [coffeeUnitsInCart]);
+
   // Normalize a full name by sorting tokens alphabetically so
   // Rendu de l'icône produit : emoji texte OU image si l'emoji est une URL http
   const renderProductIcon = (emoji: string, className: string, imgSize = "w-8 h-8") => {
@@ -751,18 +770,20 @@ export default function AeroClubBar() {
   };
 
   const createSumUpCheckout = async () => {
-    if (!buyerName.trim() || cartTotal <= 0) return;
+    if (!buyerName.trim() || checkoutTotal <= 0) return;
     setSumupLoading(true);
     setSumupError(null);
     setSumupCheckoutId(null);
     setSumupPolling(false);
     try {
-      const desc = cart.map((c) => c.qty + "x " + c.product.name).join(", ");
+      const descParts = cart.map((c) => c.qty + "x " + c.product.name);
+      if (madeleineAdded && madeleineProduct) descParts.push(madeleineOfferQty + "x " + madeleineProduct.name);
+      const desc = descParts.join(", ");
       const res = await fetch("/api/sumup-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amount: cartTotal,
+          amount: checkoutTotal,
           description: desc,
           buyer: buyerName.trim(),
         }),
@@ -869,9 +890,9 @@ export default function AeroClubBar() {
 
     // Handle member balance
     if (method === "avoir") {
-      updateMemberBalance(canonicalBuyer, -cartTotal);
+      updateMemberBalance(canonicalBuyer, -checkoutTotal);
     } else if (method === "especes" && amountPaid !== undefined) {
-      const change = amountPaid - cartTotal;
+      const change = amountPaid - checkoutTotal;
       if (change > 0) {
         updateMemberBalance(canonicalBuyer, change);
       }
@@ -882,6 +903,10 @@ export default function AeroClubBar() {
     for (const c of cart) {
       const loc = c.product.location || "frigo"; // défaut = frigo
       locationsNeeded.add(loc);
+    }
+    // Si madeleine ajoutée, le frigo est aussi nécessaire
+    if (madeleineAdded && madeleineProduct?.location) {
+      locationsNeeded.add(madeleineProduct.location);
     }
     const hasCafe = locationsNeeded.has("cafe");
     const hasFrigo = locationsNeeded.has("frigo");
@@ -897,17 +922,26 @@ export default function AeroClubBar() {
     if (totalCoffeeServings > 0) {
       // Modal café d'abord → les serrures s'ouvrent APRÈS le choix
       const coffeeCartItem = cart.find((c) => c.product.coffeeServings && c.product.coffeeServings > 1);
-      setCoffeeModal({ buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType, productId: coffeeCartItem?.product.id || "", step: "coffee" });
+      setCoffeeModal({
+        buyer: canonicalBuyer, totalServings: totalCoffeeServings, lockType,
+        productId: coffeeCartItem?.product.id || "", step: "coffee",
+        totalMadeleines: madeleineAdded ? madeleineOfferQty : 0,
+      });
     } else {
       // Pas de café multi-portions → ouvrir les serrures immédiatement
       fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
     }
 
+    // Items pour la transaction (inclut madeleine si ajoutée)
+    const txItemParts = cart.map((c) => c.qty + "x " + c.product.name);
+    if (madeleineAdded && madeleineProduct) {
+      txItemParts.push(madeleineOfferQty + "x " + madeleineProduct.name);
+    }
     const tx: Transaction = {
       id: Date.now().toString(36),
-      items: cart.map((c) => c.qty + "x " + c.product.name).join(", "),
-      total: cartTotal,
-      totalCost: cartTotalCost,
+      items: txItemParts.join(", "),
+      total: checkoutTotal,
+      totalCost: checkoutTotalCost,
       buyer: canonicalBuyer,
       date: new Date().toISOString(),
       method,
@@ -916,7 +950,7 @@ export default function AeroClubBar() {
     setTransactions((prev) => [tx, ...prev]);
     setLastOrder({
       items: [...cart],
-      total: cartTotal,
+      total: checkoutTotal,
       buyer: canonicalBuyer,
       method,
       lockType,
@@ -932,6 +966,7 @@ export default function AeroClubBar() {
       setLastOrder(null);
       setShowCashFlow(false);
       setCashAmountInput("");
+      setMadeleineAdded(false);
       setLockRetriggerCountdown(null);
       if (lockRetriggerTimerRef.current) { clearInterval(lockRetriggerTimerRef.current); lockRetriggerTimerRef.current = null; }
     }, 20000);
@@ -955,13 +990,11 @@ export default function AeroClubBar() {
         return { ...p, stock: Math.max(0, p.stock - usedNow), legacyStock: Math.max(0, (p.legacyStock || 0) - fromLegacy) };
       }));
     }
-    // Chercher un produit coffeeAddon (madeleine) en stock
-    const addonProduct = products.find((p) => p.coffeeAddon && !p.archived && p.stock > 0);
-    if (addonProduct) {
-      // Passer a l'etape madeleine au lieu de fermer
+    // Si madeleine ajoutée au checkout → passer à l'étape distribution
+    if (madeleineAdded && (coffeeModal.totalMadeleines || 0) > 0) {
       setCoffeeModal({ ...coffeeModal, step: "madeleine", usedNow });
     } else {
-      // Pas de madeleine dispo → ouvrir les serrures et fermer
+      // Pas de madeleine → ouvrir les serrures et fermer
       fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
       setCoffeeModal(null);
     }
@@ -969,54 +1002,36 @@ export default function AeroClubBar() {
 
   const handleMadeleineChoice = (takeNow: number) => {
     if (!coffeeModal) return;
-    const addonProduct = products.find((p) => p.coffeeAddon && !p.archived);
-    const totalAddon = addonProduct?.coffeeAddonQty || 2;
-    const addonPrice = addonProduct?.coffeeAddonPrice || 0.80;
+    const addonProd = products.find((p) => p.coffeeAddon && !p.archived);
+    const totalAddon = coffeeModal.totalMadeleines || (addonProd?.coffeeAddonQty || 2);
     const saveLater = totalAddon - takeNow;
 
     if (takeNow > 0 || saveLater > 0) {
-      // Deduire stock madeleine (seulement celles prises maintenant)
-      if (addonProduct && takeNow > 0) {
+      // Déduire stock madeleine (seulement celles prises maintenant)
+      if (addonProd && takeNow > 0) {
         setProducts((prev) => prev.map((p) =>
-          p.id === addonProduct.id ? { ...p, stock: Math.max(0, p.stock - takeNow) } : p
+          p.id === addonProd.id ? { ...p, stock: Math.max(0, p.stock - takeNow) } : p
         ));
       }
-      // Sauvegarder les madeleines pour plus tard
+      // Sauvegarder les madeleines pour plus tard (avoir)
       if (saveLater > 0) {
         setMadeleineCredits((prev) => ({
           ...prev,
           [coffeeModal.buyer]: (prev[coffeeModal.buyer] || 0) + saveLater,
         }));
       }
-      // Ajouter la transaction madeleine
-      const tx: Transaction = {
-        id: Date.now().toString(36) + "m",
-        items: totalAddon + "x " + (addonProduct?.name || "Madeleine"),
-        total: addonPrice,
-        totalCost: (addonProduct?.cost || 0.40) * totalAddon,
-        buyer: coffeeModal.buyer,
-        date: new Date().toISOString(),
-        method: lastOrder?.method || "especes",
-      };
-      setTransactions((prev) => [tx, ...prev]);
+      // Pas de transaction séparée — déjà incluse dans le checkout principal
       showToast(
         takeNow > 0 && saveLater > 0
-          ? (addonProduct?.emoji || "🧁") + " " + takeNow + " maintenant, " + saveLater + " en avoir !"
+          ? (addonProd?.emoji || "🧁") + " " + takeNow + " maintenant, " + saveLater + " en avoir !"
           : takeNow > 0
-            ? (addonProduct?.emoji || "🧁") + " " + takeNow + " madeleine" + (takeNow > 1 ? "s" : "") + " !"
-            : (addonProduct?.emoji || "🧁") + " " + saveLater + " en avoir pour la prochaine fois !"
+            ? (addonProd?.emoji || "🧁") + " " + takeNow + " madeleine" + (takeNow > 1 ? "s" : "") + " !"
+            : (addonProd?.emoji || "🧁") + " " + saveLater + " en avoir pour la prochaine fois !"
       );
     }
 
-    // Mettre a jour le lockType si madeleine prise maintenant (besoin du frigo)
-    let finalLockType = coffeeModal.lockType;
-    if (takeNow > 0 && addonProduct?.location) {
-      const locks = new Set(finalLockType.split(","));
-      locks.add(addonProduct.location);
-      finalLockType = [...locks].join(",");
-    }
-    // Ouvrir les serrures
-    fetch("/api/fridge?action=trigger&lock=" + finalLockType).catch(() => {});
+    // Ouvrir les serrures (le frigo est déjà dans lockType si madeleine ajoutée)
+    fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
     setCoffeeModal(null);
   };
 
@@ -1567,7 +1582,7 @@ export default function AeroClubBar() {
                     className="flex-1 py-3.5 rounded-xl bg-amber-500 text-black font-bold text-base cursor-pointer active:scale-95 transition"
                   >
                     {"Payer " +
-                      formatPrice(cartTotal) +
+                      formatPrice(checkoutTotal) +
                       " (" +
                       cartCount +
                       " article" +
@@ -1635,10 +1650,53 @@ export default function AeroClubBar() {
                         </div>
                       ))}
                     </div>
+                    {/* ── Offre madeleine (avant paiement) ── */}
+                    {madeleineOfferQty > 0 && madeleineProduct && (
+                      <div className={
+                        "rounded-xl p-3 mb-3 border transition-all " +
+                        (madeleineAdded
+                          ? "bg-pink-900/30 border-pink-600/50"
+                          : "bg-slate-800/50 border-slate-700/30")
+                      }>
+                        <button
+                          onClick={() => setMadeleineAdded(!madeleineAdded)}
+                          className="w-full flex items-center gap-3 cursor-pointer"
+                        >
+                          <div className={
+                            "w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all flex-shrink-0 " +
+                            (madeleineAdded
+                              ? "bg-pink-600 border-pink-500"
+                              : "border-slate-600 bg-transparent")
+                          }>
+                            {madeleineAdded && <span className="text-white text-sm font-bold">{"✓"}</span>}
+                          </div>
+                          <div className="flex-1 text-left">
+                            <span className="text-sm font-bold text-white">
+                              {(madeleineProduct.emoji || "🧁") + " + " + madeleineOfferQty + " " + madeleineProduct.name + (madeleineOfferQty > 1 ? "s" : "")}
+                            </span>
+                            <span className="text-xs text-pink-300 ml-2 font-semibold">
+                              {"+" + formatPrice(madeleineOfferPrice)}
+                            </span>
+                          </div>
+                        </button>
+                        {madeleineAdded && (
+                          <p className="text-[11px] text-slate-400 mt-2 pl-10">
+                            {(madeleineOfferQty > 2 ? "Repartition au choix apres paiement" : "1 par cafe, ou tout maintenant — au choix apres paiement")}
+                            {" • " + (madeleineProduct.emoji || "🧁") + " dans le frigo"}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-4">
                       <span className="text-2xl font-extrabold text-amber-500">
-                        {"Total : " + formatPrice(cartTotal)}
+                        {"Total : " + formatPrice(checkoutTotal)}
                       </span>
+                      {madeleineAdded && (
+                        <span className="block text-xs text-slate-400 mt-1">
+                          {"dont " + formatPrice(cartTotal) + " produits + " + formatPrice(madeleineOfferPrice) + " " + (madeleineProduct?.name || "madeleine") + "s"}
+                        </span>
+                      )}
                     </div>
                     <div className="flex flex-col gap-1.5 mb-4">
                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -1843,8 +1901,8 @@ export default function AeroClubBar() {
 
                     {/* Pay with avoir */}
                     {buyerName.trim() &&
-                      getMemberBalance(buyerName) >= cartTotal &&
-                      cartTotal > 0 && (
+                      getMemberBalance(buyerName) >= checkoutTotal &&
+                      checkoutTotal > 0 && (
                         <button
                           onClick={() => confirmPayment("avoir")}
                           className="w-full py-3.5 rounded-xl font-bold text-[15px] bg-emerald-600 text-white active:scale-95 cursor-pointer mb-3"
@@ -1856,13 +1914,13 @@ export default function AeroClubBar() {
                       )}
                     {buyerName.trim() &&
                       getMemberBalance(buyerName) > 0 &&
-                      getMemberBalance(buyerName) < cartTotal &&
-                      cartTotal > 0 && (
+                      getMemberBalance(buyerName) < checkoutTotal &&
+                      checkoutTotal > 0 && (
                         <div className="bg-[#0f172a] rounded-xl p-3 mb-3 text-xs text-slate-400 text-center">
                           {"Avoir insuffisant (" +
                             formatPrice(getMemberBalance(buyerName)) +
                             " < " +
-                            formatPrice(cartTotal) +
+                            formatPrice(checkoutTotal) +
                             "). Payez par especes ou carte."}
                         </div>
                       )}
@@ -1913,17 +1971,17 @@ export default function AeroClubBar() {
                           className="w-full h-10 rounded-lg border border-slate-700 bg-[#131b2e] text-white text-center text-sm font-bold outline-none mb-2"
                         />
                         {cashAmountInput &&
-                          parseFloat(cashAmountInput) >= cartTotal && (
+                          parseFloat(cashAmountInput) >= checkoutTotal && (
                             <div className="text-xs text-center mb-2">
-                              {parseFloat(cashAmountInput) > cartTotal && (
+                              {parseFloat(cashAmountInput) > checkoutTotal && (
                                 <span className="text-emerald-400 font-semibold">
                                   {"Avoir credite : +" +
                                     formatPrice(
-                                      parseFloat(cashAmountInput) - cartTotal,
+                                      parseFloat(cashAmountInput) - checkoutTotal,
                                     )}
                                 </span>
                               )}
-                              {parseFloat(cashAmountInput) === cartTotal && (
+                              {parseFloat(cashAmountInput) === checkoutTotal && (
                                 <span className="text-slate-400">
                                   {"Montant exact"}
                                 </span>
@@ -1931,11 +1989,11 @@ export default function AeroClubBar() {
                             </div>
                           )}
                         {cashAmountInput &&
-                          parseFloat(cashAmountInput) < cartTotal && (
+                          parseFloat(cashAmountInput) < checkoutTotal && (
                             <div className="text-xs text-center mb-2 text-red-400">
                               {"Montant insuffisant (il manque " +
                                 formatPrice(
-                                  cartTotal - parseFloat(cashAmountInput),
+                                  checkoutTotal - parseFloat(cashAmountInput),
                                 ) +
                                 ")"}
                             </div>
@@ -1943,17 +2001,17 @@ export default function AeroClubBar() {
                         <button
                           onClick={() => {
                             const amt = parseFloat(cashAmountInput);
-                            if (amt >= cartTotal)
+                            if (amt >= checkoutTotal)
                               confirmPayment("especes", amt);
                           }}
                           disabled={
                             !cashAmountInput ||
-                            parseFloat(cashAmountInput) < cartTotal
+                            parseFloat(cashAmountInput) < checkoutTotal
                           }
                           className={
                             "w-full py-3 rounded-xl font-bold text-sm transition-all " +
                             (cashAmountInput &&
-                            parseFloat(cashAmountInput) >= cartTotal
+                            parseFloat(cashAmountInput) >= checkoutTotal
                               ? "bg-emerald-600 text-white active:scale-95 cursor-pointer"
                               : "bg-slate-800 text-slate-600 cursor-not-allowed")
                           }
@@ -1980,7 +2038,7 @@ export default function AeroClubBar() {
                               : "bg-slate-800 text-slate-600 cursor-not-allowed")
                           }
                         >
-                          {"💳 Payer " + formatPrice(cartTotal) + " par carte"}
+                          {"💳 Payer " + formatPrice(checkoutTotal) + " par carte"}
                         </button>
                       )}
                       {sumupLoading && (
@@ -2040,7 +2098,7 @@ export default function AeroClubBar() {
                     </div>
 
                     {/* Offert / gratuit */}
-                    {cartTotal === 0 && buyerName.trim() && (
+                    {checkoutTotal === 0 && buyerName.trim() && (
                       <button
                         onClick={() => confirmPayment("offert")}
                         className="w-full py-3.5 rounded-xl font-bold text-[15px] bg-purple-700 text-white active:scale-95 cursor-pointer mb-2"
@@ -4569,99 +4627,74 @@ export default function AeroClubBar() {
         </div>
       )}
 
-      {/* ── Modal madeleine : offre avec le café ── */}
+      {/* ── Modal madeleine : distribution (déjà payée) ── */}
       {coffeeModal && coffeeModal.step === "madeleine" && (() => {
-        const addonProduct = products.find((p) => p.coffeeAddon && !p.archived);
-        const addonEmoji = addonProduct?.emoji || "🧁";
-        const addonName = addonProduct?.name || "Madeleine";
-        const addonQty = addonProduct?.coffeeAddonQty || 2;
-        const addonPrice = addonProduct?.coffeeAddonPrice || 0.80;
+        const addonProd = products.find((p) => p.coffeeAddon && !p.archived);
+        const addonEmoji = addonProd?.emoji || "🧁";
+        const addonName = addonProd?.name || "Madeleine";
+        const totalMad = coffeeModal.totalMadeleines || (addonProd?.coffeeAddonQty || 2);
         const usedNow = coffeeModal.usedNow || 0;
         const savedCoffees = coffeeModal.totalServings - usedNow;
         return (
           <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4">
-            <div className="bg-[#131b2e] border border-amber-700/40 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-2xl">
+            <div className="bg-[#131b2e] border border-pink-700/40 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-2xl">
               <div className="text-4xl text-center">{addonEmoji}</div>
               <h2 className="text-lg font-bold text-white text-center">
-                {"Ajouter " + addonQty + " " + addonName + "s ?"}
+                {"Vos " + totalMad + " " + addonName + (totalMad > 1 ? "s" : "")}
               </h2>
-              <p className="text-center text-amber-400 font-bold text-xl">
-                {addonPrice.toFixed(2).replace(".", ",") + " € les " + addonQty}
+              <p className="text-center text-pink-300 text-sm font-semibold">
+                {"Deja incluses dans le paiement — comment les repartir ?"}
               </p>
               <div className="bg-slate-800/50 rounded-xl p-3 text-sm text-center">
-                {usedNow >= addonQty ? (
+                {usedNow > 0 ? (
                   <p className="text-slate-300">
-                    {"Vous prenez " + usedNow + " cafe" + (usedNow > 1 ? "s" : "") + " maintenant."}
-                    <br />
-                    <span className="text-pink-300 font-semibold">{addonEmoji + " " + addonQty + " " + addonName + "s a recuperer !"}</span>
-                  </p>
-                ) : usedNow > 0 ? (
-                  <p className="text-slate-300">
-                    {"Vous prenez " + usedNow + " cafe maintenant, " + savedCoffees + " en avoir."}
-                    <br />
-                    <span className="text-pink-300 font-semibold">{addonEmoji + " " + usedNow + " " + addonName + " maintenant + " + (addonQty - usedNow) + " avec votre prochain cafe !"}</span>
+                    {"Vous prenez " + usedNow + " cafe" + (usedNow > 1 ? "s" : "") + " maintenant" + (savedCoffees > 0 ? ", " + savedCoffees + " en avoir." : ".")}
                   </p>
                 ) : (
-                  <p className="text-slate-300">
-                    {"Tous les cafes en avoir."}
-                    <br />
-                    <span className="text-pink-300 font-semibold">{addonEmoji + " " + addonQty + " " + addonName + "s avec vos prochains cafes !"}</span>
-                  </p>
+                  <p className="text-slate-300">{"Tous les cafes en avoir."}</p>
                 )}
-                {usedNow > 0 && (
-                  <p className="text-[11px] text-slate-500 mt-2 border-t border-slate-700/50 pt-2">
-                    {"☕ Cafe → tiroir a votre droite • " + addonEmoji + " " + addonName + "s → dans le frigo"}
-                  </p>
-                )}
+                <p className="text-[11px] text-slate-500 mt-2 border-t border-slate-700/50 pt-2">
+                  {"☕ Cafe → tiroir a votre droite • " + addonEmoji + " " + addonName + (totalMad > 1 ? "s" : "") + " → dans le frigo"}
+                </p>
               </div>
               <div className="flex flex-col gap-2 mt-2">
-                {/* Option : toutes maintenant */}
-                {usedNow >= addonQty && (
+                {/* Toutes maintenant (si assez de cafés pris maintenant) */}
+                {usedNow >= totalMad && (
                   <button
-                    onClick={() => handleMadeleineChoice(addonQty)}
+                    onClick={() => handleMadeleineChoice(totalMad)}
                     className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 bg-emerald-600 text-white px-5"
                   >
-                    {addonEmoji + " Oui ! " + addonQty + " " + addonName + "s maintenant"}
+                    {addonEmoji + " Les " + totalMad + " maintenant"}
                   </button>
                 )}
-                {/* Option : X maintenant, Y en avoir (recommande) */}
-                {usedNow > 0 && usedNow < addonQty && (
+                {/* X maintenant + Y en avoir (recommandé si split) */}
+                {usedNow > 0 && usedNow < totalMad && (
                   <button
                     onClick={() => handleMadeleineChoice(usedNow)}
                     className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 bg-emerald-600 text-white px-5 flex flex-col items-center"
                   >
-                    <span>{addonEmoji + " " + usedNow + " maintenant + " + (addonQty - usedNow) + " en avoir"}</span>
-                    <span className="text-[11px] font-normal text-emerald-200 mt-0.5">{"La " + addonName + " en avoir sera avec votre prochain cafe"}</span>
+                    <span>{addonEmoji + " " + usedNow + " maintenant + " + (totalMad - usedNow) + " en avoir"}</span>
+                    <span className="text-[11px] font-normal text-emerald-200 mt-0.5">{"Les " + (totalMad - usedNow) + " en avoir seront avec vos prochains cafes"}</span>
                   </button>
                 )}
-                {/* Option : toutes maintenant même si café sauvé */}
-                {usedNow > 0 && usedNow < addonQty && (
+                {/* Toutes maintenant même si cafés sauvés */}
+                {usedNow > 0 && usedNow < totalMad && (
                   <button
-                    onClick={() => handleMadeleineChoice(addonQty)}
+                    onClick={() => handleMadeleineChoice(totalMad)}
                     className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 border border-amber-600 bg-amber-900/20 text-amber-300 px-5"
                   >
-                    {addonEmoji + " Les " + addonQty + " maintenant"}
+                    {addonEmoji + " Les " + totalMad + " maintenant"}
                   </button>
                 )}
-                {/* Option : toutes en avoir (0 cafe maintenant) */}
+                {/* Toutes en avoir (0 café maintenant) */}
                 {usedNow === 0 && (
                   <button
                     onClick={() => handleMadeleineChoice(0)}
                     className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 bg-emerald-600 text-white px-5"
                   >
-                    {addonEmoji + " " + addonQty + " en avoir (prochains cafes)"}
+                    {addonEmoji + " " + totalMad + " en avoir (prochains cafes)"}
                   </button>
                 )}
-                {/* Non merci */}
-                <button
-                  onClick={() => {
-                    fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
-                    setCoffeeModal(null);
-                  }}
-                  className="w-full py-3 rounded-xl text-sm cursor-pointer active:scale-95 text-slate-500 hover:text-slate-300"
-                >
-                  {"Non merci"}
-                </button>
               </div>
             </div>
           </div>
