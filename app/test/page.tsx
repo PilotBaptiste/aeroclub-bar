@@ -78,6 +78,7 @@ export default function TestPage() {
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
   const [coffeeCredits, setCoffeeCredits] = useState<Record<string, number>>({});
   const [madeleineCredits, setMadeleineCredits] = useState<Record<string, number>>({});
+  const [temperatures, setTemperatures] = useState<{ frigo: number | null; congelateur: number | null; lastUpdate: string | null }>({ frigo: null, congelateur: null, lastUpdate: null });
   const [loading, setLoading] = useState(true);
 
   // ── UI state ──
@@ -150,6 +151,18 @@ export default function TestPage() {
   useEffect(() => { if (!loading && hasLoaded.current) debouncedSave("settings", settings); }, [settings, loading, debouncedSave]);
   useEffect(() => { if (!loading && hasLoaded.current) debouncedSave("coffee-credits", coffeeCredits); }, [coffeeCredits, loading, debouncedSave]);
   useEffect(() => { if (!loading && hasLoaded.current) debouncedSave("madeleine-credits", madeleineCredits); }, [madeleineCredits, loading, debouncedSave]);
+
+  // ── Poll temperatures ──
+  useEffect(() => {
+    const fetchTemp = () => {
+      fetch("/api/temperature").then((r) => r.json()).then((d) => {
+        if (d && (d.frigo !== undefined || d.congelateur !== undefined)) setTemperatures(d);
+      }).catch(() => {});
+    };
+    fetchTemp();
+    const timer = setInterval(fetchTemp, 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   // ═══════════════════════════════════════════
   //  COMPUTED
@@ -475,6 +488,21 @@ export default function TestPage() {
               <p className="text-[11px] text-slate-500 font-medium tracking-wider">{"BASSIN D'ARCACHON"}</p>
             </div>
           </button>
+          {/* Temperatures */}
+          {(temperatures.frigo !== null || temperatures.congelateur !== null) && (
+            <div className="flex items-center gap-3">
+              {temperatures.frigo !== null && (
+                <span className={"text-[11px] font-bold " + (temperatures.frigo > 8 ? "text-red-400" : temperatures.frigo > 5 ? "text-amber-400" : "text-emerald-400")}>
+                  {"🧊 " + temperatures.frigo.toFixed(1) + "°"}
+                </span>
+              )}
+              {temperatures.congelateur !== null && (
+                <span className={"text-[11px] font-bold " + (temperatures.congelateur > -15 ? "text-red-400" : temperatures.congelateur > -18 ? "text-amber-400" : "text-emerald-400")}>
+                  {"❄️ " + temperatures.congelateur.toFixed(1) + "°"}
+                </span>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-3">
             {/* Admin button */}
             <button onClick={() => { if (view === "admin") { setView("sale"); } else { setView("admin"); setPinInput(""); } Sound.pop(); }}
@@ -679,6 +707,31 @@ export default function TestPage() {
             </div>
           ) : (
             <div>
+              {/* Temperatures */}
+              {(temperatures.frigo !== null || temperatures.congelateur !== null) && (
+                <div className="grid grid-cols-2 gap-3 mb-6">
+                  <div className={"rounded-2xl p-4 text-center border " + (temperatures.frigo !== null && temperatures.frigo > 8 ? "bg-red-950/50 border-red-800/50" : "bg-white/[0.03] border-white/5")}>
+                    <span className={"block text-2xl font-black " + (temperatures.frigo === null ? "text-slate-600" : temperatures.frigo > 8 ? "text-red-400" : temperatures.frigo > 5 ? "text-amber-400" : "text-emerald-400")}>
+                      {temperatures.frigo !== null ? "🧊 " + temperatures.frigo.toFixed(1) + "°C" : "🧊 --"}
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">{"Frigo"}</span>
+                    {temperatures.frigo !== null && temperatures.frigo > 8 && <p className="text-[10px] text-red-400 font-bold mt-1">{"⚠ Temperature trop haute !"}</p>}
+                  </div>
+                  <div className={"rounded-2xl p-4 text-center border " + (temperatures.congelateur !== null && temperatures.congelateur > -15 ? "bg-red-950/50 border-red-800/50" : "bg-white/[0.03] border-white/5")}>
+                    <span className={"block text-2xl font-black " + (temperatures.congelateur === null ? "text-slate-600" : temperatures.congelateur > -15 ? "text-red-400" : temperatures.congelateur > -18 ? "text-amber-400" : "text-emerald-400")}>
+                      {temperatures.congelateur !== null ? "❄️ " + temperatures.congelateur.toFixed(1) + "°C" : "❄️ --"}
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">{"Congelateur"}</span>
+                    {temperatures.congelateur !== null && temperatures.congelateur > -15 && <p className="text-[10px] text-red-400 font-bold mt-1">{"⚠ Temperature trop haute !"}</p>}
+                  </div>
+                  {temperatures.lastUpdate && (
+                    <p className="col-span-2 text-[10px] text-slate-600 text-center -mt-1">
+                      {"Derniere mise a jour : " + new Date(temperatures.lastUpdate).toLocaleTimeString("fr-FR")}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Admin tabs */}
               <div className="flex gap-2 mb-6">
                 {[{ id: "homepage" as const, label: "🏠 Page d'accueil" }, { id: "products" as const, label: "📦 Produits" }].map((tab) => (

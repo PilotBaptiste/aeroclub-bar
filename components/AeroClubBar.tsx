@@ -305,6 +305,7 @@ export default function AeroClubBar() {
   } | null>(null);
   const [coffeeAvoirUsedInCheckout, setCoffeeAvoirUsedInCheckout] = useState(false);
   const [madeleineAdded, setMadeleineAdded] = useState(false);
+  const [temperatures, setTemperatures] = useState<{ frigo: number | null; congelateur: number | null; lastUpdate: string | null }>({ frigo: null, congelateur: null, lastUpdate: null });
   const [batches, setBatches] = useState<Batch[]>([]);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [editingMember, setEditingMember] = useState<{ name: string; newName: string; balance: number; coffee: number } | null>(null);
@@ -480,6 +481,18 @@ export default function AeroClubBar() {
       if (cartTickRef.current) clearInterval(cartTickRef.current);
       if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
     };
+  }, []);
+
+  // Poll temperatures toutes les 30s
+  useEffect(() => {
+    const fetchTemp = () => {
+      fetch("/api/temperature").then((r) => r.json()).then((d) => {
+        if (d && (d.frigo !== undefined || d.congelateur !== undefined)) setTemperatures(d);
+      }).catch(() => {});
+    };
+    fetchTemp();
+    const timer = setInterval(fetchTemp, 30000);
+    return () => clearInterval(timer);
   }, []);
 
   // Auto-reload toutes les 10 min si l'app est idle (iPad non surveillé)
@@ -1392,6 +1405,21 @@ export default function AeroClubBar() {
             <p className="text-slate-500 text-sm font-medium mt-1">
               {"Touchez pour ajouter au panier"}
             </p>
+            {/* Temperatures frigo/congelateur */}
+            {(temperatures.frigo !== null || temperatures.congelateur !== null) && (
+              <div className="flex items-center justify-center gap-4 mt-2">
+                {temperatures.frigo !== null && (
+                  <span className={"text-xs font-bold " + (temperatures.frigo > 8 ? "text-red-400" : temperatures.frigo > 5 ? "text-amber-400" : "text-emerald-400")}>
+                    {"🧊 Frigo " + temperatures.frigo.toFixed(1) + "°C"}
+                  </span>
+                )}
+                {temperatures.congelateur !== null && (
+                  <span className={"text-xs font-bold " + (temperatures.congelateur > -15 ? "text-red-400" : temperatures.congelateur > -18 ? "text-amber-400" : "text-emerald-400")}>
+                    {"❄️ Congel " + temperatures.congelateur.toFixed(1) + "°C"}
+                  </span>
+                )}
+              </div>
+            )}
             <button
               onClick={() => {
                 setView("login");
@@ -2458,6 +2486,32 @@ export default function AeroClubBar() {
               </div>
             )}
           </div>
+          {/* Temperatures frigo/congelateur */}
+          {(temperatures.frigo !== null || temperatures.congelateur !== null) && (
+            <div className="grid grid-cols-2 gap-2.5 mb-5">
+              <div className={"rounded-2xl p-3.5 text-center border " + (temperatures.frigo !== null && temperatures.frigo > 8 ? "bg-red-950 border-red-800" : "bg-[#131b2e] border-[#1e2d4a]")}>
+                <span className={"block text-xl font-extrabold " + (temperatures.frigo === null ? "text-slate-600" : temperatures.frigo > 8 ? "text-red-400" : temperatures.frigo > 5 ? "text-amber-400" : "text-emerald-400")}>
+                  {temperatures.frigo !== null ? "\uD83E\uDDCA " + temperatures.frigo.toFixed(1) + "\u00B0C" : "\uD83E\uDDCA --"}
+                </span>
+                <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">
+                  {"Frigo"}
+                </span>
+              </div>
+              <div className={"rounded-2xl p-3.5 text-center border " + (temperatures.congelateur !== null && temperatures.congelateur > -15 ? "bg-red-950 border-red-800" : "bg-[#131b2e] border-[#1e2d4a]")}>
+                <span className={"block text-xl font-extrabold " + (temperatures.congelateur === null ? "text-slate-600" : temperatures.congelateur > -15 ? "text-red-400" : temperatures.congelateur > -18 ? "text-amber-400" : "text-emerald-400")}>
+                  {temperatures.congelateur !== null ? "\u2744\uFE0F " + temperatures.congelateur.toFixed(1) + "\u00B0C" : "\u2744\uFE0F --"}
+                </span>
+                <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">
+                  {"Congelateur"}
+                </span>
+              </div>
+              {temperatures.lastUpdate && (
+                <p className="col-span-2 text-[10px] text-slate-600 text-center">
+                  {"Mise a jour : " + new Date(temperatures.lastUpdate).toLocaleTimeString("fr-FR")}
+                </p>
+              )}
+            </div>
+          )}
           <div className="flex gap-1 mb-4">
             {[
               { key: "stock", label: "\uD83D\uDCE6 Stock" },
