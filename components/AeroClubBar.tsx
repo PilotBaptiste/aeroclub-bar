@@ -250,7 +250,7 @@ export default function AeroClubBar() {
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
   const [showAddProduct, setShowAddProduct] = useState(false);
-  const [newProduct, setNewProduct] = useState<{ name: string; emoji: string; price: number; cost: number; stock: number; stockReserve: number; coffeeServings?: number; location?: "frigo" | "cafe" | "congelateur" }>({
+  const [newProduct, setNewProduct] = useState<{ name: string; emoji: string; price: number; cost: number; stock: number; stockReserve: number; coffeeServings?: number; location?: "frigo" | "cafe" | "congelateur"; coffeeAddon?: boolean; coffeeAddonQty?: number; coffeeAddonPrice?: number }>({
     name: "",
     emoji: "\uD83E\uDD64",
     price: 1.0,
