@@ -1753,6 +1753,11 @@ export default function AeroClubBar() {
                                 <p className="text-sm text-pink-300 font-bold">
                                   {(addonProduct?.emoji || "🧁") + " 1 " + (addonProduct?.name || "madeleine") + " avec ce cafe"}
                                 </p>
+                                <p className="text-[11px] text-slate-400 mt-1">
+                                  {"☕ Cafe → tiroir a votre droite"}
+                                  {" • "}
+                                  {(addonProduct?.emoji || "🧁") + " " + (addonProduct?.name || "Madeleine") + " → dans le frigo"}
+                                </p>
                                 {madCredit > 1 && (
                                   <p className="text-[11px] text-pink-400/60 mt-1">
                                     {"(" + (madCredit - 1) + " restante" + (madCredit - 1 > 1 ? "s" : "") + " en avoir)"}
@@ -1797,9 +1802,9 @@ export default function AeroClubBar() {
                                 setCart(remaining);
                                 if (remaining.length > 0) {
                                   setCoffeeAvoirUsedInCheckout(true);
-                                  showToast(hasMadeleine ? "☕ 1 cafe + 🧁 1 madeleine — passez au paiement" : "☕ Cafe deverrouille — passez au paiement");
+                                  showToast(hasMadeleine ? "☕ Cafe (tiroir) + 🧁 Madeleine (frigo) — passez au paiement" : "☕ Cafe deverrouille (tiroir a droite)");
                                 } else {
-                                  showToast(hasMadeleine ? "☕ 1 cafe + 🧁 1 madeleine deverrouilles !" : "☕ Tiroir cafe deverrouille !");
+                                  showToast(hasMadeleine ? "☕ Tiroir cafe + 🍪 Frigo ouverts !" : "☕ Tiroir cafe ouvert (a droite) !");
                                   clearCart();
                                   setBuyerName("");
                                 }
@@ -4588,7 +4593,7 @@ export default function AeroClubBar() {
                   <p className="text-slate-300">
                     {"Vous prenez " + usedNow + " cafe" + (usedNow > 1 ? "s" : "") + " maintenant."}
                     <br />
-                    <span className="text-pink-300 font-semibold">{addonEmoji + " " + addonQty + " " + addonName + "s a recuperer au frigo !"}</span>
+                    <span className="text-pink-300 font-semibold">{addonEmoji + " " + addonQty + " " + addonName + "s a recuperer !"}</span>
                   </p>
                 ) : usedNow > 0 ? (
                   <p className="text-slate-300">
@@ -4601,6 +4606,11 @@ export default function AeroClubBar() {
                     {"Tous les cafes en avoir."}
                     <br />
                     <span className="text-pink-300 font-semibold">{addonEmoji + " " + addonQty + " " + addonName + "s avec vos prochains cafes !"}</span>
+                  </p>
+                )}
+                {usedNow > 0 && (
+                  <p className="text-[11px] text-slate-500 mt-2 border-t border-slate-700/50 pt-2">
+                    {"☕ Cafe → tiroir a votre droite • " + addonEmoji + " " + addonName + "s → dans le frigo"}
                   </p>
                 )}
               </div>
