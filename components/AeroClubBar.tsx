@@ -1677,14 +1677,13 @@ export default function AeroClubBar() {
                         </div>
                       ))}
                     </div>
-                    {/* ── Offre madeleine (avant paiement) — masqué si avoir café+madeleine dispo ── */}
+                    {/* ── Offre madeleine (avant paiement) — masqué si avoir café dispo ── */}
                     {madeleineOfferQty > 0 && madeleineProduct && (() => {
                       const bk = normalizeNameFuzzy(buyerName.trim());
                       const cn = buyerName.trim() ? (members.find((m) => normalizeNameFuzzy(m.name) === bk)?.name || buyerName.trim()) : "";
                       const hasCafAvoir = cn ? (coffeeCredits[cn] || 0) > 0 : false;
-                      const hasMadAvoir = cn ? (madeleineCredits[cn] || 0) > 0 : false;
                       const cartHasCaf = cart.some((c) => c.product.name.toLowerCase().includes("café") || c.product.name.toLowerCase().includes("cafe") || !!(c.product.coffeeServings && c.product.coffeeServings > 1));
-                      if (hasCafAvoir && hasMadAvoir && cartHasCaf && !coffeeAvoirUsedInCheckout) return null;
+                      if (hasCafAvoir && cartHasCaf && !coffeeAvoirUsedInCheckout) return null;
                       return true;
                     })() && (
                       <div className={
@@ -1839,7 +1838,7 @@ export default function AeroClubBar() {
                               </div>
                             )}
                             <p className="text-xs text-amber-400 font-semibold text-center">
-                              {"☕ " + canonical.split(" ")[0] + " a " + cafCredit + " avoir" + (cafCredit > 1 ? "s" : "") + " cafe"}
+                              {"☕ " + canonical.split(" ")[0] + " a " + cafCredit + " avoir" + (cafCredit > 1 ? "s" : "") + " cafe" + (madCredit > 0 ? " + 🧁 " + madCredit + " madeleine" + (madCredit > 1 ? "s" : "") : "")}
                             </p>
                             {hasMadeleine && (
                               <div className="bg-pink-900/20 border border-pink-700/30 rounded-xl p-3 text-center">
@@ -1916,6 +1915,12 @@ export default function AeroClubBar() {
                             {cart.length === 0 && (
                               <p className="text-[11px] text-slate-600 text-center">{hasMadeleine ? "Ouvre le cafe + le frigo sans paiement" : "Ouvre le tiroir cafe sans paiement"}</p>
                             )}
+                            <button
+                              onClick={() => setCoffeeAvoirUsedInCheckout(true)}
+                              className="text-[11px] text-slate-500 underline cursor-pointer hover:text-slate-300 text-center mt-1"
+                            >
+                              {"Acheter sans utiliser mon avoir →"}
+                            </button>
                           </div>
                         );
                       }
