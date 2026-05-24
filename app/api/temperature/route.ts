@@ -10,9 +10,7 @@ interface TemperatureData {
 }
 
 interface TempAlertState {
-  frigoLastAlert?: string;       // ISO timestamp du dernier envoi
-  congelateurLastAlert?: string;
-  frigoAlerted?: boolean;        // actuellement en alerte (pour envoyer le retour OK)
+  frigoAlerted?: boolean;        // true = on est actuellement hors plage (alerte envoyée)
   congelateurAlerted?: boolean;
 }
 
@@ -24,7 +22,6 @@ const FRIGO_MIN = 6;         // °C — en-dessous = alerte
 const FRIGO_MAX = 8;         // °C — au-dessus = alerte
 const CONGELATEUR_MIN = -18; // °C — en-dessous = alerte
 const CONGELATEUR_MAX = -14; // °C — au-dessus = alerte
-const ALERT_COOLDOWN_MS = 15 * 60 * 1000; // 15 min entre deux alertes du même capteur
 
 async function sendTelegram(message: string) {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -78,36 +75,32 @@ export async function POST(request: Request) {
     await kv.set(KV_KEY, data);
 
     // ── Vérification des seuils + alertes Telegram ──
+    // Une seule alerte quand la température SORT de la plage,
+    // puis une seule notification quand elle REVIENT dans la plage.
     const alertState = ((await kv.get(ALERT_STATE_KEY)) as TempAlertState | null) || {};
-    const now = Date.now();
     let stateChanged = false;
 
     // ── FRIGO (plage 6°C – 8°C) ──
     if (data.frigo !== null) {
       const frigoHorsPlage = data.frigo < FRIGO_MIN || data.frigo > FRIGO_MAX;
-      if (frigoHorsPlage) {
-        const lastAlert = alertState.frigoLastAlert ? new Date(alertState.frigoLastAlert).getTime() : 0;
-        if (now - lastAlert > ALERT_COOLDOWN_MS) {
-          const direction = data.frigo > FRIGO_MAX ? "trop haute 📈" : "trop basse 📉";
-          await sendTelegram(
-            "🌡️🔴 <b>ALERTE TEMPERATURE FRIGO</b>\n\n" +
-            "Température " + direction + " : <b>" + data.frigo.toFixed(1) + "°C</b>\n" +
-            "⚠️ Plage normale : " + FRIGO_MIN + "°C à " + FRIGO_MAX + "°C\n\n" +
-            "Vérifiez que la porte est bien fermée !\n" +
-            "🔕 <i>Prochaine alerte dans 15 min max si le problème persiste</i>"
-          );
-          alertState.frigoLastAlert = data.lastUpdate;
-          alertState.frigoAlerted = true;
-          stateChanged = true;
-        }
-      } else if (alertState.frigoAlerted) {
-        // Retour à la normale
+      if (frigoHorsPlage && !alertState.frigoAlerted) {
+        // Vient de sortir de la plage → 1 seule alerte
+        const direction = data.frigo > FRIGO_MAX ? "trop haute 📈" : "trop basse 📉";
+        await sendTelegram(
+          "🌡️🔴 <b>ALERTE TEMPERATURE FRIGO</b>\n\n" +
+          "Température " + direction + " : <b>" + data.frigo.toFixed(1) + "°C</b>\n" +
+          "⚠️ Plage normale : " + FRIGO_MIN + "°C à " + FRIGO_MAX + "°C\n\n" +
+          "Vérifiez que la porte est bien fermée !"
+        );
+        alertState.frigoAlerted = true;
+        stateChanged = true;
+      } else if (!frigoHorsPlage && alertState.frigoAlerted) {
+        // Vient de revenir dans la plage → notification retour OK
         await sendTelegram(
           "🌡️✅ <b>FRIGO OK</b>\n\n" +
           "📉 Température revenue à <b>" + data.frigo.toFixed(1) + "°C</b> (plage : " + FRIGO_MIN + "–" + FRIGO_MAX + "°C)"
         );
         alertState.frigoAlerted = false;
-        alertState.frigoLastAlert = undefined;
         stateChanged = true;
       }
     }
@@ -115,28 +108,24 @@ export async function POST(request: Request) {
     // ── CONGÉLATEUR (plage -18°C – -14°C) ──
     if (data.congelateur !== null) {
       const congelateurHorsPlage = data.congelateur < CONGELATEUR_MIN || data.congelateur > CONGELATEUR_MAX;
-      if (congelateurHorsPlage) {
-        const lastAlert = alertState.congelateurLastAlert ? new Date(alertState.congelateurLastAlert).getTime() : 0;
-        if (now - lastAlert > ALERT_COOLDOWN_MS) {
-          const direction = data.congelateur > CONGELATEUR_MAX ? "trop haute 📈" : "trop basse 📉";
-          await sendTelegram(
-            "🌡️🔴 <b>ALERTE TEMPERATURE CONGELATEUR</b>\n\n" +
-            "Température " + direction + " : <b>" + data.congelateur.toFixed(1) + "°C</b>\n" +
-            "⚠️ Plage normale : " + CONGELATEUR_MIN + "°C à " + CONGELATEUR_MAX + "°C\n\n" +
-            "Vérifiez que la porte est bien fermée !\n" +
-            "🔕 <i>Prochaine alerte dans 15 min max si le problème persiste</i>"
-          );
-          alertState.congelateurLastAlert = data.lastUpdate;
-          alertState.congelateurAlerted = true;
-          stateChanged = true;
-        }
-      } else if (alertState.congelateurAlerted) {
+      if (congelateurHorsPlage && !alertState.congelateurAlerted) {
+        // Vient de sortir de la plage → 1 seule alerte
+        const direction = data.congelateur > CONGELATEUR_MAX ? "trop haute 📈" : "trop basse 📉";
+        await sendTelegram(
+          "🌡️🔴 <b>ALERTE TEMPERATURE CONGELATEUR</b>\n\n" +
+          "Température " + direction + " : <b>" + data.congelateur.toFixed(1) + "°C</b>\n" +
+          "⚠️ Plage normale : " + CONGELATEUR_MIN + "°C à " + CONGELATEUR_MAX + "°C\n\n" +
+          "Vérifiez que la porte est bien fermée !"
+        );
+        alertState.congelateurAlerted = true;
+        stateChanged = true;
+      } else if (!congelateurHorsPlage && alertState.congelateurAlerted) {
+        // Vient de revenir dans la plage → notification retour OK
         await sendTelegram(
           "🌡️✅ <b>CONGELATEUR OK</b>\n\n" +
           "📉 Température revenue à <b>" + data.congelateur.toFixed(1) + "°C</b> (plage : " + CONGELATEUR_MIN + "–" + CONGELATEUR_MAX + "°C)"
         );
         alertState.congelateurAlerted = false;
-        alertState.congelateurLastAlert = undefined;
         stateChanged = true;
       }
     }
