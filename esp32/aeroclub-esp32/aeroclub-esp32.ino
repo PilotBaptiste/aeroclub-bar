@@ -32,7 +32,6 @@ const char* WIFI_SSID     = "ACBA-H7";
 const char* WIFI_PASSWORD = "villemarie-H7";
 const char* API_URL       = "https://aeroclub-bar.vercel.app/api/fridge";
 const char* TEMP_URL      = "https://aeroclub-bar.vercel.app/api/temperature";
-const char* LED_URL       = "https://aeroclub-bar.vercel.app/api/fridge-led";
 // ==============
 
 // --- PINS RELAIS (serrures) ---
@@ -50,7 +49,7 @@ const int TEMP_CONGEL_PIN = 15;  // DS18B20 du congelateur
 // --- TIMING ---
 const unsigned long POLL_INTERVAL = 2000;   // Poll serrures toutes les 2s
 const unsigned long TEMP_INTERVAL = 30000;  // Envoi temperatures toutes les 30s
-const unsigned long LED_INTERVAL  = 30000;  // Poll LED toutes les 30s
+// LED lue dans la reponse du poll serrures (toutes les 2s, pas de requete en plus)
 
 // --- OBJETS CAPTEURS ---
 OneWire oneWireFrigo(TEMP_FRIGO_PIN);
@@ -61,7 +60,6 @@ DallasTemperature capteurCongel(&oneWireCongel);
 // --- VARIABLES ---
 unsigned long lastPoll = 0;
 unsigned long lastTemp = 0;
-unsigned long lastLed  = 0;
 bool ledState = false;     // Etat actuel de la LED
 
 // Dernieres temperatures lues
@@ -125,9 +123,6 @@ void setup() {
   lireTemperatures();
   envoyerTemperatures();
 
-  // --- Premier check LED ---
-  pollLed();
-
   Serial.println("=== Initialisation terminee ===");
   Serial.println();
 }
@@ -160,11 +155,6 @@ void loop() {
     envoyerTemperatures();
   }
 
-  // --- POLL LED FRIGO VITRINE (toutes les 30s) ---
-  if (now - lastLed >= LED_INTERVAL) {
-    lastLed = now;
-    pollLed();
-  }
 }
 
 // ============================================================
@@ -194,6 +184,14 @@ void pollSerrures() {
       }
 
       http.end();
+
+      // --- LED frigo vitrine (dans la meme reponse, pas de requete en plus) ---
+      bool wantLed = body.indexOf("\"led\":true") >= 0;
+      if (wantLed != ledState) {
+        ledState = wantLed;
+        digitalWrite(RELAY_LED, ledState ? HIGH : LOW);
+        Serial.printf("LED frigo vitrine : %s\n", ledState ? "ALLUMEE" : "ETEINTE");
+      }
 
       if (!needCafe && !needFrigo && !needCongelateur) return;
 
@@ -286,30 +284,4 @@ void envoyerTemperatures() {
   }
 }
 
-// ============================================================
-// POLL LED FRIGO VITRINE (GET /api/fridge-led)
-// ============================================================
-void pollLed() {
-  if (WiFi.status() != WL_CONNECTED) return;
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-
-  if (http.begin(client, LED_URL)) {
-    int httpCode = http.GET();
-    if (httpCode == 200) {
-      String body = http.getString();
-      bool shouldBeOn = body.indexOf("\"led\":true") >= 0;
-
-      if (shouldBeOn != ledState) {
-        ledState = shouldBeOn;
-        digitalWrite(RELAY_LED, ledState ? HIGH : LOW);
-        Serial.printf("LED frigo vitrine : %s\n", ledState ? "ALLUMEE" : "ETEINTE");
-      }
-    } else {
-      Serial.printf("LED poll HTTP %d\n", httpCode);
-    }
-    http.end();
-  }
-}
+// LED frigo vitrine : etat lu dans pollSerrures() (meme requete, pas de poll separe)

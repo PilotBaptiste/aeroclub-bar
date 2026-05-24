@@ -19,9 +19,39 @@ export async function GET(request: Request) {
 
   try {
     if (action === "check") {
-      const locks = ((await kv.get("aeroclub-locks")) as Locks | null) || EMPTY;
-      const result = { cafe: locks.cafe === true, frigo: locks.frigo === true, congelateur: locks.congelateur === true, both: locks.both === true };
-      // Reset seulement si un verrou était actif
+      // Locks + état LED dans la même requête (pollé toutes les 2s)
+      const [locks, settings] = await Promise.all([
+        kv.get("aeroclub-locks") as Promise<Locks | null>,
+        kv.get("aeroclub-settings") as Promise<Record<string, unknown> | null>,
+      ]);
+      const l = locks || EMPTY;
+      const result = { cafe: l.cafe === true, frigo: l.frigo === true, congelateur: l.congelateur === true, both: l.both === true, led: false };
+
+      // Calculer l'état LED
+      if (settings && settings.ledEnabled) {
+        const force = settings.ledForceState as string | undefined;
+        if (force === "on") {
+          result.led = true;
+        } else if (force === "off") {
+          result.led = false;
+        } else {
+          // Mode auto : plage horaire
+          const onTime = (settings.ledOnTime as string) || "08:00";
+          const offTime = (settings.ledOffTime as string) || "20:00";
+          const now = new Date();
+          const paris = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+          const cur = paris.getHours() * 60 + paris.getMinutes();
+          const [onH, onM] = onTime.split(":").map(Number);
+          const [offH, offM] = offTime.split(":").map(Number);
+          const onMin = onH * 60 + onM;
+          const offMin = offH * 60 + offM;
+          result.led = onMin < offMin
+            ? cur >= onMin && cur < offMin
+            : cur >= onMin || cur < offMin;
+        }
+      }
+
+      // Reset locks seulement si un verrou était actif
       if (result.cafe || result.frigo || result.congelateur || result.both) {
         await kv.set("aeroclub-locks", EMPTY);
       }
