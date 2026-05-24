@@ -325,6 +325,7 @@ export default function AeroClubBarV2() {
   const [heroIndex, setHeroIndex] = useState(0);
   const [heroAnim, setHeroAnim] = useState("slideIn");
   const [addedProductId, setAddedProductId] = useState<string | null>(null);
+  const allProductsTimerRef = useRef<NodeJS.Timeout | null>(null);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false);
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -628,6 +629,28 @@ export default function AeroClubBarV2() {
     }, 4000);
     return () => { if (heroTimerRef.current) clearInterval(heroTimerRef.current); };
   }, [heroProducts.length, showAllProducts]);
+
+  // Auto-retour à l'accueil après 2 min sans interaction quand "voir tous les produits"
+  useEffect(() => {
+    if (!showAllProducts) {
+      if (allProductsTimerRef.current) { clearTimeout(allProductsTimerRef.current); allProductsTimerRef.current = null; }
+      return;
+    }
+    const resetTimer = () => {
+      if (allProductsTimerRef.current) clearTimeout(allProductsTimerRef.current);
+      allProductsTimerRef.current = setTimeout(() => {
+        setShowAllProducts(false);
+        setSaleCategory(null);
+      }, 120000); // 2 minutes
+    };
+    resetTimer();
+    const events = ["click", "touchstart", "scroll"];
+    events.forEach((e) => window.addEventListener(e, resetTimer, { passive: true }));
+    return () => {
+      if (allProductsTimerRef.current) clearTimeout(allProductsTimerRef.current);
+      events.forEach((e) => window.removeEventListener(e, resetTimer));
+    };
+  }, [showAllProducts]);
 
   // V2 Homepage admin helpers
   const updateHomepage = (patch: Partial<HomepageConfig>) => {
