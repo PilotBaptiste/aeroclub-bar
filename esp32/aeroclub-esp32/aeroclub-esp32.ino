@@ -41,7 +41,7 @@ const int RELAY_FRIGO       = 18;
 const int RELAY_CONGELATEUR = 19;
 
 // --- PIN RELAIS LED FRIGO VITRINE ---
-const int RELAY_LED         = 21;  // GPIO 21 — relais LED vitrine
+const int RELAY_LED         = 2;   // GPIO 2 — relais LED vitrine
 
 // --- PINS CAPTEURS DS18B20 ---
 const int TEMP_FRIGO_PIN  = 4;   // DS18B20 du frigo

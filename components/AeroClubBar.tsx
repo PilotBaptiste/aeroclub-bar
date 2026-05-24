@@ -98,6 +98,7 @@ interface Settings {
   ledEnabled?: boolean;     // LED frigo vitrine activée
   ledOnTime?: string;       // heure allumage (HH:MM), ex: "08:00"
   ledOffTime?: string;      // heure extinction (HH:MM), ex: "20:00"
+  ledForceState?: "on" | "off" | "auto";  // forçage manuel
 }
 
 const DEFAULT_PRODUCTS: Product[] = [
@@ -3843,30 +3844,48 @@ export default function AeroClubBar() {
               <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4 flex flex-col gap-3">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input type="checkbox" checked={!!settings.ledEnabled}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, ledEnabled: e.target.checked }))}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, ledEnabled: e.target.checked, ledForceState: e.target.checked ? (settings.ledForceState || "auto") : undefined }))}
                     className="w-5 h-5 accent-amber-500" />
                   <span className="text-sm font-bold text-white">{"Activer le pilotage LED"}</span>
                 </label>
                 {settings.ledEnabled && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{"Allumage"}</label>
-                      <input type="time" value={settings.ledOnTime || "08:00"}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, ledOnTime: e.target.value }))}
-                        className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none" />
+                  <>
+                    <div className="flex gap-1.5">
+                      {([["on", "\uD83D\uDCA1 ON", "bg-emerald-600 text-white"], ["auto", "\uD83D\uDD50 Auto", "bg-amber-600 text-black"], ["off", "\uD83C\uDF11 OFF", "bg-slate-700 text-white"]] as const).map(([mode, label, activeClass]) => (
+                        <button key={mode}
+                          onClick={() => setSettings((prev) => ({ ...prev, ledForceState: mode }))}
+                          className={"flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer active:scale-95 transition-all " + ((settings.ledForceState || "auto") === mode ? activeClass + " shadow-lg" : "bg-[#131b2e] border border-slate-700 text-slate-500")}
+                        >{label}</button>
+                      ))}
                     </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{"Extinction"}</label>
-                      <input type="time" value={settings.ledOffTime || "20:00"}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, ledOffTime: e.target.value }))}
-                        className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none" />
-                    </div>
-                  </div>
-                )}
-                {settings.ledEnabled && (
-                  <p className="text-[10px] text-slate-600">
-                    {"LED allumee de " + (settings.ledOnTime || "08:00") + " a " + (settings.ledOffTime || "20:00") + " (heure de Paris). L'ESP32 interroge /api/fridge-led toutes les 30s."}
-                  </p>
+                    {(settings.ledForceState || "auto") === "on" && (
+                      <p className="text-[10px] text-emerald-500 font-semibold">{"LED forcee allumee en permanence (ignore les horaires)"}</p>
+                    )}
+                    {(settings.ledForceState || "auto") === "off" && (
+                      <p className="text-[10px] text-red-400 font-semibold">{"LED forcee eteinte (ignore les horaires)"}</p>
+                    )}
+                    {(settings.ledForceState || "auto") === "auto" && (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{"Allumage"}</label>
+                            <input type="time" value={settings.ledOnTime || "08:00"}
+                              onChange={(e) => setSettings((prev) => ({ ...prev, ledOnTime: e.target.value }))}
+                              className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none" />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{"Extinction"}</label>
+                            <input type="time" value={settings.ledOffTime || "20:00"}
+                              onChange={(e) => setSettings((prev) => ({ ...prev, ledOffTime: e.target.value }))}
+                              className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none" />
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-slate-600">
+                          {"LED allumee de " + (settings.ledOnTime || "08:00") + " a " + (settings.ledOffTime || "20:00") + " (heure de Paris)"}
+                        </p>
+                      </>
+                    )}
+                  </>
                 )}
               </div>
               <div className="h-px bg-[#1e2d4a] my-3" />
