@@ -18,6 +18,7 @@ interface Product {
   coffeeAddon?: boolean;       // vendu uniquement avec le café (masqué en vente)
   coffeeAddonQty?: number;     // qté offerte par achat café (ex: 2 madeleines)
   coffeeAddonPrice?: number;   // prix du lot (ex: 0.80€ pour 2)
+  madeleineServings?: number;  // portions par achat standalone (ex: 2 = vendu par 2)
 }
 
 interface Batch {
@@ -304,7 +305,11 @@ export default function AeroClubBar() {
     totalMadeleines?: number;
   } | null>(null);
   const [coffeeAvoirUsedInCheckout, setCoffeeAvoirUsedInCheckout] = useState(false);
+  const [madAvoirUsedInCheckout, setMadAvoirUsedInCheckout] = useState(false);
   const [madeleineAdded, setMadeleineAdded] = useState(false);
+  const [madeleineStandaloneModal, setMadeleineStandaloneModal] = useState<{
+    buyer: string; totalServings: number; lockType: string; productId: string;
+  } | null>(null);
   const [temperatures, setTemperatures] = useState<{ frigo: number | null; congelateur: number | null; lastUpdate: string | null }>({ frigo: null, congelateur: null, lastUpdate: null });
   const [batches, setBatches] = useState<Batch[]>([]);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
@@ -530,7 +535,7 @@ export default function AeroClubBar() {
   };
 
   const getCategories = () => settings.categories || DEFAULT_CATEGORIES;
-  const effectiveStock = (p: Product) => Math.floor(p.stock / (p.coffeeServings || 1));
+  const effectiveStock = (p: Product) => Math.floor(p.stock / (p.coffeeServings || p.madeleineServings || 1));
 
   // Batch helpers — DLC alerts
   const batchesForProduct = useCallback((pid: string) => batches.filter(b => b.productId === pid && b.qty > 0), [batches]);
@@ -714,6 +719,8 @@ export default function AeroClubBar() {
     setShowBureauPin(false);
     setBureauPinInput("");
     setCoffeeAvoirUsedInCheckout(false);
+    setMadAvoirUsedInCheckout(false);
+    setMadeleineStandaloneModal(null);
   };
   const getCartQty = (pid: string) => {
     const i = cart.find((c) => c.product.id === pid);
@@ -866,8 +873,9 @@ export default function AeroClubBar() {
       for (const item of cartSnapshot) {
         updated = updated.map((p) => {
           if (p.id !== item.product.id) return p;
-          // Produits café : la déduction est reportée dans handleCoffeeChoice (selon servings utilisés)
+          // Produits café/madeleine avec servings : la déduction est reportée dans le modal de choix
           if (item.product.coffeeServings && item.product.coffeeServings > 1) return p;
+          if (item.product.madeleineServings && item.product.madeleineServings > 1) return p;
           let newLegacyStock = p.legacyStock || 0;
           const fromLegacy = Math.min(newLegacyStock, item.qty);
           newLegacyStock = Math.max(0, newLegacyStock - fromLegacy);
@@ -932,6 +940,18 @@ export default function AeroClubBar() {
       (s, c) => s + ((c.product.coffeeServings && c.product.coffeeServings > 1) ? c.qty * c.product.coffeeServings : 0),
       0,
     );
+    // Détecter madeleines standalone multi-portions
+    const totalMadeleineServings = cart.reduce(
+      (s, c) => s + ((c.product.madeleineServings && c.product.madeleineServings > 1) ? c.qty * c.product.madeleineServings : 0),
+      0,
+    );
+    if (totalMadeleineServings > 0) {
+      const madCartItem = cart.find((c) => c.product.madeleineServings && c.product.madeleineServings > 1);
+      setMadeleineStandaloneModal({
+        buyer: canonicalBuyer, totalServings: totalMadeleineServings, lockType,
+        productId: madCartItem?.product.id || "",
+      });
+    }
     if (totalCoffeeServings > 0) {
       // Modal café d'abord → les serrures s'ouvrent APRÈS le choix
       const coffeeCartItem = cart.find((c) => c.product.coffeeServings && c.product.coffeeServings > 1);
@@ -940,8 +960,10 @@ export default function AeroClubBar() {
         productId: coffeeCartItem?.product.id || "", step: "coffee",
         totalMadeleines: madeleineAdded ? madeleineOfferQty : 0,
       });
+    } else if (totalMadeleineServings > 0) {
+      // Madeleine standalone modal va gérer les serrures
     } else {
-      // Pas de café multi-portions → ouvrir les serrures immédiatement
+      // Pas de modal → ouvrir les serrures immédiatement
       fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
     }
 
@@ -1048,9 +1070,32 @@ export default function AeroClubBar() {
       );
     }
 
-    // Ouvrir les serrures (le frigo est déjà dans lockType si madeleine ajoutée)
-    fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
+    // Ouvrir les serrures (sauf si un modal madeleine standalone suit)
+    if (!madeleineStandaloneModal) {
+      fetch("/api/fridge?action=trigger&lock=" + coffeeModal.lockType).catch(() => {});
+    }
     setCoffeeModal(null);
+  };
+
+  const handleMadeleineStandaloneChoice = (usedNow: number) => {
+    if (!madeleineStandaloneModal) return;
+    const remaining = madeleineStandaloneModal.totalServings - usedNow;
+    if (remaining > 0) {
+      setMadeleineCredits((prev) => ({
+        ...prev,
+        [madeleineStandaloneModal.buyer]: (prev[madeleineStandaloneModal.buyer] || 0) + remaining,
+      }));
+      showToast(madeleineStandaloneModal.buyer.split(" ")[0] + " a " + ((madeleineCredits[madeleineStandaloneModal.buyer] || 0) + remaining) + " avoir(s) madeleine 🧁");
+    }
+    if (madeleineStandaloneModal.productId && usedNow > 0) {
+      setProducts((prev) => prev.map((p) => {
+        if (p.id !== madeleineStandaloneModal.productId) return p;
+        const fromLegacy = Math.min(p.legacyStock || 0, usedNow);
+        return { ...p, stock: Math.max(0, p.stock - usedNow), legacyStock: Math.max(0, (p.legacyStock || 0) - fromLegacy) };
+      }));
+    }
+    fetch("/api/fridge?action=trigger&lock=" + madeleineStandaloneModal.lockType).catch(() => {});
+    setMadeleineStandaloneModal(null);
   };
 
   const handleAdminLogin = () => {
@@ -1821,54 +1866,76 @@ export default function AeroClubBar() {
                         !c.product.name.toLowerCase().includes("cafe"),
                       );
 
-                      // ── Étape avoir café — uniquement si le panier contient un produit café ──
-                      if (cafCredit > 0 && buyerName.trim() && !coffeeAvoirUsedInCheckout && cartHasCafe) {
-                        const madCredit = canonical ? (madeleineCredits[canonical] || 0) : 0;
-                        const addonProduct = products.find((p) => p.coffeeAddon && !p.archived && p.stock > 0);
-                        const hasMadeleine = madCredit > 0 && addonProduct;
+                      // ── Avoir café et/ou madeleine ──
+                      const madCredit = canonical ? (madeleineCredits[canonical] || 0) : 0;
+                      const addonProduct = products.find((p) => p.coffeeAddon && !p.archived && p.stock > 0);
+                      const canUseCafe = cafCredit > 0 && cartHasCafe && !coffeeAvoirUsedInCheckout;
+                      const canUseMad = madCredit > 0 && addonProduct && !madAvoirUsedInCheckout;
+                      const showAvoirSection = buyerName.trim() && (canUseCafe || canUseMad);
+
+                      if (showAvoirSection) {
+                        const avoirType = canUseCafe && canUseMad ? "both" : canUseCafe ? "cafe" : "mad";
+                        const avoirLabel = avoirType === "both"
+                          ? "☕ 1 cafe + 🧁 1 madeleine"
+                          : avoirType === "cafe"
+                            ? "☕ Utiliser mon avoir cafe"
+                            : "🧁 Utiliser mon avoir madeleine";
+                        const avoirLocks = avoirType === "both"
+                          ? "cafe,frigo"
+                          : avoirType === "cafe" ? "cafe" : "frigo";
+                        const cafAfter = canUseCafe ? cafCredit - 1 : cafCredit;
+                        const madAfter = canUseMad ? madCredit - 1 : madCredit;
+                        const totalAfter = cafAfter + madAfter;
                         return (
                           <div className="flex flex-col gap-3">
-                            {cartHasFrigo && cart.length > 0 && (
+                            {cartHasFrigo && cart.length > 0 && canUseCafe && (
                               <div className="flex items-center gap-2">
                                 <span className="flex-1 h-px bg-[#1e2d4a]" />
                                 <span className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">
-                                  {"Etape 1/2 — Cafe"}
+                                  {"Etape 1/2 — Avoir"}
                                 </span>
                                 <span className="flex-1 h-px bg-[#1e2d4a]" />
                               </div>
                             )}
                             <p className="text-xs text-amber-400 font-semibold text-center">
-                              {"☕ " + canonical.split(" ")[0] + " a " + cafCredit + " avoir" + (cafCredit > 1 ? "s" : "") + " cafe" + (madCredit > 0 ? " + 🧁 " + madCredit + " madeleine" + (madCredit > 1 ? "s" : "") : "")}
+                              {(canUseCafe ? "☕ " : "🧁 ") + canonical.split(" ")[0] + " a " + (cafCredit > 0 ? cafCredit + " avoir" + (cafCredit > 1 ? "s" : "") + " cafe" : "") + (cafCredit > 0 && madCredit > 0 ? " + " : "") + (madCredit > 0 ? "🧁 " + madCredit + " madeleine" + (madCredit > 1 ? "s" : "") : "")}
                             </p>
-                            {hasMadeleine && (
+                            {avoirType === "both" && addonProduct && (
                               <div className="bg-pink-900/20 border border-pink-700/30 rounded-xl p-3 text-center">
                                 <p className="text-sm text-pink-300 font-bold">
-                                  {(addonProduct?.emoji || "🧁") + " 1 " + (addonProduct?.name || "madeleine") + " avec ce cafe"}
+                                  {(addonProduct.emoji || "🧁") + " 1 " + (addonProduct.name || "madeleine") + " avec ce cafe"}
                                 </p>
                                 <p className="text-[11px] text-slate-400 mt-1">
-                                  {"☕ Cafe → tiroir a votre droite"}
-                                  {" • "}
-                                  {(addonProduct?.emoji || "🧁") + " " + (addonProduct?.name || "Madeleine") + " → dans le frigo"}
+                                  {"☕ Cafe → tiroir a votre droite • " + (addonProduct.emoji || "🧁") + " " + (addonProduct.name || "Madeleine") + " → dans le frigo"}
                                 </p>
-                                {madCredit - 1 > 0 && (
-                                  <p className="text-[11px] text-pink-400/60 mt-1">
-                                    {"(" + (madCredit - 1) + " restante" + (madCredit - 1 > 1 ? "s" : "") + " en avoir)"}
-                                  </p>
-                                )}
+                              </div>
+                            )}
+                            {avoirType === "mad" && addonProduct && (
+                              <div className="bg-pink-900/20 border border-pink-700/30 rounded-xl p-3 text-center">
+                                <p className="text-sm text-pink-300 font-bold">
+                                  {(addonProduct.emoji || "🧁") + " 1 " + (addonProduct.name || "madeleine") + " dans le frigo"}
+                                </p>
                               </div>
                             )}
                             <button
                               onClick={() => {
-                                // Ouvrir cafe + frigo si madeleine
-                                const locks = hasMadeleine ? "cafe,frigo" : "cafe";
-                                fetch("/api/fridge?action=trigger&lock=" + locks).catch(() => {});
-                                setCoffeeCredits((prev) => {
-                                  const next = { ...prev, [canonical]: cafCredit - 1 };
-                                  if (next[canonical] <= 0) delete next[canonical];
-                                  return next;
-                                });
-                                // Deduire credit madeleine + stock
-                                if (hasMadeleine && addonProduct) {
+                                fetch("/api/fridge?action=trigger&lock=" + avoirLocks).catch(() => {});
+                                if (canUseCafe) {
+                                  setCoffeeCredits((prev) => {
+                                    const next = { ...prev, [canonical]: cafCredit - 1 };
+                                    if (next[canonical] <= 0) delete next[canonical];
+                                    return next;
+                                  });
+                                  setProducts((prev) => {
+                                    const cp = prev.find((p) => p.coffeeServings && p.coffeeServings > 1);
+                                    if (!cp) return prev;
+                                    return prev.map((p) => p.id !== cp.id ? p : {
+                                      ...p, stock: Math.max(0, p.stock - 1),
+                                      legacyStock: Math.max(0, (p.legacyStock || 0) - Math.min(p.legacyStock || 0, 1)),
+                                    });
+                                  });
+                                }
+                                if (canUseMad && addonProduct) {
                                   setMadeleineCredits((prev) => {
                                     const next = { ...prev, [canonical]: madCredit - 1 };
                                     if (next[canonical] <= 0) delete next[canonical];
@@ -1878,45 +1945,53 @@ export default function AeroClubBar() {
                                     p.id === addonProduct.id ? { ...p, stock: Math.max(0, p.stock - 1) } : p
                                   ));
                                 }
-                                // Deduire 1 capsule du produit cafe
-                                setProducts((prev) => {
-                                  const cp = prev.find((p) => p.coffeeServings && p.coffeeServings > 1);
-                                  if (!cp) return prev;
-                                  return prev.map((p) => p.id !== cp.id ? p : {
-                                    ...p, stock: Math.max(0, p.stock - 1),
-                                    legacyStock: Math.max(0, (p.legacyStock || 0) - Math.min(p.legacyStock || 0, 1)),
-                                  });
-                                });
-                                // Retirer les produits cafe du panier — couverts par l'avoir
                                 const isCafe = (name: string) =>
                                   name.toLowerCase().includes("cafe") || name.toLowerCase().includes("café");
-                                const remaining = cart.filter((c) => !isCafe(c.product.name));
+                                const remaining = canUseCafe
+                                  ? cart.filter((c) => !isCafe(c.product.name) && !c.product.coffeeAddon)
+                                  : cart.filter((c) => !c.product.coffeeAddon);
                                 setCart(remaining);
                                 if (remaining.length > 0) {
-                                  setCoffeeAvoirUsedInCheckout(true);
-                                  showToast(hasMadeleine ? "☕ Cafe (tiroir) + 🧁 Madeleine (frigo) — passez au paiement" : "☕ Cafe deverrouille (tiroir a droite)");
+                                  if (canUseCafe) setCoffeeAvoirUsedInCheckout(true);
+                                  if (canUseMad) setMadAvoirUsedInCheckout(true);
+                                  const msg = avoirType === "both"
+                                    ? "☕ Cafe (tiroir) + 🧁 Madeleine (frigo) — passez au paiement"
+                                    : avoirType === "cafe"
+                                      ? "☕ Cafe deverrouille (tiroir a droite)"
+                                      : "🧁 Frigo ouvert — prenez votre madeleine";
+                                  showToast(msg);
                                 } else {
-                                  showToast(hasMadeleine ? "☕ Tiroir cafe + 🍪 Frigo ouverts !" : "☕ Tiroir cafe ouvert (a droite) !");
+                                  const msg = avoirType === "both"
+                                    ? "☕ Tiroir cafe + 🧁 Frigo ouverts !"
+                                    : avoirType === "cafe"
+                                      ? "☕ Tiroir cafe ouvert (a droite) !"
+                                      : "🧁 Frigo ouvert !";
+                                  showToast(msg);
                                   clearCart();
                                   setBuyerName("");
                                 }
                               }}
-                              className="w-full py-4 rounded-xl font-extrabold text-lg bg-amber-500 text-black active:scale-95 cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.3)]"
+                              className={"w-full py-4 rounded-xl font-extrabold text-lg active:scale-95 cursor-pointer " + (avoirType === "mad" ? "bg-pink-500 text-white shadow-[0_0_20px_rgba(236,72,153,0.3)]" : "bg-amber-500 text-black shadow-[0_0_20px_rgba(245,158,11,0.3)]")}
                             >
-                              {hasMadeleine ? "☕ 1 cafe + 🧁 1 madeleine" : "☕ Utiliser mon avoir cafe"}
+                              {avoirLabel}
                               <span className="block text-sm font-semibold opacity-70 mt-0.5">
-                                {hasMadeleine
-                                  ? (cafCredit - 1 > 0 || madCredit - 1 > 0
-                                    ? "(" + (cafCredit - 1 > 0 ? (cafCredit - 1) + " cafe" : "") + (cafCredit - 1 > 0 && madCredit - 1 > 0 ? " + " : "") + (madCredit - 1 > 0 ? (madCredit - 1) + " madeleine" : "") + " restant" + (cafCredit - 1 + madCredit - 1 > 1 ? "s" : "") + ")"
-                                    : "")
-                                  : cafCredit > 1 ? "(" + (cafCredit - 1) + " avoir" + (cafCredit - 1 > 1 ? "s" : "") + " cafe restant" + (cafCredit - 1 > 1 ? "s" : "") + ")" : ""}
+                                {totalAfter > 0
+                                  ? "(" + (cafAfter > 0 ? cafAfter + " cafe" : "") + (cafAfter > 0 && madAfter > 0 ? " + " : "") + (madAfter > 0 ? madAfter + " madeleine" + (madAfter > 1 ? "s" : "") : "") + " restant" + (totalAfter > 1 ? "s" : "") + ")"
+                                  : ""}
                               </span>
                             </button>
                             {cart.length === 0 && (
-                              <p className="text-[11px] text-slate-600 text-center">{hasMadeleine ? "Ouvre le cafe + le frigo sans paiement" : "Ouvre le tiroir cafe sans paiement"}</p>
+                              <p className="text-[11px] text-slate-600 text-center">
+                                {avoirType === "both" ? "Ouvre le cafe + le frigo sans paiement"
+                                  : avoirType === "cafe" ? "Ouvre le tiroir cafe sans paiement"
+                                  : "Ouvre le frigo sans paiement"}
+                              </p>
                             )}
                             <button
-                              onClick={() => setCoffeeAvoirUsedInCheckout(true)}
+                              onClick={() => {
+                                setCoffeeAvoirUsedInCheckout(true);
+                                setMadAvoirUsedInCheckout(true);
+                              }}
                               className="text-[11px] text-slate-500 underline cursor-pointer hover:text-slate-300 text-center mt-1"
                             >
                               {"Acheter sans utiliser mon avoir →"}
@@ -1928,7 +2003,7 @@ export default function AeroClubBar() {
                       // ── Paiement normal (ou étape 2/2) ──
                       return (
                         <div className="flex flex-col gap-0">
-                          {coffeeAvoirUsedInCheckout && cartHasFrigo && (
+                          {(coffeeAvoirUsedInCheckout || madAvoirUsedInCheckout) && cartHasFrigo && (
                             <div className="flex items-center gap-2 mb-3">
                               <span className="flex-1 h-px bg-[#1e2d4a]" />
                               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
@@ -4761,6 +4836,67 @@ export default function AeroClubBar() {
                     {addonEmoji + " " + totalMad + " en avoir (prochains cafes)"}
                   </button>
                 )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Modal madeleine standalone : distribution (achat direct, déjà payé) ── */}
+      {madeleineStandaloneModal && !coffeeModal && (() => {
+        const madProd = products.find((p) => p.id === madeleineStandaloneModal.productId);
+        const madEmoji = madProd?.emoji || "🧁";
+        const madName = madProd?.name || "Madeleine";
+        const totalMad = madeleineStandaloneModal.totalServings;
+        return (
+          <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4">
+            <div className="bg-[#131b2e] border border-pink-700/40 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-2xl">
+              <div className="text-4xl text-center">{madEmoji}</div>
+              <h2 className="text-lg font-bold text-white text-center">
+                {"Vos " + totalMad + " " + madName + (totalMad > 1 ? "s" : "")}
+              </h2>
+              <p className="text-center text-pink-300 text-sm font-semibold">
+                {"Deja incluses dans le paiement — combien maintenant ?"}
+              </p>
+              <div className="bg-slate-800/50 rounded-xl p-3 text-sm text-center">
+                <p className="text-[11px] text-slate-400">
+                  {madEmoji + " " + madName + (totalMad > 1 ? "s" : "") + " → dans le frigo"}
+                </p>
+                {(madeleineCredits[madeleineStandaloneModal.buyer] || 0) > 0 && (
+                  <p className="text-emerald-400 font-semibold mt-1">
+                    {"🧁 " + (madeleineCredits[madeleineStandaloneModal.buyer] || 0) + " avoir(s) madeleine existant(s)"}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-col gap-2 mt-2">
+                {Array.from({ length: totalMad }, (_, i) => i + 1).map((n) => {
+                  const leftover = totalMad - n;
+                  return (
+                    <button
+                      key={n}
+                      onClick={() => handleMadeleineStandaloneChoice(n)}
+                      className={
+                        "w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 flex items-center justify-between px-5 " +
+                        (n === totalMad
+                          ? "bg-emerald-600 text-white"
+                          : "border border-pink-600 bg-pink-900/20 text-pink-300")
+                      }
+                    >
+                      <span>{n === totalMad ? madEmoji.repeat(n) + " Les " + n + " maintenant" : madEmoji.repeat(n) + " " + n + " maintenant"}</span>
+                      {leftover > 0 && (
+                        <span className="text-xs text-slate-400 font-normal">
+                          {"→ +" + leftover + " avoir"}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => handleMadeleineStandaloneChoice(0)}
+                  className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 border border-slate-600 bg-slate-800/30 text-slate-300 px-5"
+                >
+                  {madEmoji + " " + totalMad + " en avoir (prochaine fois)"}
+                </button>
               </div>
             </div>
           </div>
