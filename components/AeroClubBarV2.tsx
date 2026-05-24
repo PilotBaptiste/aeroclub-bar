@@ -1597,10 +1597,10 @@ export default function AeroClubBarV2() {
               </button>
               {/* Temperatures */}
               <div className="flex items-center gap-3">
-                <span className={"text-[11px] font-bold " + (temperatures.frigo === null ? "text-slate-600" : (temperatures.frigo >= 6 && temperatures.frigo <= 8) ? "text-emerald-400" : (temperatures.frigo < 5 || temperatures.frigo > 9) ? "text-red-400" : "text-amber-400")}>
+                <span className={"text-[11px] font-bold " + (temperatures.frigo === null ? "text-slate-600" : temperatures.frigo <= 10 ? "text-emerald-400" : "text-red-400")}>
                   {"🧊 " + (temperatures.frigo !== null ? temperatures.frigo.toFixed(1) + "°" : "--")}
                 </span>
-                <span className={"text-[11px] font-bold " + (temperatures.congelateur === null ? "text-slate-600" : (temperatures.congelateur >= -18 && temperatures.congelateur <= -14) ? "text-emerald-400" : (temperatures.congelateur < -19 || temperatures.congelateur > -13) ? "text-red-400" : "text-amber-400")}>
+                <span className={"text-[11px] font-bold " + (temperatures.congelateur === null ? "text-slate-600" : temperatures.congelateur <= -10 ? "text-emerald-400" : "text-red-400")}>
                   {"❄️ " + (temperatures.congelateur !== null ? temperatures.congelateur.toFixed(1) + "°" : "--")}
                 </span>
               </div>
@@ -2792,34 +2792,32 @@ export default function AeroClubBarV2() {
           <div className="grid grid-cols-2 gap-2.5 mb-5">
             {(() => {
               const f = temperatures.frigo;
-              const frigoOk = f !== null && f >= 6 && f <= 8;
-              const frigoWarn = f !== null && ((f >= 5 && f < 6) || (f > 8 && f <= 9));
-              const frigoBad = f !== null && (f < 5 || f > 9);
+              const frigoOk = f !== null && f <= 10;
+              const frigoBad = f !== null && f > 10;
               return (
-                <div className={"rounded-2xl p-3.5 text-center border " + (frigoBad ? "bg-red-950 border-red-800 animate-pulse" : frigoWarn ? "bg-amber-950/50 border-amber-800" : "bg-[#131b2e] border-[#1e2d4a]")}>
-                  <span className={"block text-xl font-extrabold " + (f === null ? "text-slate-600" : frigoBad ? "text-red-400" : frigoWarn ? "text-amber-400" : "text-emerald-400")}>
+                <div className={"rounded-2xl p-3.5 text-center border " + (frigoBad ? "bg-red-950 border-red-800 animate-pulse" : "bg-[#131b2e] border-[#1e2d4a]")}>
+                  <span className={"block text-xl font-extrabold " + (f === null ? "text-slate-600" : frigoBad ? "text-red-400" : "text-emerald-400")}>
                     {f !== null ? "\uD83E\uDDCA " + f.toFixed(1) + "\u00B0C" : "\uD83E\uDDCA --"}
                   </span>
                   <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">{"Frigo"}</span>
-                  <span className={"block text-[9px] mt-0.5 " + (frigoOk ? "text-emerald-600" : frigoBad ? "text-red-500" : "text-amber-600")}>
-                    {f !== null ? (frigoOk ? "\u2713 OK" : "\u26A0 Plage 6\u20138\u00B0C") : "En attente..."}
+                  <span className={"block text-[9px] mt-0.5 " + (frigoOk ? "text-emerald-600" : frigoBad ? "text-red-500" : "text-slate-600")}>
+                    {f !== null ? (frigoOk ? "\u2713 OK" : "\u26A0 > 10\u00B0C !") : "En attente..."}
                   </span>
                 </div>
               );
             })()}
             {(() => {
               const c = temperatures.congelateur;
-              const congelOk = c !== null && c >= -18 && c <= -14;
-              const congelWarn = c !== null && ((c >= -19 && c < -18) || (c > -14 && c <= -13));
-              const congelBad = c !== null && (c < -19 || c > -13);
+              const congelOk = c !== null && c <= -10;
+              const congelBad = c !== null && c > -10;
               return (
-                <div className={"rounded-2xl p-3.5 text-center border " + (congelBad ? "bg-red-950 border-red-800 animate-pulse" : congelWarn ? "bg-amber-950/50 border-amber-800" : "bg-[#131b2e] border-[#1e2d4a]")}>
-                  <span className={"block text-xl font-extrabold " + (c === null ? "text-slate-600" : congelBad ? "text-red-400" : congelWarn ? "text-amber-400" : "text-emerald-400")}>
+                <div className={"rounded-2xl p-3.5 text-center border " + (congelBad ? "bg-red-950 border-red-800 animate-pulse" : "bg-[#131b2e] border-[#1e2d4a]")}>
+                  <span className={"block text-xl font-extrabold " + (c === null ? "text-slate-600" : congelBad ? "text-red-400" : "text-emerald-400")}>
                     {c !== null ? "\u2744\uFE0F " + c.toFixed(1) + "\u00B0C" : "\u2744\uFE0F --"}
                   </span>
                   <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">{"Congelateur"}</span>
-                  <span className={"block text-[9px] mt-0.5 " + (congelOk ? "text-emerald-600" : congelBad ? "text-red-500" : "text-amber-600")}>
-                    {c !== null ? (congelOk ? "\u2713 OK" : "\u26A0 Plage -18 \u00E0 -14\u00B0C") : "En attente..."}
+                  <span className={"block text-[9px] mt-0.5 " + (congelOk ? "text-emerald-600" : congelBad ? "text-red-500" : "text-slate-600")}>
+                    {c !== null ? (congelOk ? "\u2713 OK" : "\u26A0 > -10\u00B0C !") : "En attente..."}
                   </span>
                 </div>
               );
