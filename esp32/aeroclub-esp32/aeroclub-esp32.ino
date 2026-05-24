@@ -3,13 +3,16 @@
  * =================================================
  * Gere :
  *   - 3 relais (serrures) : cafe (pin 5), frigo (pin 18), congelateur (pin 19)
+ *   - 1 relais (LED frigo) : led vitrine (pin 21)
  *   - 2 capteurs DS18B20  : frigo (pin 4), congelateur (pin 15)
  *
  * Fonctionnement :
  *   - Poll /api/fridge?action=check toutes les 2s pour les serrures
  *   - Envoie les temperatures toutes les 30s via POST /api/temperature
+ *   - Poll /api/fridge-led toutes les 30s pour la LED du frigo vitrine
  *   - Les relais cafe/frigo = active LOW (pas de jumper) -> LOW = ouvert
  *   - Le relais congelateur = active HIGH (jumper)       -> HIGH = ouvert
+ *   - Le relais LED = active HIGH -> HIGH = LED allumee
  *   - Activation decalee 500ms entre relais pour eviter chute de courant
  *   - Les DS18B20 utilisent le protocole OneWire (1 fil data + pull-up 4.7k)
  *
@@ -29,12 +32,16 @@ const char* WIFI_SSID     = "ACBA-H7";
 const char* WIFI_PASSWORD = "villemarie-H7";
 const char* API_URL       = "https://aeroclub-bar.vercel.app/api/fridge";
 const char* TEMP_URL      = "https://aeroclub-bar.vercel.app/api/temperature";
+const char* LED_URL       = "https://aeroclub-bar.vercel.app/api/fridge-led";
 // ==============
 
 // --- PINS RELAIS (serrures) ---
 const int RELAY_CAFE        = 5;
 const int RELAY_FRIGO       = 18;
 const int RELAY_CONGELATEUR = 19;
+
+// --- PIN RELAIS LED FRIGO VITRINE ---
+const int RELAY_LED         = 21;  // GPIO 21 — relais LED vitrine
 
 // --- PINS CAPTEURS DS18B20 ---
 const int TEMP_FRIGO_PIN  = 4;   // DS18B20 du frigo
@@ -43,6 +50,7 @@ const int TEMP_CONGEL_PIN = 15;  // DS18B20 du congelateur
 // --- TIMING ---
 const unsigned long POLL_INTERVAL = 2000;   // Poll serrures toutes les 2s
 const unsigned long TEMP_INTERVAL = 30000;  // Envoi temperatures toutes les 30s
+const unsigned long LED_INTERVAL  = 30000;  // Poll LED toutes les 30s
 
 // --- OBJETS CAPTEURS ---
 OneWire oneWireFrigo(TEMP_FRIGO_PIN);
@@ -53,6 +61,8 @@ DallasTemperature capteurCongel(&oneWireCongel);
 // --- VARIABLES ---
 unsigned long lastPoll = 0;
 unsigned long lastTemp = 0;
+unsigned long lastLed  = 0;
+bool ledState = false;     // Etat actuel de la LED
 
 // Dernieres temperatures lues
 float tempFrigo = -127.0;
@@ -66,9 +76,11 @@ void setup() {
   pinMode(RELAY_CAFE, OUTPUT);
   pinMode(RELAY_FRIGO, OUTPUT);
   pinMode(RELAY_CONGELATEUR, OUTPUT);
+  pinMode(RELAY_LED, OUTPUT);
   digitalWrite(RELAY_CAFE, HIGH);       // HIGH = verrouille (actif LOW)
   digitalWrite(RELAY_FRIGO, HIGH);      // HIGH = verrouille (actif LOW)
   digitalWrite(RELAY_CONGELATEUR, LOW); // LOW = verrouille (actif HIGH, jumper)
+  digitalWrite(RELAY_LED, LOW);         // LED eteinte au demarrage
 
   // --- Init capteurs temperature ---
   capteurFrigo.begin();
@@ -79,7 +91,7 @@ void setup() {
 
   Serial.println();
   Serial.println("=== AERO-CLUB DU BASSIN D'ARCACHON ===");
-  Serial.println("=== ESP32 : Serrures + Temperatures ===");
+  Serial.println("=== ESP32 : Serrures + Temperatures + LED ===");
   Serial.printf("Capteurs DS18B20 - Frigo: %d, Congelateur: %d\n", nbFrigo, nbCongel);
   if (nbFrigo == 0) Serial.println("  ATTENTION: Aucun DS18B20 sur pin 4 (frigo) !");
   if (nbCongel == 0) Serial.println("  ATTENTION: Aucun DS18B20 sur pin 15 (congelateur) !");
@@ -113,6 +125,9 @@ void setup() {
   lireTemperatures();
   envoyerTemperatures();
 
+  // --- Premier check LED ---
+  pollLed();
+
   Serial.println("=== Initialisation terminee ===");
   Serial.println();
 }
@@ -143,6 +158,12 @@ void loop() {
     delay(800); // Attendre conversion 12 bits
     lireTemperatures();
     envoyerTemperatures();
+  }
+
+  // --- POLL LED FRIGO VITRINE (toutes les 30s) ---
+  if (now - lastLed >= LED_INTERVAL) {
+    lastLed = now;
+    pollLed();
   }
 }
 
@@ -261,6 +282,34 @@ void envoyerTemperatures() {
       Serial.printf("Envoi temperature HTTP %d\n", code);
     }
 
+    http.end();
+  }
+}
+
+// ============================================================
+// POLL LED FRIGO VITRINE (GET /api/fridge-led)
+// ============================================================
+void pollLed() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+
+  if (http.begin(client, LED_URL)) {
+    int httpCode = http.GET();
+    if (httpCode == 200) {
+      String body = http.getString();
+      bool shouldBeOn = body.indexOf("\"led\":true") >= 0;
+
+      if (shouldBeOn != ledState) {
+        ledState = shouldBeOn;
+        digitalWrite(RELAY_LED, ledState ? HIGH : LOW);
+        Serial.printf("LED frigo vitrine : %s\n", ledState ? "ALLUMEE" : "ETEINTE");
+      }
+    } else {
+      Serial.printf("LED poll HTTP %d\n", httpCode);
+    }
     http.end();
   }
 }

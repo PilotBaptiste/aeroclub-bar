@@ -95,6 +95,9 @@ interface Settings {
   sumupFeeRate?: number;
   categories?: Category[];
   supportPhone?: string;
+  ledEnabled?: boolean;     // LED frigo vitrine activée
+  ledOnTime?: string;       // heure allumage (HH:MM), ex: "08:00"
+  ledOffTime?: string;      // heure extinction (HH:MM), ex: "20:00"
 }
 
 const DEFAULT_PRODUCTS: Product[] = [
@@ -251,7 +254,7 @@ export default function AeroClubBar() {
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
   const [showAddProduct, setShowAddProduct] = useState(false);
-  const [newProduct, setNewProduct] = useState<{ name: string; emoji: string; price: number; cost: number; stock: number; stockReserve: number; coffeeServings?: number; location?: "frigo" | "cafe" | "congelateur"; coffeeAddon?: boolean; coffeeAddonQty?: number; coffeeAddonPrice?: number }>({
+  const [newProduct, setNewProduct] = useState<{ name: string; emoji: string; price: number; cost: number; stock: number; stockReserve: number; coffeeServings?: number; location?: "frigo" | "cafe" | "congelateur"; coffeeAddon?: boolean; coffeeAddonQty?: number; coffeeAddonPrice?: number; madeleineServings?: number }>({
     name: "",
     emoji: "\uD83E\uDD64",
     price: 1.0,
@@ -313,7 +316,7 @@ export default function AeroClubBar() {
   const [temperatures, setTemperatures] = useState<{ frigo: number | null; congelateur: number | null; lastUpdate: string | null }>({ frigo: null, congelateur: null, lastUpdate: null });
   const [batches, setBatches] = useState<Batch[]>([]);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
-  const [editingMember, setEditingMember] = useState<{ name: string; newName: string; balance: number; coffee: number } | null>(null);
+  const [editingMember, setEditingMember] = useState<{ name: string; newName: string; balance: number; coffee: number; madeleine: number } | null>(null);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false);
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1171,12 +1174,13 @@ export default function AeroClubBar() {
   const openMemberModal = (name: string) => {
     const bal = getMemberBalance(name);
     const coffee = coffeeCredits[name] || 0;
-    setEditingMember({ name, newName: name, balance: bal, coffee });
+    const madeleine = madeleineCredits[name] || 0;
+    setEditingMember({ name, newName: name, balance: bal, coffee, madeleine });
   };
 
   const saveMember = () => {
     if (!editingMember) return;
-    const { name: oldName, newName, balance, coffee } = editingMember;
+    const { name: oldName, newName, balance, coffee, madeleine } = editingMember;
     const trimmedNew = newName.trim();
     if (!trimmedNew) { showToast("Nom requis", "error"); return; }
     const oldKey = normalizeNameFuzzy(oldName);
@@ -1201,11 +1205,21 @@ export default function AeroClubBar() {
     // Update coffee credits
     setCoffeeCredits((prev) => {
       const next = { ...prev };
-      // Remove old name entry
       if (oldName in next) delete next[oldName];
-      // Set new value (or remove if 0)
       if (coffee > 0) {
         next[trimmedNew] = coffee;
+      } else {
+        delete next[trimmedNew];
+      }
+      return next;
+    });
+
+    // Update madeleine credits
+    setMadeleineCredits((prev) => {
+      const next = { ...prev };
+      if (oldName in next) delete next[oldName];
+      if (madeleine > 0) {
+        next[trimmedNew] = madeleine;
       } else {
         delete next[trimmedNew];
       }
@@ -1225,6 +1239,11 @@ export default function AeroClubBar() {
       prev.filter((t) => normalizeNameFuzzy(t.buyer || "") !== nameKey),
     );
     setCoffeeCredits((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    setMadeleineCredits((prev) => {
       const next = { ...prev };
       delete next[name];
       return next;
@@ -2914,6 +2933,14 @@ export default function AeroClubBar() {
                       </div>
                     </div>
                   )}
+                  {newProduct.coffeeAddon && (
+                    <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2.5 cursor-pointer mb-2">
+                      <input type="checkbox" checked={(newProduct.madeleineServings || 0) >= 2}
+                        onChange={(e) => setNewProduct({ ...newProduct, madeleineServings: e.target.checked ? (newProduct.coffeeAddonQty || 2) : undefined })}
+                        className="w-4 h-4 accent-amber-500" />
+                      <span className="text-xs text-amber-400 font-semibold">{"\ud83d\uded2 Aussi vendu seul (par " + (newProduct.coffeeAddonQty || 2) + ")"}</span>
+                    </label>
+                  )}
                   <div className="flex gap-2">
                     <button onClick={addProduct}
                       className="flex-1 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-bold cursor-pointer">
@@ -3470,6 +3497,7 @@ export default function AeroClubBar() {
                     {allNames.map((name) => {
                       const bal = getMemberBalance(name);
                       const cof = coffeeCredits[name] || 0;
+                      const mad = madeleineCredits[name] || 0;
                       return (
                         <button
                           key={name}
@@ -3492,7 +3520,12 @@ export default function AeroClubBar() {
                               {"☕ " + cof}
                             </span>
                           )}
-                          {bal === 0 && cof === 0 && (
+                          {mad > 0 && (
+                            <span className="flex items-center gap-1 text-xs bg-pink-900/30 border border-pink-700/40 text-pink-400 font-semibold px-2 py-0.5 rounded-lg">
+                              {"🧁 " + mad}
+                            </span>
+                          )}
+                          {bal === 0 && cof === 0 && mad === 0 && (
                             <span className="text-xs text-slate-600">{"Pas d'avoir"}</span>
                           )}
                           <span className="text-slate-600 text-sm shrink-0">{"›"}</span>
@@ -3785,6 +3818,38 @@ export default function AeroClubBar() {
                   />
                   <span className="text-[10px] text-slate-600">{"Défaut : 2,5% — déduit du bénéfice CB"}</span>
                 </div>
+              </div>
+              <div className="h-px bg-[#1e2d4a] my-3" />
+              <h3 className="text-base font-bold">{"\uD83D\uDCA1 LED Frigo Vitrine"}</h3>
+              <p className="text-xs text-slate-500 mb-1">{"Allumage automatique de la LED du frigo vitrine sur une plage horaire."}</p>
+              <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4 flex flex-col gap-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={!!settings.ledEnabled}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, ledEnabled: e.target.checked }))}
+                    className="w-5 h-5 accent-amber-500" />
+                  <span className="text-sm font-bold text-white">{"Activer le pilotage LED"}</span>
+                </label>
+                {settings.ledEnabled && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{"Allumage"}</label>
+                      <input type="time" value={settings.ledOnTime || "08:00"}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, ledOnTime: e.target.value }))}
+                        className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{"Extinction"}</label>
+                      <input type="time" value={settings.ledOffTime || "20:00"}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, ledOffTime: e.target.value }))}
+                        className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none" />
+                    </div>
+                  </div>
+                )}
+                {settings.ledEnabled && (
+                  <p className="text-[10px] text-slate-600">
+                    {"LED allumee de " + (settings.ledOnTime || "08:00") + " a " + (settings.ledOffTime || "20:00") + " (heure de Paris). L'ESP32 interroge /api/fridge-led toutes les 30s."}
+                  </p>
+                )}
               </div>
               <div className="h-px bg-[#1e2d4a] my-3" />
               <h3 className="text-base font-bold">
@@ -4268,6 +4333,14 @@ export default function AeroClubBar() {
                 </div>
               </div>
             )}
+            {editingProduct.coffeeAddon && (
+              <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-xl px-3 py-3 cursor-pointer mb-3">
+                <input type="checkbox" checked={(editingProduct.madeleineServings || 0) >= 2}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, madeleineServings: e.target.checked ? (editingProduct.coffeeAddonQty || 2) : undefined })}
+                  className="w-5 h-5 accent-amber-500" />
+                <span className="text-xs text-amber-400 font-semibold">{"\ud83d\uded2 Aussi vendu seul (par " + (editingProduct.coffeeAddonQty || 2) + ")"}</span>
+              </label>
+            )}
             <div className="flex gap-2">
               <button onClick={saveEditProduct}
                 className="flex-1 py-3.5 rounded-xl bg-emerald-600 text-white text-sm font-bold cursor-pointer active:scale-95">
@@ -4696,6 +4769,28 @@ export default function AeroClubBar() {
                 />
                 <button onClick={() => setEditingMember({ ...editingMember, coffee: editingMember.coffee + 1 })}
                   className="w-9 h-9 rounded-lg bg-amber-900/30 border border-amber-700/40 text-amber-400 font-bold text-lg flex items-center justify-center cursor-pointer">
+                  {"+"}
+                </button>
+              </div>
+            </div>
+
+            {/* Avoir madeleine */}
+            <div>
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1.5">{"🧁 Avoirs madeleine"}</label>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setEditingMember({ ...editingMember, madeleine: Math.max(0, editingMember.madeleine - 1) })}
+                  className="w-9 h-9 rounded-lg bg-red-900/30 border border-red-700/40 text-red-400 font-bold text-lg flex items-center justify-center cursor-pointer">
+                  {"-"}
+                </button>
+                <input
+                  type="number"
+                  min="0"
+                  value={editingMember.madeleine}
+                  onChange={(e) => setEditingMember({ ...editingMember, madeleine: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="flex-1 h-11 rounded-lg border border-pink-700/50 bg-pink-900/20 text-pink-400 text-center text-lg font-bold outline-none"
+                />
+                <button onClick={() => setEditingMember({ ...editingMember, madeleine: editingMember.madeleine + 1 })}
+                  className="w-9 h-9 rounded-lg bg-pink-900/30 border border-pink-700/40 text-pink-400 font-bold text-lg flex items-center justify-center cursor-pointer">
                   {"+"}
                 </button>
               </div>

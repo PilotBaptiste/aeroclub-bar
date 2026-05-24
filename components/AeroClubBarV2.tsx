@@ -96,6 +96,9 @@ interface Settings {
   categories?: Category[];
   supportPhone?: string;
   homepage?: HomepageConfig;
+  ledEnabled?: boolean;     // LED frigo vitrine activée
+  ledOnTime?: string;       // heure allumage (HH:MM), ex: "08:00"
+  ledOffTime?: string;      // heure extinction (HH:MM), ex: "20:00"
 }
 interface HomepageConfig {
   featuredProductIds?: string[];
@@ -319,7 +322,7 @@ export default function AeroClubBarV2() {
   const [temperatures, setTemperatures] = useState<{ frigo: number | null; congelateur: number | null; lastUpdate: string | null }>({ frigo: null, congelateur: null, lastUpdate: null });
   const [batches, setBatches] = useState<Batch[]>([]);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
-  const [editingMember, setEditingMember] = useState<{ name: string; newName: string; balance: number; coffee: number } | null>(null);
+  const [editingMember, setEditingMember] = useState<{ name: string; newName: string; balance: number; coffee: number; madeleine: number } | null>(null);
   // ── V2 Homepage design states ──
   const [showAllProducts, setShowAllProducts] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
@@ -1268,12 +1271,13 @@ export default function AeroClubBarV2() {
   const openMemberModal = (name: string) => {
     const bal = getMemberBalance(name);
     const coffee = coffeeCredits[name] || 0;
-    setEditingMember({ name, newName: name, balance: bal, coffee });
+    const madeleine = madeleineCredits[name] || 0;
+    setEditingMember({ name, newName: name, balance: bal, coffee, madeleine });
   };
 
   const saveMember = () => {
     if (!editingMember) return;
-    const { name: oldName, newName, balance, coffee } = editingMember;
+    const { name: oldName, newName, balance, coffee, madeleine } = editingMember;
     const trimmedNew = newName.trim();
     if (!trimmedNew) { showToast("Nom requis", "error"); return; }
     const oldKey = normalizeNameFuzzy(oldName);
@@ -1298,11 +1302,21 @@ export default function AeroClubBarV2() {
     // Update coffee credits
     setCoffeeCredits((prev) => {
       const next = { ...prev };
-      // Remove old name entry
       if (oldName in next) delete next[oldName];
-      // Set new value (or remove if 0)
       if (coffee > 0) {
         next[trimmedNew] = coffee;
+      } else {
+        delete next[trimmedNew];
+      }
+      return next;
+    });
+
+    // Update madeleine credits
+    setMadeleineCredits((prev) => {
+      const next = { ...prev };
+      if (oldName in next) delete next[oldName];
+      if (madeleine > 0) {
+        next[trimmedNew] = madeleine;
       } else {
         delete next[trimmedNew];
       }
@@ -1322,6 +1336,11 @@ export default function AeroClubBarV2() {
       prev.filter((t) => normalizeNameFuzzy(t.buyer || "") !== nameKey),
     );
     setCoffeeCredits((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    setMadeleineCredits((prev) => {
       const next = { ...prev };
       delete next[name];
       return next;
@@ -1682,13 +1701,15 @@ export default function AeroClubBarV2() {
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
                   {popularProducts.slice(0, 12).map((p, i) => {
                     const qty = getCartQty(p.id);
+                    const out = effectiveStock(p) <= 0;
                     return (
-                      <button key={p.id} onClick={() => { if (effectiveStock(p) > 0) addToCart(p); }} disabled={effectiveStock(p) <= 0}
-                        className={"relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border transition-all active:scale-90 cursor-pointer v2-fade-up " + (addedProductId === p.id ? "bg-amber-500/20 border-amber-500/50 scale-95" : effectiveStock(p) <= 0 ? "bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed" : qty > 0 ? "bg-amber-500/10 border-amber-500/40" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-amber-500/20")}
+                      <button key={p.id} onClick={() => { if (!out) addToCart(p); }} disabled={out}
+                        className={"relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border transition-all active:scale-90 v2-fade-up " + (addedProductId === p.id ? "bg-amber-500/20 border-amber-500/50 scale-95 cursor-pointer" : out ? "bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed grayscale" : qty > 0 ? "bg-amber-500/10 border-amber-500/40 cursor-pointer" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-amber-500/20 cursor-pointer")}
                         style={{ animationDelay: (0.04 * i) + "s", animationFillMode: "both" }}
                       >
                         {qty > 0 && <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-amber-500 text-black text-[11px] font-extrabold flex items-center justify-center shadow-lg">{String(qty)}</div>}
-                        {effectiveStock(p) <= 5 && effectiveStock(p) > 0 && <span className="absolute -top-1 -left-1 bg-amber-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-lg animate-pulse">{"x" + effectiveStock(p)}</span>}
+                        {out && <span className="absolute top-1 right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">{"Epuise"}</span>}
+                        {!out && effectiveStock(p) <= 5 && <span className="absolute -top-1 -left-1 bg-amber-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-lg animate-pulse">{"x" + effectiveStock(p)}</span>}
                         <div className={addedProductId === p.id ? "v2-pop-in" : ""}>{renderProductIcon(p.emoji, "text-3xl", "w-10 h-10")}</div>
                         <span className="text-xs font-bold text-white/90 text-center leading-tight line-clamp-2">{p.name}</span>
                         <span className="text-sm font-black text-amber-400">{formatPrice(p.price)}</span>
@@ -1723,16 +1744,18 @@ export default function AeroClubBarV2() {
                     const out = effectiveStock(p) <= 0;
                     const qty = getCartQty(p.id);
                     return (
-                      <button key={p.id} onClick={() => addToCart(p)} disabled={out}
-                        className={"relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border transition-all active:scale-90 cursor-pointer v2-fade-up " + (addedProductId === p.id ? "bg-amber-500/20 border-amber-500/50" : out ? "bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed" : qty > 0 ? "bg-amber-500/10 border-amber-500/40" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-amber-500/20")}
+                      <button key={p.id} onClick={() => { if (!out) addToCart(p); }} disabled={out}
+                        className={"relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border transition-all active:scale-90 v2-fade-up " + (addedProductId === p.id ? "bg-amber-500/20 border-amber-500/50 cursor-pointer" : out ? "bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed grayscale" : qty > 0 ? "bg-amber-500/10 border-amber-500/40 cursor-pointer" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-amber-500/20 cursor-pointer")}
                         style={{ animationDelay: (0.03 * i) + "s", animationFillMode: "both" }}
                       >
                         {qty > 0 && <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-amber-500 text-black text-[11px] font-extrabold flex items-center justify-center shadow-lg">{String(qty)}</div>}
-                        {effectiveStock(p) <= 5 && effectiveStock(p) > 0 && <span className="absolute -top-1 -left-1 bg-amber-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-lg animate-pulse">{"x" + effectiveStock(p)}</span>}
+                        {out && <span className="absolute top-1 right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">{"Epuise"}</span>}
+                        {!out && effectiveStock(p) <= 5 && <span className="absolute -top-1 -left-1 bg-amber-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-lg animate-pulse">{"x" + effectiveStock(p)}</span>}
                         <div className={addedProductId === p.id ? "v2-pop-in" : ""}>{renderProductIcon(p.emoji, "text-3xl", "w-10 h-10")}</div>
                         <span className="text-xs font-bold text-white/90 text-center leading-tight line-clamp-2">{p.name}</span>
                         <span className="text-sm font-black text-amber-400">{formatPrice(p.price)}</span>
                         {!out && effectiveStock(p) <= 5 && <span className="text-[10px] text-amber-500/60">{"Plus que " + effectiveStock(p)}</span>}
+                        {out && <span className="text-[10px] text-red-400 font-semibold">{"Rupture de stock"}</span>}
                       </button>
                     );
                   })}
@@ -3731,6 +3754,7 @@ export default function AeroClubBarV2() {
                     {allNames.map((name) => {
                       const bal = getMemberBalance(name);
                       const cof = coffeeCredits[name] || 0;
+                      const mad = madeleineCredits[name] || 0;
                       return (
                         <button
                           key={name}
@@ -3753,7 +3777,12 @@ export default function AeroClubBarV2() {
                               {"☕ " + cof}
                             </span>
                           )}
-                          {bal === 0 && cof === 0 && (
+                          {mad > 0 && (
+                            <span className="flex items-center gap-1 text-xs bg-pink-900/30 border border-pink-700/40 text-pink-400 font-semibold px-2 py-0.5 rounded-lg">
+                              {"🧁 " + mad}
+                            </span>
+                          )}
+                          {bal === 0 && cof === 0 && mad === 0 && (
                             <span className="text-xs text-slate-600">{"Pas d'avoir"}</span>
                           )}
                           <span className="text-slate-600 text-sm shrink-0">{"›"}</span>
@@ -4046,6 +4075,38 @@ export default function AeroClubBarV2() {
                   />
                   <span className="text-[10px] text-slate-600">{"Défaut : 2,5% — déduit du bénéfice CB"}</span>
                 </div>
+              </div>
+              <div className="h-px bg-[#1e2d4a] my-3" />
+              <h3 className="text-base font-bold">{"\uD83D\uDCA1 LED Frigo Vitrine"}</h3>
+              <p className="text-xs text-slate-500 mb-1">{"Allumage automatique de la LED du frigo vitrine sur une plage horaire."}</p>
+              <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4 flex flex-col gap-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={!!settings.ledEnabled}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, ledEnabled: e.target.checked }))}
+                    className="w-5 h-5 accent-amber-500" />
+                  <span className="text-sm font-bold text-white">{"Activer le pilotage LED"}</span>
+                </label>
+                {settings.ledEnabled && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{"Allumage"}</label>
+                      <input type="time" value={settings.ledOnTime || "08:00"}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, ledOnTime: e.target.value }))}
+                        className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{"Extinction"}</label>
+                      <input type="time" value={settings.ledOffTime || "20:00"}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, ledOffTime: e.target.value }))}
+                        className="h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm px-3.5 outline-none" />
+                    </div>
+                  </div>
+                )}
+                {settings.ledEnabled && (
+                  <p className="text-[10px] text-slate-600">
+                    {"LED allumee de " + (settings.ledOnTime || "08:00") + " a " + (settings.ledOffTime || "20:00") + " (heure de Paris). L'ESP32 interroge /api/fridge-led toutes les 30s."}
+                  </p>
+                )}
               </div>
               <div className="h-px bg-[#1e2d4a] my-3" />
               <h3 className="text-base font-bold">
@@ -4965,6 +5026,28 @@ export default function AeroClubBarV2() {
                 />
                 <button onClick={() => setEditingMember({ ...editingMember, coffee: editingMember.coffee + 1 })}
                   className="w-9 h-9 rounded-lg bg-amber-900/30 border border-amber-700/40 text-amber-400 font-bold text-lg flex items-center justify-center cursor-pointer">
+                  {"+"}
+                </button>
+              </div>
+            </div>
+
+            {/* Avoir madeleine */}
+            <div>
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1.5">{"🧁 Avoirs madeleine"}</label>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setEditingMember({ ...editingMember, madeleine: Math.max(0, editingMember.madeleine - 1) })}
+                  className="w-9 h-9 rounded-lg bg-red-900/30 border border-red-700/40 text-red-400 font-bold text-lg flex items-center justify-center cursor-pointer">
+                  {"-"}
+                </button>
+                <input
+                  type="number"
+                  min="0"
+                  value={editingMember.madeleine}
+                  onChange={(e) => setEditingMember({ ...editingMember, madeleine: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="flex-1 h-11 rounded-lg border border-pink-700/50 bg-pink-900/20 text-pink-400 text-center text-lg font-bold outline-none"
+                />
+                <button onClick={() => setEditingMember({ ...editingMember, madeleine: editingMember.madeleine + 1 })}
+                  className="w-9 h-9 rounded-lg bg-pink-900/30 border border-pink-700/40 text-pink-400 font-bold text-lg flex items-center justify-center cursor-pointer">
                   {"+"}
                 </button>
               </div>
