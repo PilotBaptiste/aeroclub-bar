@@ -4095,7 +4095,31 @@ export default function AeroClubBarV2() {
               </div>
               <div className="h-px bg-[#1e2d4a] my-3" />
               <h3 className="text-base font-bold">{"\uD83D\uDCA1 LED Frigo Vitrine"}</h3>
-              <p className="text-xs text-slate-500 mb-1">{"Allumage automatique de la LED du frigo vitrine sur une plage horaire."}</p>
+              {/* Temoin etat actuel LED */}
+              {(() => {
+                if (!settings.ledEnabled) return <p className="text-xs text-slate-500 mb-1">{"Pilotage LED desactive."}</p>;
+                const force = settings.ledForceState || "auto";
+                let isOn = false;
+                if (force === "on") { isOn = true; }
+                else if (force === "off") { isOn = false; }
+                else {
+                  const onT = settings.ledOnTime || "08:00";
+                  const offT = settings.ledOffTime || "20:00";
+                  const now = new Date();
+                  const cur = now.getHours() * 60 + now.getMinutes();
+                  const [oH, oM] = onT.split(":").map(Number);
+                  const [fH, fM] = offT.split(":").map(Number);
+                  const onMin = oH * 60 + oM;
+                  const offMin = fH * 60 + fM;
+                  isOn = onMin < offMin ? cur >= onMin && cur < offMin : cur >= onMin || cur < offMin;
+                }
+                return (
+                  <div className={"flex items-center gap-2 mb-1 px-3 py-1.5 rounded-lg text-xs font-bold " + (isOn ? "bg-emerald-950/50 border border-emerald-800 text-emerald-400" : "bg-slate-900/50 border border-slate-700 text-slate-500")}>
+                    <span className={"w-2.5 h-2.5 rounded-full " + (isOn ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)] animate-pulse" : "bg-slate-600")} />
+                    {isOn ? "LED actuellement ALLUMEE" : "LED actuellement ETEINTE"}
+                  </div>
+                );
+              })()}
               <div className="bg-[#0f172a] border border-[#1e2d4a] rounded-xl p-4 flex flex-col gap-3">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input type="checkbox" checked={!!settings.ledEnabled}
