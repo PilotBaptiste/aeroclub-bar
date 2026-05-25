@@ -5194,7 +5194,7 @@ export default function AeroClubBarV2() {
       {servingsModal && servingsModal.step === "main" && (
         <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#131b2e] border border-amber-700/40 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-2xl">
-            <div className="text-4xl text-center">{servingsModal.emoji}</div>
+            <div className="flex justify-center">{renderProductIcon(servingsModal.emoji, "text-4xl", "w-16 h-16")}</div>
             <h2 className="text-lg font-bold text-white text-center">
               {"Combien maintenant ?"}
             </h2>
@@ -5205,7 +5205,7 @@ export default function AeroClubBarV2() {
               {"."}
               {getMemberProductCredit(servingsModal.productId, servingsModal.buyer) > 0 && (
                 <span className="block mt-1 text-emerald-400 font-semibold">
-                  {servingsModal.emoji + " " + getMemberProductCredit(servingsModal.productId, servingsModal.buyer) + " avoir(s) existant(s)"}
+                  <span className="inline-flex items-center gap-1">{renderProductIcon(servingsModal.emoji, "text-sm", "w-4 h-4")}{" " + getMemberProductCredit(servingsModal.productId, servingsModal.buyer) + " avoir(s) existant(s)"}</span>
                 </span>
               )}
             </p>
@@ -5223,7 +5223,7 @@ export default function AeroClubBarV2() {
                         : "border border-amber-600 bg-amber-900/20 text-amber-300")
                     }
                   >
-                    <span>{n === servingsModal.totalServings ? servingsModal.emoji.repeat(Math.min(n, 5)) + " Les " + n + " maintenant" : servingsModal.emoji.repeat(Math.min(n, 5)) + " " + n + " maintenant"}</span>
+                    <span className="flex items-center gap-1.5">{renderProductIcon(servingsModal.emoji, "text-base", "w-5 h-5")}<span>{n === servingsModal.totalServings ? " Les " + n + " maintenant" : " " + n + " maintenant"}</span></span>
                     {leftover > 0 && (
                       <span className="text-xs text-slate-400 font-normal">
                         {"→ +" + leftover + " avoir"}
@@ -5237,7 +5237,7 @@ export default function AeroClubBarV2() {
                 onClick={() => handleServingsChoice(0)}
                 className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 border border-slate-600 bg-slate-800/30 text-slate-300 px-5"
               >
-                {servingsModal.emoji + " " + servingsModal.totalServings + " en avoir (prochaine fois)"}
+                <span className="flex items-center gap-1.5 justify-center">{renderProductIcon(servingsModal.emoji, "text-base", "w-5 h-5")}<span>{servingsModal.totalServings + " en avoir (prochaine fois)"}</span></span>
               </button>
             </div>
           </div>
