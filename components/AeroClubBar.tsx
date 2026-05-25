@@ -1779,7 +1779,7 @@ export default function AeroClubBar() {
                           </div>
                         </button>
                         {madeleineAdded && (
-                          <p className="text-[11px] text-slate-400 mt-2 pl-10">
+                          <p className="text-[11px] text-slate-300 mt-2 pl-10">
                             {(madeleineOfferQty > 2 ? "Repartition au choix apres paiement" : "1 par cafe, ou tout maintenant — au choix apres paiement")}
                             {" • " + (madeleineProduct.emoji || "🧁") + " dans le frigo"}
                           </p>
@@ -1865,7 +1865,7 @@ export default function AeroClubBar() {
                       )}
                       {buyerName.trim() &&
                         getMemberBalance(buyerName) === 0 && (
-                          <span className="text-[11px] text-slate-600">
+                          <span className="text-[11px] text-slate-400">
                             {"Pas d\u0027avoir pour ce nom"}
                           </span>
                         )}
@@ -1925,7 +1925,7 @@ export default function AeroClubBar() {
                                 <p className="text-sm text-pink-300 font-bold">
                                   {(addonProduct.emoji || "🧁") + " 1 " + (addonProduct.name || "madeleine") + " avec ce cafe"}
                                 </p>
-                                <p className="text-[11px] text-slate-400 mt-1">
+                                <p className="text-[11px] text-slate-300 mt-1">
                                   {"☕ Cafe → tiroir a votre droite • " + (addonProduct.emoji || "🧁") + " " + (addonProduct.name || "Madeleine") + " → dans le frigo"}
                                 </p>
                               </div>
@@ -2001,7 +2001,7 @@ export default function AeroClubBar() {
                               </span>
                             </button>
                             {cart.length === 0 && (
-                              <p className="text-[11px] text-slate-600 text-center">
+                              <p className="text-[11px] text-slate-400 text-center">
                                 {avoirType === "both" ? "Ouvre le cafe + le frigo sans paiement"
                                   : avoirType === "cafe" ? "Ouvre le tiroir cafe sans paiement"
                                   : "Ouvre le frigo sans paiement"}
@@ -2012,7 +2012,7 @@ export default function AeroClubBar() {
                                 setCoffeeAvoirUsedInCheckout(true);
                                 setMadAvoirUsedInCheckout(true);
                               }}
-                              className="text-[11px] text-slate-500 underline cursor-pointer hover:text-slate-300 text-center mt-1"
+                              className="text-[11px] text-slate-300 underline cursor-pointer hover:text-white text-center mt-1"
                             >
                               {"Acheter sans utiliser mon avoir →"}
                             </button>
@@ -2032,7 +2032,7 @@ export default function AeroClubBar() {
                               <span className="flex-1 h-px bg-[#1e2d4a]" />
                             </div>
                           )}
-                          <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-3">
+                          <p className="text-xs text-slate-300 font-semibold uppercase tracking-wider mb-3">
                             {"Comment payer ?"}
                           </p>
 
@@ -2053,7 +2053,7 @@ export default function AeroClubBar() {
                       getMemberBalance(buyerName) > 0 &&
                       getMemberBalance(buyerName) < checkoutTotal &&
                       checkoutTotal > 0 && (
-                        <div className="bg-[#0f172a] rounded-xl p-3 mb-3 text-xs text-slate-400 text-center">
+                        <div className="bg-[#0f172a] rounded-xl p-3 mb-3 text-xs text-slate-300 text-center">
                           {"Avoir insuffisant (" +
                             formatPrice(getMemberBalance(buyerName)) +
                             " < " +
@@ -2119,7 +2119,7 @@ export default function AeroClubBar() {
                                 </span>
                               )}
                               {parseFloat(cashAmountInput) === checkoutTotal && (
-                                <span className="text-slate-400">
+                                <span className="text-slate-300">
                                   {"Montant exact"}
                                 </span>
                               )}
@@ -2158,7 +2158,7 @@ export default function AeroClubBar() {
                       </div>
                     )}
 
-                    <p className="text-slate-600 text-xs my-2">
+                    <p className="text-slate-400 text-xs my-2">
                       {"--- ou ---"}
                     </p>
 
@@ -2192,7 +2192,7 @@ export default function AeroClubBar() {
                           <p className="text-blue-300 font-bold text-sm text-center">
                             {"💳 En attente du paiement sur le terminal..."}
                           </p>
-                          <p className="text-slate-500 text-xs text-center">
+                          <p className="text-slate-300 text-xs text-center">
                             {"Le client présente sa carte sur le SumUp Solo"}
                           </p>
                           <button
@@ -2215,7 +2215,7 @@ export default function AeroClubBar() {
                                 /* ignore */
                               }
                             }}
-                            className="text-xs text-slate-600 hover:text-slate-400 cursor-pointer mt-1"
+                            className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer mt-1"
                           >
                             {"Annuler"}
                           </button>
@@ -2637,24 +2637,25 @@ export default function AeroClubBar() {
           </div>
           <div className="flex gap-1 mb-4">
             {[
-              { key: "stock", label: "\uD83D\uDCE6 Stock" },
+              { key: "stock", label: "\uD83D\uDCE6 Stock", badge: products.filter(p => !p.archived && p.stock <= 5).length || undefined },
               { key: "finance", label: "\uD83D\uDCB0 Finances" },
               { key: "history", label: "\uD83D\uDCCB Ventes" },
               { key: "members", label: "\uD83D\uDC65 Comptes" },
               { key: "suggestions", label: "\uD83D\uDCA1 Idees" },
               { key: "settings", label: "\u2699 Config" },
-            ].map((tab) => (
+            ].map((tab: { key: string; label: string; badge?: number }) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveAdminTab(tab.key)}
                 className={
-                  "flex-1 py-2.5 rounded-xl text-sm font-semibold transition cursor-pointer " +
+                  "relative flex-1 py-2.5 rounded-xl text-sm font-semibold transition cursor-pointer " +
                   (activeAdminTab === tab.key
                     ? "bg-[#1e2d4a] text-amber-500"
                     : "bg-[#131b2e] text-slate-500 hover:text-slate-300")
                 }
               >
                 {tab.label}
+                {tab.badge ? <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1">{tab.badge}</span> : null}
               </button>
             ))}
           </div>
@@ -2715,8 +2716,10 @@ export default function AeroClubBar() {
                   const now = new Date();
                   return exp >= now && exp <= new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
                 });
+                const stockLevel = p.stock;
+                const stockBg = stockLevel <= 0 ? "bg-red-950/60 border-red-800/60" : stockLevel <= 2 ? "bg-red-950/40 border-red-800/40" : stockLevel <= 5 ? "bg-amber-950/40 border-amber-700/40" : "bg-[#131b2e] border-[#1e2d4a]";
                 return (
-                  <div key={p.id} className="flex flex-col rounded-xl border overflow-hidden bg-[#131b2e] border-[#1e2d4a]">
+                  <div key={p.id} className={"flex flex-col rounded-xl border overflow-hidden " + stockBg}>
                     <button
                       onClick={() => setDetailProduct(p)}
                       className="flex items-center gap-3 px-3 py-3 w-full text-left cursor-pointer active:bg-[#1e2d4a] transition"

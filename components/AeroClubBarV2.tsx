@@ -326,6 +326,9 @@ export default function AeroClubBarV2() {
   const [editingMember, setEditingMember] = useState<{ name: string; newName: string; balance: number; coffee: number; madeleine: number } | null>(null);
   // ── V2 Homepage design states ──
   const [showAllProducts, setShowAllProducts] = useState(false);
+  const [promoIndex, setPromoIndex] = useState(0);
+  const [promoAnim, setPromoAnim] = useState("slideIn");
+  const promoTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [heroIndex, setHeroIndex] = useState(0);
   const [heroAnim, setHeroAnim] = useState("slideIn");
   const [addedProductId, setAddedProductId] = useState<string | null>(null);
@@ -633,6 +636,22 @@ export default function AeroClubBarV2() {
     }, 4000);
     return () => { if (heroTimerRef.current) clearInterval(heroTimerRef.current); };
   }, [heroProducts.length, showAllProducts]);
+
+  // Promo carousel: catégories avec produits à promouvoir
+  const promoCategories = getCategories().filter((c) => saleProducts.some((p) => p.category === c.id));
+  const promoBanners = promoCategories.map((cat) => {
+    const catProducts = saleProducts.filter((p) => p.category === cat.id);
+    return { cat, count: catProducts.length };
+  });
+
+  useEffect(() => {
+    if (promoBanners.length <= 1 || showAllProducts) return;
+    promoTimerRef.current = setInterval(() => {
+      setPromoAnim("slideOut");
+      setTimeout(() => { setPromoIndex((i) => (i + 1) % promoBanners.length); setPromoAnim("slideIn"); }, 400);
+    }, 5000);
+    return () => { if (promoTimerRef.current) clearInterval(promoTimerRef.current); };
+  }, [promoBanners.length, showAllProducts]);
 
   // Auto-retour à l'accueil après 2 min sans interaction quand "voir tous les produits"
   useEffect(() => {
@@ -1695,6 +1714,46 @@ export default function AeroClubBarV2() {
               </section>
             )}
 
+            {/* ── PROMO CAROUSEL (catégories défilantes) ── */}
+            {promoBanners.length > 0 && !showAllProducts && (
+              <section className="mb-6 v2-fade-up" style={{ animationDelay: "0.25s", animationFillMode: "both" }}>
+                {(() => {
+                  const current = promoBanners[promoIndex % promoBanners.length];
+                  if (!current) return null;
+                  const gradients = [
+                    "from-blue-950/60 to-cyan-950/40 border-blue-800/30",
+                    "from-purple-950/60 to-pink-950/40 border-purple-800/30",
+                    "from-emerald-950/60 to-teal-950/40 border-emerald-800/30",
+                    "from-orange-950/60 to-amber-950/40 border-orange-800/30",
+                    "from-rose-950/60 to-red-950/40 border-rose-800/30",
+                  ];
+                  const grad = gradients[promoIndex % gradients.length];
+                  return (
+                    <button onClick={() => { setShowAllProducts(true); setSaleCategory(current.cat.id); }}
+                      className={"w-full relative overflow-hidden rounded-2xl border bg-gradient-to-r " + grad + " px-5 py-4 flex items-center gap-4 transition-all active:scale-[0.98] cursor-pointer"}
+                    >
+                      <div className={`flex items-center gap-4 flex-1 ${promoAnim === "slideIn" ? "v2-slide-in" : "v2-slide-out"}`}>
+                        <span className="text-4xl">{current.cat.emoji}</span>
+                        <div className="flex-1 text-left">
+                          <span className="text-xs font-bold uppercase tracking-widest text-white/50">{"Decouvrez"}</span>
+                          <p className="text-lg font-black text-white">{current.cat.label}</p>
+                          <span className="text-xs text-white/40">{current.count + " produit" + (current.count > 1 ? "s" : "")}</span>
+                        </div>
+                      </div>
+                      <span className="text-amber-500 text-xl shrink-0">{"→"}</span>
+                      {promoBanners.length > 1 && (
+                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                          {promoBanners.map((_, i) => (
+                            <span key={i} className={"w-1 h-1 rounded-full transition-all " + (i === promoIndex % promoBanners.length ? "bg-white w-3" : "bg-white/20")} />
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })()}
+              </section>
+            )}
+
             {/* ── TOP VENTES ── */}
             {popularProducts.length > 0 && !showAllProducts && (
               <section className="mb-6">
@@ -1721,27 +1780,66 @@ export default function AeroClubBarV2() {
               </section>
             )}
 
-            {/* ── VOIR TOUS / GRILLE PRODUITS ── */}
+            {/* ── VOIR TOUS / CATEGORIES / GRILLE PRODUITS ── */}
             {!showAllProducts ? (
               <button onClick={() => setShowAllProducts(true)}
                 className="w-full py-5 rounded-2xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] text-white font-bold text-base transition-all active:scale-95 cursor-pointer mb-6 flex items-center justify-center gap-3"
               ><span>{"📦 Voir tous les produits"}</span><span className="text-slate-500 text-xs font-medium">{"(" + saleProducts.length + ")"}</span><span className="text-amber-500">{"→"}</span></button>
-            ) : (
+            ) : !saleCategory ? (
+              /* ── ECRAN CATEGORIES (pleine page) ── */
               <section className="mb-6">
-                <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
-                  <button onClick={() => setSaleCategory(null)} className={"flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all active:scale-90 cursor-pointer " + (!saleCategory ? "bg-amber-500 text-black" : "bg-white/5 text-slate-400 hover:bg-white/10")}>{"Tout"}</button>
-                  {getCategories().filter((c) => saleProducts.some((p) => p.category === c.id)).map((cat) => (
-                    <button key={cat.id} onClick={() => setSaleCategory(saleCategory === cat.id ? null : cat.id)}
-                      className={"flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all active:scale-90 cursor-pointer whitespace-nowrap " + (saleCategory === cat.id ? "bg-amber-500 text-black" : "bg-white/5 text-slate-400 hover:bg-white/10")}
-                    >{cat.emoji + " " + cat.label}</button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2 mb-3">
-                  <button onClick={() => { setShowAllProducts(false); setSaleCategory(null); }} className="text-xs text-slate-500 hover:text-amber-500 transition cursor-pointer">{"← Retour"}</button>
+                <div className="flex items-center gap-2 mb-4">
+                  <button onClick={() => { setShowAllProducts(false); setSaleCategory(null); }} className="text-sm text-slate-500 hover:text-amber-500 transition cursor-pointer">{"← Accueil"}</button>
                   <span className="flex-1 h-px bg-white/5" />
+                  <span className="text-xs text-slate-600 font-medium">{saleProducts.length + " produits"}</span>
                 </div>
+                <h2 className="text-xl font-black text-white mb-4">{"Choisir une categorie"}</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  {getCategories().filter((c) => saleProducts.some((p) => p.category === c.id)).map((cat, i) => {
+                    const catProducts = saleProducts.filter((p) => p.category === cat.id);
+                    return (
+                      <button key={cat.id} onClick={() => setSaleCategory(cat.id)}
+                        className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-amber-500/30 p-5 flex flex-col items-center gap-3 transition-all active:scale-95 cursor-pointer v2-fade-up"
+                        style={{ animationDelay: (0.06 * i) + "s", animationFillMode: "both" }}
+                      >
+                        <span className="text-4xl">{cat.emoji}</span>
+                        <span className="text-base font-bold text-white">{cat.label}</span>
+                        <span className="text-xs text-slate-500">{catProducts.length + " produit" + (catProducts.length > 1 ? "s" : "")}</span>
+                      </button>
+                    );
+                  })}
+                  {/* Sans categorie */}
+                  {saleProducts.some((p) => !p.category) && (
+                    <button onClick={() => setSaleCategory("_none")}
+                      className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-amber-500/30 p-5 flex flex-col items-center gap-3 transition-all active:scale-95 cursor-pointer v2-fade-up"
+                    >
+                      <span className="text-4xl">{"📦"}</span>
+                      <span className="text-base font-bold text-white">{"Autres"}</span>
+                      <span className="text-xs text-slate-500">{saleProducts.filter((p) => !p.category).length + " produit(s)"}</span>
+                    </button>
+                  )}
+                </div>
+              </section>
+            ) : (
+              /* ── PRODUITS D'UNE CATEGORIE ── */
+              <section className="mb-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <button onClick={() => setSaleCategory(null)} className="text-sm text-slate-500 hover:text-amber-500 transition cursor-pointer">{"← Categories"}</button>
+                  <span className="flex-1 h-px bg-white/5" />
+                  {/* Navigation rapide entre categories */}
+                  <div className="flex gap-1">
+                    {getCategories().filter((c) => saleProducts.some((p) => p.category === c.id)).map((cat) => (
+                      <button key={cat.id} onClick={() => setSaleCategory(cat.id)}
+                        className={"w-8 h-8 rounded-lg text-sm flex items-center justify-center cursor-pointer transition-all " + (saleCategory === cat.id ? "bg-amber-500 shadow-lg" : "bg-white/5 hover:bg-white/10")}
+                      >{cat.emoji}</button>
+                    ))}
+                  </div>
+                </div>
+                <h2 className="text-xl font-black text-white mb-4">
+                  {(() => { const c = getCategories().find((c) => c.id === saleCategory); return c ? c.emoji + " " + c.label : "📦 Autres"; })()}
+                </h2>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                  {saleProducts.filter((p) => !saleCategory || p.category === saleCategory).map((p, i) => {
+                  {saleProducts.filter((p) => saleCategory === "_none" ? !p.category : p.category === saleCategory).map((p, i) => {
                     const out = effectiveStock(p) <= 0;
                     const qty = getCartQty(p.id);
                     return (
@@ -1965,7 +2063,7 @@ export default function AeroClubBarV2() {
                           </div>
                         </button>
                         {madeleineAdded && (
-                          <p className="text-[11px] text-slate-400 mt-2 pl-10">
+                          <p className="text-[11px] text-slate-300 mt-2 pl-10">
                             {(madeleineOfferQty > 2 ? "Repartition au choix apres paiement" : "1 par cafe, ou tout maintenant — au choix apres paiement")}
                             {" • " + (madeleineProduct.emoji || "🧁") + " dans le frigo"}
                           </p>
@@ -2051,7 +2149,7 @@ export default function AeroClubBarV2() {
                       )}
                       {buyerName.trim() &&
                         getMemberBalance(buyerName) === 0 && (
-                          <span className="text-[11px] text-slate-600">
+                          <span className="text-[11px] text-slate-400">
                             {"Pas d\u0027avoir pour ce nom"}
                           </span>
                         )}
@@ -2113,7 +2211,7 @@ export default function AeroClubBarV2() {
                                 <p className="text-sm text-pink-300 font-bold">
                                   {(addonProduct.emoji || "🧁") + " 1 " + (addonProduct.name || "madeleine") + " avec ce cafe"}
                                 </p>
-                                <p className="text-[11px] text-slate-400 mt-1">
+                                <p className="text-[11px] text-slate-300 mt-1">
                                   {"☕ Cafe → tiroir a votre droite"}
                                   {" • "}
                                   {(addonProduct.emoji || "🧁") + " " + (addonProduct.name || "Madeleine") + " → dans le frigo"}
@@ -2194,7 +2292,7 @@ export default function AeroClubBarV2() {
                               </span>
                             </button>
                             {cart.length === 0 && (
-                              <p className="text-[11px] text-slate-600 text-center">
+                              <p className="text-[11px] text-slate-400 text-center">
                                 {avoirType === "both" ? "Ouvre le cafe + le frigo sans paiement"
                                   : avoirType === "cafe" ? "Ouvre le tiroir cafe sans paiement"
                                   : "Ouvre le frigo sans paiement"}
@@ -2205,7 +2303,7 @@ export default function AeroClubBarV2() {
                                 setCoffeeAvoirUsedInCheckout(true);
                                 setMadAvoirUsedInCheckout(true);
                               }}
-                              className="text-[11px] text-slate-500 underline cursor-pointer hover:text-slate-300 text-center mt-1"
+                              className="text-[11px] text-slate-300 underline cursor-pointer hover:text-white text-center mt-1"
                             >
                               {"Acheter sans utiliser mon avoir →"}
                             </button>
@@ -2225,7 +2323,7 @@ export default function AeroClubBarV2() {
                               <span className="flex-1 h-px bg-[#1e2d4a]" />
                             </div>
                           )}
-                          <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-3">
+                          <p className="text-xs text-slate-300 font-semibold uppercase tracking-wider mb-3">
                             {"Comment payer ?"}
                           </p>
 
@@ -2246,7 +2344,7 @@ export default function AeroClubBarV2() {
                       getMemberBalance(buyerName) > 0 &&
                       getMemberBalance(buyerName) < checkoutTotal &&
                       checkoutTotal > 0 && (
-                        <div className="bg-[#0f172a] rounded-xl p-3 mb-3 text-xs text-slate-400 text-center">
+                        <div className="bg-[#0f172a] rounded-xl p-3 mb-3 text-xs text-slate-300 text-center">
                           {"Avoir insuffisant (" +
                             formatPrice(getMemberBalance(buyerName)) +
                             " < " +
@@ -2312,7 +2410,7 @@ export default function AeroClubBarV2() {
                                 </span>
                               )}
                               {parseFloat(cashAmountInput) === checkoutTotal && (
-                                <span className="text-slate-400">
+                                <span className="text-slate-300">
                                   {"Montant exact"}
                                 </span>
                               )}
@@ -2351,7 +2449,7 @@ export default function AeroClubBarV2() {
                       </div>
                     )}
 
-                    <p className="text-slate-600 text-xs my-2">
+                    <p className="text-slate-400 text-xs my-2">
                       {"--- ou ---"}
                     </p>
 
@@ -2385,7 +2483,7 @@ export default function AeroClubBarV2() {
                           <p className="text-blue-300 font-bold text-sm text-center">
                             {"💳 En attente du paiement sur le terminal..."}
                           </p>
-                          <p className="text-slate-500 text-xs text-center">
+                          <p className="text-slate-300 text-xs text-center">
                             {"Le client présente sa carte sur le SumUp Solo"}
                           </p>
                           <button
@@ -2408,7 +2506,7 @@ export default function AeroClubBarV2() {
                                 /* ignore */
                               }
                             }}
-                            className="text-xs text-slate-600 hover:text-slate-400 cursor-pointer mt-1"
+                            className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer mt-1"
                           >
                             {"Annuler"}
                           </button>
@@ -2831,24 +2929,25 @@ export default function AeroClubBarV2() {
           <div className="flex gap-1 mb-4">
             {[
               { key: "homepage", label: "\uD83C\uDFE0 Accueil" },
-              { key: "stock", label: "\uD83D\uDCE6 Stock" },
+              { key: "stock", label: "\uD83D\uDCE6 Stock", badge: products.filter(p => !p.archived && p.stock <= 5).length || undefined },
               { key: "finance", label: "\uD83D\uDCB0 Finances" },
               { key: "history", label: "\uD83D\uDCCB Ventes" },
               { key: "members", label: "\uD83D\uDC65 Comptes" },
               { key: "suggestions", label: "\uD83D\uDCA1 Idees" },
               { key: "settings", label: "\u2699 Config" },
-            ].map((tab) => (
+            ].map((tab: { key: string; label: string; badge?: number }) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveAdminTab(tab.key)}
                 className={
-                  "flex-1 py-2.5 rounded-xl text-sm font-semibold transition cursor-pointer " +
+                  "relative flex-1 py-2.5 rounded-xl text-sm font-semibold transition cursor-pointer " +
                   (activeAdminTab === tab.key
                     ? "bg-[#1e2d4a] text-amber-500"
                     : "bg-[#131b2e] text-slate-500 hover:text-slate-300")
                 }
               >
                 {tab.label}
+                {tab.badge ? <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1">{tab.badge}</span> : null}
               </button>
             ))}
           </div>
@@ -2972,8 +3071,10 @@ export default function AeroClubBarV2() {
                   const now = new Date();
                   return exp >= now && exp <= new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
                 });
+                const stockLevel = p.stock;
+                const stockBg = stockLevel <= 0 ? "bg-red-950/60 border-red-800/60" : stockLevel <= 2 ? "bg-red-950/40 border-red-800/40" : stockLevel <= 5 ? "bg-amber-950/40 border-amber-700/40" : "bg-[#131b2e] border-[#1e2d4a]";
                 return (
-                  <div key={p.id} className="flex flex-col rounded-xl border overflow-hidden bg-[#131b2e] border-[#1e2d4a]">
+                  <div key={p.id} className={"flex flex-col rounded-xl border overflow-hidden " + stockBg}>
                     <button
                       onClick={() => setDetailProduct(p)}
                       className="flex items-center gap-3 px-3 py-3 w-full text-left cursor-pointer active:bg-[#1e2d4a] transition"
