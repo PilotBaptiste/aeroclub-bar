@@ -1153,7 +1153,7 @@ export default function AeroClubBarV2() {
       setMadeleineAdded(false);
       setLockRetriggerCountdown(null);
       if (lockRetriggerTimerRef.current) { clearInterval(lockRetriggerTimerRef.current); lockRetriggerTimerRef.current = null; }
-    }, 20000);
+    }, 35000);
   };
 
   const handleServingsChoice = (usedNow: number) => {
@@ -1635,84 +1635,9 @@ export default function AeroClubBarV2() {
           {/* ═══ V2 MAIN CONTENT ═══ */}
           <main className={"max-w-4xl mx-auto px-5 " + (showAllProducts ? "pb-6" : "pb-32")}>
 
-            {/* ── HERO CAROUSEL ── */}
-            {heroProducts.length > 0 && !showAllProducts && (() => {
-              const currentHero = heroProducts[heroIndex % heroProducts.length];
-              if (!currentHero) return null;
-              return (
-                <section className="mt-5 mb-6">
-                  <div className="relative overflow-hidden rounded-3xl v2-gradient-bg p-8 min-h-[220px] flex items-center" style={{ animation: "pulseGlow 3s ease-in-out infinite" }}>
-                    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                      <div className="absolute -top-10 -right-10 w-40 h-40 bg-amber-500/5 rounded-full blur-2xl" />
-                      <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl" />
-                    </div>
-                    <div className={`relative flex items-center gap-8 w-full ${heroAnim === "slideIn" ? "v2-slide-in" : "v2-slide-out"}`}>
-                      <div className="flex-shrink-0 v2-float">
-                        <div className="w-28 h-28 rounded-3xl bg-white/10 backdrop-blur-sm flex items-center justify-center shadow-2xl border border-white/10">
-                          {renderProductIcon(currentHero.emoji, "text-6xl", "w-16 h-16")}
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="text-xs font-bold uppercase tracking-widest text-amber-500/80">{"A la une"}</span>
-                          <span className="w-8 h-px bg-amber-500/30" />
-                        </div>
-                        <h2 className="text-3xl font-black text-white leading-tight truncate">{currentHero.name}</h2>
-                        <div className="flex items-center gap-4 mt-3">
-                          <span className="text-3xl font-black text-amber-400">{formatPrice(currentHero.price)}</span>
-                          <button onClick={() => { if (effectiveStock(currentHero) > 0) addToCart(currentHero); }} disabled={effectiveStock(currentHero) <= 0}
-                            className={"px-6 py-2.5 rounded-full text-sm font-bold transition-all active:scale-90 " + (effectiveStock(currentHero) > 0 ? "bg-amber-500 text-black hover:bg-amber-400 cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.3)]" : "bg-slate-700 text-slate-500 cursor-not-allowed")}
-                          >{effectiveStock(currentHero) > 0 ? "Ajouter +" : "Epuise"}</button>
-                        </div>
-                      </div>
-                    </div>
-                    {heroProducts.length > 1 && (
-                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                        {heroProducts.map((_, i) => (
-                          <button key={i} onClick={() => { setHeroAnim("slideOut"); setTimeout(() => { setHeroIndex(i); setHeroAnim("slideIn"); }, 300); }}
-                            className={"w-1.5 h-1.5 rounded-full transition-all cursor-pointer " + (i === heroIndex % heroProducts.length ? "bg-amber-500 w-4" : "bg-white/20 hover:bg-white/40")} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </section>
-              );
-            })()}
-
-            {/* ── COMBO CAFÉ + MADELEINE ── */}
-            {combo && !showAllProducts && (
-              <section className="mb-6 v2-fade-up" style={{ animationDelay: "0.2s", animationFillMode: "both" }}>
-                <div className="relative overflow-hidden rounded-3xl border border-pink-800/30 bg-gradient-to-br from-[#1a0d1e] via-[#151025] to-[#0d1520] p-6">
-                  <div className="absolute top-4 right-5 text-sm" style={{ animation: "tagFloat 2s ease-in-out infinite" }}>{"✨"}</div>
-                  <div className="absolute bottom-5 right-10 text-sm" style={{ animation: "tagFloat 2.5s ease-in-out infinite 0.5s" }}>{"✨"}</div>
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className="text-xs font-bold uppercase tracking-widest text-pink-400">{"Offre Combo"}</span>
-                    <span className="flex-1 h-px bg-pink-800/30" />
-                    <span className="text-xs font-bold text-pink-300 bg-pink-500/15 px-3 py-1 rounded-full">{"Nouveau"}</span>
-                  </div>
-                  <div className="flex items-center gap-6">
-                    <div style={{ animation: "comboSlide 0.6s cubic-bezier(.22,1,.36,1) 0.3s both" }}>
-                      <div className="w-20 h-20 rounded-2xl bg-amber-900/30 border border-amber-700/30 flex items-center justify-center">{renderProductIcon(combo.cafe.emoji, "text-5xl", "w-12 h-12")}</div>
-                    </div>
-                    <span className="text-3xl font-black text-pink-400" style={{ animation: "comboPop 0.5s cubic-bezier(.22,1,.36,1) 0.5s both" }}>{"+"}</span>
-                    <div style={{ animation: "comboSlide 0.6s cubic-bezier(.22,1,.36,1) 0.6s both" }}>
-                      <div className="w-20 h-20 rounded-2xl bg-pink-900/30 border border-pink-700/30 flex items-center justify-center">{renderProductIcon(combo.addon.emoji, "text-5xl", "w-12 h-12")}</div>
-                    </div>
-                    <div className="flex-1 min-w-0 ml-2">
-                      <p className="text-lg font-bold text-white">{combo.cafe.name}<span className="text-pink-300">{" + " + (combo.addon.coffeeAddonQty || 2) + " " + combo.addon.name + "s"}</span></p>
-                      <span className="text-2xl font-black text-amber-400">{formatPrice(combo.totalPrice)}</span>
-                    </div>
-                  </div>
-                  <button onClick={() => { if (effectiveStock(combo.cafe) > 0) addToCart(combo.cafe); }} disabled={effectiveStock(combo.cafe) <= 0}
-                    className={"w-full mt-5 py-4 rounded-2xl font-bold text-base transition-all active:scale-95 " + (effectiveStock(combo.cafe) > 0 ? "bg-gradient-to-r from-amber-600 to-pink-600 text-white cursor-pointer shadow-[0_0_25px_rgba(219,39,119,0.2)]" : "bg-slate-800 text-slate-600 cursor-not-allowed")}
-                  >{effectiveStock(combo.cafe) > 0 ? "☕ Commander le combo" : "Epuise"}</button>
-                </div>
-              </section>
-            )}
-
             {/* ── PROMO CAROUSEL (catégories défilantes) ── */}
             {promoBanners.length > 0 && !showAllProducts && (
-              <section className="mb-6 v2-fade-up" style={{ animationDelay: "0.25s", animationFillMode: "both" }}>
+              <section className="mt-4 mb-4 v2-fade-up" style={{ animationDelay: "0.1s", animationFillMode: "both" }}>
                 {(() => {
                   const current = promoBanners[promoIndex % promoBanners.length];
                   if (!current) return null;
@@ -1749,6 +1674,78 @@ export default function AeroClubBarV2() {
                 })()}
               </section>
             )}
+
+            {/* ── COMBO CAFÉ + MADELEINE (compact) ── */}
+            {combo && !showAllProducts && (
+              <section className="mb-4 v2-fade-up" style={{ animationDelay: "0.15s", animationFillMode: "both" }}>
+                <div className="relative overflow-hidden rounded-2xl border border-pink-800/30 bg-gradient-to-br from-[#1a0d1e] via-[#151025] to-[#0d1520] p-4">
+                  <div className="absolute top-3 right-4 text-xs" style={{ animation: "tagFloat 2s ease-in-out infinite" }}>{"✨"}</div>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <div className="w-12 h-12 rounded-xl bg-amber-900/30 border border-amber-700/30 flex items-center justify-center">{renderProductIcon(combo.cafe.emoji, "text-2xl", "w-8 h-8")}</div>
+                      <span className="text-xl font-black text-pink-400">{"+"}</span>
+                      <div className="w-12 h-12 rounded-xl bg-pink-900/30 border border-pink-700/30 flex items-center justify-center">{renderProductIcon(combo.addon.emoji, "text-2xl", "w-8 h-8")}</div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-pink-400">{"Offre Combo"}</span>
+                      </div>
+                      <p className="text-sm font-bold text-white truncate">{combo.cafe.name + " + " + (combo.addon.coffeeAddonQty || 2) + " " + combo.addon.name + "s"}</p>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="text-xl font-black text-amber-400">{formatPrice(combo.totalPrice)}</span>
+                      <button onClick={() => { if (effectiveStock(combo.cafe) > 0) addToCart(combo.cafe); }} disabled={effectiveStock(combo.cafe) <= 0}
+                        className={"px-5 py-2.5 rounded-xl font-bold text-sm transition-all active:scale-90 " + (effectiveStock(combo.cafe) > 0 ? "bg-gradient-to-r from-amber-600 to-pink-600 text-white cursor-pointer shadow-[0_0_15px_rgba(219,39,119,0.2)]" : "bg-slate-800 text-slate-600 cursor-not-allowed")}
+                      >{effectiveStock(combo.cafe) > 0 ? "Ajouter" : "Epuise"}</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* ── HERO CAROUSEL ── */}
+            {heroProducts.length > 0 && !showAllProducts && (() => {
+              const currentHero = heroProducts[heroIndex % heroProducts.length];
+              if (!currentHero) return null;
+              return (
+                <section className="mb-4">
+                  <div className="relative overflow-hidden rounded-3xl v2-gradient-bg p-6 min-h-[160px] flex items-center" style={{ animation: "pulseGlow 3s ease-in-out infinite" }}>
+                    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                      <div className="absolute -top-10 -right-10 w-40 h-40 bg-amber-500/5 rounded-full blur-2xl" />
+                      <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl" />
+                    </div>
+                    <div className={`relative flex items-center gap-6 w-full ${heroAnim === "slideIn" ? "v2-slide-in" : "v2-slide-out"}`}>
+                      <div className="flex-shrink-0 v2-float">
+                        <div className="w-20 h-20 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center shadow-2xl border border-white/10">
+                          {renderProductIcon(currentHero.emoji, "text-4xl", "w-12 h-12")}
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-amber-500/80">{"A la une"}</span>
+                          <span className="w-6 h-px bg-amber-500/30" />
+                        </div>
+                        <h2 className="text-2xl font-black text-white leading-tight truncate">{currentHero.name}</h2>
+                        <div className="flex items-center gap-3 mt-2">
+                          <span className="text-2xl font-black text-amber-400">{formatPrice(currentHero.price)}</span>
+                          <button onClick={() => { if (effectiveStock(currentHero) > 0) addToCart(currentHero); }} disabled={effectiveStock(currentHero) <= 0}
+                            className={"px-5 py-2 rounded-full text-sm font-bold transition-all active:scale-90 " + (effectiveStock(currentHero) > 0 ? "bg-amber-500 text-black hover:bg-amber-400 cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.3)]" : "bg-slate-700 text-slate-500 cursor-not-allowed")}
+                          >{effectiveStock(currentHero) > 0 ? "Ajouter +" : "Epuise"}</button>
+                        </div>
+                      </div>
+                    </div>
+                    {heroProducts.length > 1 && (
+                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+                        {heroProducts.map((_, i) => (
+                          <button key={i} onClick={() => { setHeroAnim("slideOut"); setTimeout(() => { setHeroIndex(i); setHeroAnim("slideIn"); }, 300); }}
+                            className={"w-1.5 h-1.5 rounded-full transition-all cursor-pointer " + (i === heroIndex % heroProducts.length ? "bg-amber-500 w-4" : "bg-white/20 hover:bg-white/40")} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              );
+            })()}
 
             {/* ── TOP VENTES ── */}
             {popularProducts.length > 0 && !showAllProducts && (
@@ -1823,34 +1820,34 @@ export default function AeroClubBarV2() {
                   <button onClick={() => setSaleCategory(null)} className="text-sm text-slate-500 hover:text-amber-500 transition cursor-pointer">{"← Categories"}</button>
                   <span className="flex-1 h-px bg-white/5" />
                   {/* Navigation rapide entre categories */}
-                  <div className="flex gap-1">
+                  <div className="flex gap-1.5 flex-wrap justify-end">
                     {getCategories().filter((c) => saleProducts.some((p) => p.category === c.id)).map((cat) => (
                       <button key={cat.id} onClick={() => setSaleCategory(cat.id)}
-                        className={"w-8 h-8 rounded-lg text-sm flex items-center justify-center cursor-pointer transition-all " + (saleCategory === cat.id ? "bg-amber-500 shadow-lg" : "bg-white/5 hover:bg-white/10")}
-                      >{cat.emoji}</button>
+                        className={"h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all whitespace-nowrap " + (saleCategory === cat.id ? "bg-amber-500 text-black shadow-lg" : "bg-white/5 hover:bg-white/10 text-white/70")}
+                      ><span>{cat.emoji}</span><span>{cat.label}</span></button>
                     ))}
                   </div>
                 </div>
                 <h2 className="text-xl font-black text-white mb-4">
                   {(() => { const c = getCategories().find((c) => c.id === saleCategory); return c ? c.emoji + " " + c.label : "📦 Autres"; })()}
                 </h2>
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   {saleProducts.filter((p) => saleCategory === "_none" ? !p.category : p.category === saleCategory).map((p, i) => {
                     const out = effectiveStock(p) <= 0;
                     const qty = getCartQty(p.id);
                     return (
                       <button key={p.id} onClick={() => { if (!out) addToCart(p); }} disabled={out}
-                        className={"relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border transition-all active:scale-90 v2-fade-up " + (addedProductId === p.id ? "bg-amber-500/20 border-amber-500/50 cursor-pointer" : out ? "bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed grayscale" : qty > 0 ? "bg-amber-500/10 border-amber-500/40 cursor-pointer" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-amber-500/20 cursor-pointer")}
+                        className={"relative flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all active:scale-90 v2-fade-up " + (addedProductId === p.id ? "bg-amber-500/20 border-amber-500/50 cursor-pointer" : out ? "bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed grayscale" : qty > 0 ? "bg-amber-500/10 border-amber-500/40 cursor-pointer" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-amber-500/20 cursor-pointer")}
                         style={{ animationDelay: (0.03 * i) + "s", animationFillMode: "both" }}
                       >
-                        {qty > 0 && <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-amber-500 text-black text-[11px] font-extrabold flex items-center justify-center shadow-lg">{String(qty)}</div>}
-                        {out && <span className="absolute top-1 right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">{"Epuise"}</span>}
-                        {!out && effectiveStock(p) <= 5 && <span className="absolute -top-1 -left-1 bg-amber-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-lg animate-pulse">{"x" + effectiveStock(p)}</span>}
-                        <div className={addedProductId === p.id ? "v2-pop-in" : ""}>{renderProductIcon(p.emoji, "text-3xl", "w-10 h-10")}</div>
-                        <span className="text-xs font-bold text-white/90 text-center leading-tight line-clamp-2">{p.name}</span>
-                        <span className="text-sm font-black text-amber-400">{formatPrice(p.price)}</span>
-                        {!out && effectiveStock(p) <= 5 && <span className="text-[10px] text-amber-500/60">{"Plus que " + effectiveStock(p)}</span>}
-                        {out && <span className="text-[10px] text-red-400 font-semibold">{"Rupture de stock"}</span>}
+                        {qty > 0 && <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-amber-500 text-black text-xs font-extrabold flex items-center justify-center shadow-lg">{String(qty)}</div>}
+                        {out && <span className="absolute top-2 right-2 bg-red-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full">{"Epuise"}</span>}
+                        {!out && effectiveStock(p) <= 5 && <span className="absolute -top-1.5 -left-1.5 bg-amber-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg animate-pulse">{"x" + effectiveStock(p)}</span>}
+                        <div className={addedProductId === p.id ? "v2-pop-in" : ""}>{renderProductIcon(p.emoji, "text-5xl", "w-16 h-16")}</div>
+                        <span className="text-sm font-bold text-white/90 text-center leading-tight line-clamp-2">{p.name}</span>
+                        <span className="text-lg font-black text-amber-400">{formatPrice(p.price)}</span>
+                        {!out && effectiveStock(p) <= 5 && <span className="text-xs text-amber-500/60">{"Plus que " + effectiveStock(p)}</span>}
+                        {out && <span className="text-xs text-red-400 font-semibold">{"Rupture de stock"}</span>}
                       </button>
                     );
                   })}

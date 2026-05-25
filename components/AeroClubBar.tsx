@@ -1030,7 +1030,7 @@ export default function AeroClubBar() {
       setMadeleineAdded(false);
       setLockRetriggerCountdown(null);
       if (lockRetriggerTimerRef.current) { clearInterval(lockRetriggerTimerRef.current); lockRetriggerTimerRef.current = null; }
-    }, 20000);
+    }, 35000);
   };
 
   const handleServingsChoice = (usedNow: number) => {
