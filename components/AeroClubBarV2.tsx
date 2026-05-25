@@ -1816,7 +1816,7 @@ export default function AeroClubBarV2() {
             ) : (
               /* ── PRODUITS D'UNE CATEGORIE ── */
               <section className="mb-6">
-                <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center gap-2 mb-4 sticky top-[52px] z-40 bg-[#0a0f1e] py-3 -mx-5 px-5 border-b border-white/5">
                   <button onClick={() => setSaleCategory(null)} className="text-sm text-slate-500 hover:text-amber-500 transition cursor-pointer">{"← Categories"}</button>
                   <span className="flex-1 h-px bg-white/5" />
                   {/* Navigation rapide entre categories */}
@@ -2158,12 +2158,6 @@ export default function AeroClubBarV2() {
                         for (const c of cart) {
                           const cr = getMemberProductCredit(c.product.id, canonical);
                           if (cr > 0 && !avoirUsedInCheckout.has(c.product.id)) availableCredits.push({ productId: c.product.id, product: c.product, credit: cr });
-                        }
-                        // Also check addon products
-                        const addonP = products.find((p) => p.coffeeAddon && !p.archived);
-                        if (addonP) {
-                          const cr = getMemberProductCredit(addonP.id, canonical);
-                          if (cr > 0 && !avoirUsedInCheckout.has(addonP.id)) availableCredits.push({ productId: addonP.id, product: addonP, credit: cr });
                         }
                       }
                       const cafCredit = 0; // legacy, replaced by availableCredits

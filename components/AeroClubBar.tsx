@@ -1870,14 +1870,6 @@ export default function AeroClubBar() {
                             availableCredits.push({ productId: c.product.id, product: c.product, credit: cr });
                           }
                         }
-                        // Check addon product credits too
-                        const addonP = products.find((p) => p.coffeeAddon && !p.archived);
-                        if (addonP) {
-                          const cr = getMemberProductCredit(addonP.id, canonical);
-                          if (cr > 0 && !avoirUsedInCheckout.has(addonP.id)) {
-                            availableCredits.push({ productId: addonP.id, product: addonP, credit: cr });
-                          }
-                        }
                       }
                       const showAvoirSection = buyerName.trim() && availableCredits.length > 0;
 
