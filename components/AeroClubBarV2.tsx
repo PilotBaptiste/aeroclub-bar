@@ -1550,7 +1550,7 @@ export default function AeroClubBarV2() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0f1e] text-slate-200 relative overflow-x-hidden">
+    <div className="min-h-screen bg-[#0a0f1e] text-slate-200 relative" style={{ overflowX: "clip" }}>
       <style>{`
         @keyframes slideIn { from { opacity: 0; transform: translateX(80px) scale(0.9); } to { opacity: 1; transform: translateX(0) scale(1); } }
         @keyframes slideOut { from { opacity: 1; transform: translateX(0) scale(1); } to { opacity: 0; transform: translateX(-80px) scale(0.9); } }
@@ -2649,43 +2649,50 @@ export default function AeroClubBarV2() {
                       )}
                     </div>
 
-                    {/* Bandeau serrure */}
-                    <div className="w-full bg-emerald-900/30 border border-emerald-700/40 rounded-xl p-3 flex flex-col items-center gap-2">
-                      <p className="text-sm font-semibold text-emerald-400">
-                        {lastOrder.lockType === "cafe"
-                          ? "\u2615 Tiroir caf\u00e9 d\u00e9verrouill\u00e9 !"
-                          : lastOrder.lockType === "frigo"
-                            ? "\uD83C\uDF7A Frigo d\u00e9verrouill\u00e9 !"
-                            : lastOrder.lockType === "congelateur"
-                              ? "\u2744\uFE0F Cong\u00e9lateur d\u00e9verrouill\u00e9 !"
-                              : "\uD83D\uDD13 Serrures d\u00e9verrouill\u00e9es !"}
-                      </p>
-                      {lockRetriggerCountdown === null ? (
-                        <button
-                          onClick={() => {
-                            fetch("/api/fridge?action=trigger&lock=" + lastOrder.lockType).catch(() => {});
-                            setLockRetriggerCountdown(5);
-                            if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
-                            lockRetriggerTimerRef.current = setInterval(() => {
-                              setLockRetriggerCountdown((prev) => {
-                                if (prev === null || prev <= 1) {
-                                  if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
-                                  lockRetriggerTimerRef.current = null;
-                                  return 0;
-                                }
-                                return prev - 1;
-                              });
-                            }, 1000);
-                          }}
-                          className="text-xs px-4 py-1.5 rounded-lg bg-emerald-700/40 text-emerald-300 font-semibold cursor-pointer hover:bg-emerald-700/60 active:scale-95"
-                        >
-                          {"\uD83D\uDD13 R\u00e9-ouvrir"}
-                        </button>
-                      ) : lockRetriggerCountdown > 0 ? (
-                        <p className="text-xs text-emerald-500 font-bold tabular-nums">
-                          {"Ferme dans " + lockRetriggerCountdown + "s\u2026"}
+                    {/* Message patience + boutons ouverture */}
+                    <div className="w-full flex flex-col gap-3 mt-1">
+                      <div className="bg-amber-900/20 border border-amber-700/30 rounded-xl p-4 text-center">
+                        <p className="text-base font-bold text-amber-400">
+                          {"Patientez, la serrure se deverrouille..."}
                         </p>
-                      ) : null}
+                        <p className="text-xs text-amber-400/60 mt-1">
+                          {"Cela peut prendre quelques secondes"}
+                        </p>
+                      </div>
+                      <p className="text-xs text-slate-500 text-center">{"La serrure ne s'ouvre pas ?"}</p>
+                      <div className="flex flex-col gap-2 w-full">
+                        {lastOrder.lockType.split(",").map((lock) => {
+                          const l = lock.trim();
+                          const label = l === "cafe" ? "Ouvrir le tiroir cafe" : l === "frigo" ? "Ouvrir le frigo" : l === "congelateur" ? "Ouvrir le congelateur" : "Ouvrir";
+                          const icon = l === "cafe" ? "\u2615" : l === "frigo" ? "\uD83C\uDF7A" : l === "congelateur" ? "\u2744\uFE0F" : "\uD83D\uDD13";
+                          const isBusy = lockRetriggerCountdown !== null && lockRetriggerCountdown > 0;
+                          return (
+                            <button
+                              key={l}
+                              disabled={isBusy}
+                              onClick={() => {
+                                fetch("/api/fridge?action=trigger&lock=" + l).catch(() => {});
+                                showToast(icon + " Deverrouillage envoye !");
+                                setLockRetriggerCountdown(10);
+                                if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
+                                lockRetriggerTimerRef.current = setInterval(() => {
+                                  setLockRetriggerCountdown((prev) => {
+                                    if (prev === null || prev <= 1) {
+                                      if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
+                                      lockRetriggerTimerRef.current = null;
+                                      return null;
+                                    }
+                                    return prev - 1;
+                                  });
+                                }, 1000);
+                              }}
+                              className={"w-full py-4 rounded-xl font-bold text-lg active:scale-95 cursor-pointer shadow-lg transition-all " + (isBusy ? "bg-slate-700 text-slate-400 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-500 text-white")}
+                            >
+                              {isBusy ? "Deverrouillage en cours... " + lockRetriggerCountdown + "s" : icon + " " + label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
 
                     <p className="text-slate-600 text-xs mt-2">
