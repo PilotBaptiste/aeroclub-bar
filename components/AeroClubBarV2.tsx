@@ -1550,7 +1550,7 @@ export default function AeroClubBarV2() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0f1e] text-slate-200 relative overflow-hidden">
+    <div className="min-h-screen bg-[#0a0f1e] text-slate-200 relative overflow-x-hidden">
       <style>{`
         @keyframes slideIn { from { opacity: 0; transform: translateX(80px) scale(0.9); } to { opacity: 1; transform: translateX(0) scale(1); } }
         @keyframes slideOut { from { opacity: 1; transform: translateX(0) scale(1); } to { opacity: 0; transform: translateX(-80px) scale(0.9); } }
