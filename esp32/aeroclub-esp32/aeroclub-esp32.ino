@@ -216,37 +216,43 @@ void pollSerrures() {
 // le 3.3V est stable, les GPIO delivrent la tension max
 // aux optocouplers des relais.
 //
-// Double activation automatique :
-//   Tentative 1 : 2s d'activation (decolle le pene)
-//   Repos       : 1.5s (le ressort repousse, pene se desaxe)
-//   Tentative 2 : 5s de maintien (= "reouvrir", ca passe)
+// Strategie anti-stiction (pene colle apres repos) :
+//   Phase 1 : BUZZ RAPIDE — 10 impulsions ON/OFF courtes
+//             Les vibrations cassent l'adherence mecanique du pene
+//   Phase 2 : REPOS 400ms — le ressort repousse, pene desaxe
+//   Phase 3 : MAINTIEN LONG 6s — ouverture franche
 //
-// C'est exactement ce qui se passe quand on appuie manuellement
-// sur "reouvrir" et que ca marche a chaque fois.
+// Le buzz remplace les tentatives longues qui n'arrivaient pas
+// a decoller le pene quand il etait reste immobile longtemps.
 // ============================================================
 void activerSerrures() {
-  Serial.println(">>> DEVERROUILLAGE - Tentative 1 <<<");
-
-  // --- TENTATIVE 1 : activer 2 secondes ---
+  // Congelateur : module separe, activation simple
   if (pendingCongelateur) digitalWrite(RELAY_CONGELATEUR, HIGH);
+
+  // --- PHASE 1 : BUZZ RAPIDE (casse la stiction) ---
+  Serial.println(">>> PHASE 1 : BUZZ RAPIDE (10 impulsions) <<<");
+  for (int i = 0; i < 10; i++) {
+    // Activer (ON)
+    if (pendingFrigo) digitalWrite(RELAY_FRIGO, LOW);
+    if (pendingCafe) digitalWrite(RELAY_CAFE, LOW);
+    delay(100);
+    // Couper (OFF)
+    if (pendingFrigo) digitalWrite(RELAY_FRIGO, HIGH);
+    if (pendingCafe) digitalWrite(RELAY_CAFE, HIGH);
+    delay(80);
+    Serial.printf("  buzz %d/10\n", i + 1);
+  }
+
+  // --- PHASE 2 : REPOS 400ms (le ressort repousse) ---
+  Serial.println(">>> PHASE 2 : REPOS 400ms <<<");
+  delay(400);
+
+  // --- PHASE 3 : MAINTIEN LONG 6s (ouverture) ---
+  Serial.println(">>> PHASE 3 : MAINTIEN 6s <<<");
   if (pendingCafe) { digitalWrite(RELAY_CAFE, LOW); delay(300); }
   if (pendingFrigo) digitalWrite(RELAY_FRIGO, LOW);
 
-  delay(2000);
-
-  // --- REPOS 1.5s : couper cafe/frigo, laisser congelateur ---
-  // (le congelateur est sur un module separe, pas de probleme)
-  if (pendingCafe) digitalWrite(RELAY_CAFE, HIGH);
-  if (pendingFrigo) digitalWrite(RELAY_FRIGO, HIGH);
-  Serial.println(">>> REPOS 1.5s <<<");
-  delay(1500);
-
-  // --- TENTATIVE 2 : "reouvrir" automatique, maintien 5s ---
-  Serial.println(">>> DEVERROUILLAGE - Tentative 2 (auto-reouvrir) <<<");
-  if (pendingCafe) { digitalWrite(RELAY_CAFE, LOW); delay(300); }
-  if (pendingFrigo) digitalWrite(RELAY_FRIGO, LOW);
-
-  delay(5000);
+  delay(6000);
 
   // --- VERROUILLER ---
   if (pendingCongelateur) digitalWrite(RELAY_CONGELATEUR, LOW);
