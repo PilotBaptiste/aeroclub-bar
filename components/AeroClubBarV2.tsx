@@ -819,8 +819,8 @@ export default function AeroClubBarV2() {
       return [...prev, { product: p, qty: 1 }];
     });
 
-    // Reset the 30s cooldown for this product
-    const expiryTs = Date.now() + 30000;
+    // Reset the 2min cooldown for this product
+    const expiryTs = Date.now() + 120000;
     setCartExpiries((prev) => ({ ...prev, [p.id]: expiryTs }));
     setCartCooldowns((prev) => {
       if (prev[p.id]) clearTimeout(prev[p.id]);
@@ -836,7 +836,7 @@ export default function AeroClubBarV2() {
           delete next[p.id];
           return next;
         });
-      }, 30000);
+      }, 120000);
       return { ...prev, [p.id]: timer };
     });
   };
