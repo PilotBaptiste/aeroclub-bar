@@ -9,12 +9,8 @@
  * Fonctionnement :
  *   - Poll /api/fridge?action=check toutes les 2s pour serrures + LED
  *   - Envoie les temperatures toutes les 30s via POST /api/temperature
- *   - LED lue dans la reponse du poll serrures (pas de requete separee)
- *   - Les relais cafe/frigo = active LOW -> LOW = ouvert
- *   - Le relais congelateur = active HIGH (jumper) -> HIGH = ouvert
- *   - Le relais LED = active HIGH -> HIGH = LED allumee
- *   - Triple-kick serrures : simule le "2eme essai" automatiquement
- *   - LED clignote brievement quand le frigo se deverrouille
+ *   - LED = ON / OFF / auto (horaire) — lu dans la reponse du poll
+ *   - Serrures : double-impulsion avec 1s de repos (simule "reouvrir")
  *   - Lectures temperature non-bloquantes
  *
  * Librairies requises :
@@ -138,30 +134,33 @@ void loop() {
 }
 
 // ============================================================
-// ACTIVATION SERRURE — Impulsion longue + auto-retry
+// ACTIVATION SERRURE — Double-impulsion avec vrai repos
 // ============================================================
-// Le triple-kick rapide faisait 3 clics faibles. Le "reouvrir"
-// marchait parce que c'est une 2eme tentative apres un repos.
-// On reproduit exactement ca : une longue impulsion soutenue
-// (800ms continus), repos 200ms, puis maintien continu.
-// C'est comme si l'utilisateur appuyait "reouvrir" automatiquement.
+// Le "reouvrir" marche a chaque fois parce qu'il y a 3-4s
+// entre la 1ere tentative et la 2eme. Le pene se "decolle"
+// au 1er coup puis rentre facilement au 2eme.
+//
+// On reproduit ca : 1s de traction, 1s de repos, puis maintien.
+// Le repos de 1s laisse le ressort repousser le pene dans une
+// position "desaxee" plus facile a retirer.
 // ============================================================
 void activerSerrure(int pin, bool activeHigh) {
   int on  = activeHigh ? HIGH : LOW;
   int off = activeHigh ? LOW  : HIGH;
 
-  // Tentative 1 : impulsion soutenue 800ms
-  // Le solenoide recoit du courant continu sans interruption
+  // Traction 1 : impulsion longue soutenue (1 seconde)
+  // Tente de tirer le pene, le decolle au minimum
   digitalWrite(pin, on);
-  delay(800);
+  delay(1000);
 
-  // Repos 200ms — le ressort repousse legerement le pene
-  // Ca le "decolle" de sa position verrouillee
+  // Repos 1 seconde — le ressort repousse le pene
+  // mais il revient "desaxe", plus dans son logement d'origine
   digitalWrite(pin, off);
-  delay(200);
+  delay(1000);
 
-  // Tentative 2 : le pene est desaxe, maintien continu
-  // Exactement comme quand on appuie "reouvrir" et ca marche
+  // Traction 2 : maintien continu
+  // Le pene desaxe se retracte completement cette fois
+  // = exactement comme quand on appuie "reouvrir"
   digitalWrite(pin, on);
 }
 
@@ -199,32 +198,23 @@ void pollSerrures() {
         if (needCongelateur) Serial.print(" CONGELATEUR");
         Serial.println(" <<<");
 
-        // Congelateur (module separe, on l'active sans se soucier du reste)
+        // Delai post-WiFi : laisser l'ESP32 se stabiliser
+        // Le module WiFi tire ~250mA, ca peut affecter les GPIO
+        delay(200);
+
+        // Congelateur (module separe, fonctionne nickel)
         if (needCongelateur) {
           activerSerrure(RELAY_CONGELATEUR, true);
         }
 
-        // Cafe (triple-kick ~1150ms)
+        // Cafe
         if (needCafe) {
           activerSerrure(RELAY_CAFE, false);
-          delay(300); // Pause avant frigo si besoin
         }
 
-        // Frigo (triple-kick ~1150ms)
+        // Frigo
         if (needFrigo) {
           activerSerrure(RELAY_FRIGO, false);
-        }
-
-        // Signal LED : clignotement si le frigo est ouvert
-        if (needFrigo) {
-          delay(200);
-          Serial.println(">>> LED signal frigo ouvert <<<");
-          for (int i = 0; i < 3; i++) {
-            digitalWrite(RELAY_LED, HIGH);
-            delay(200);
-            digitalWrite(RELAY_LED, LOW);
-            delay(200);
-          }
         }
 
         // Maintenir ouvert pour le temps restant (7s au total)
@@ -247,7 +237,7 @@ void pollSerrures() {
         if (h2.begin(client, String(API_URL) + "?action=done")) { h2.GET(); h2.end(); }
       }
 
-      // Etat LED (lu dans la meme reponse, pas de requete separee)
+      // LED frigo vitrine — etat lu dans la meme reponse
       bool wantLed = body.indexOf("\"led\":true") >= 0;
       if (wantLed != ledState) {
         ledState = wantLed;
