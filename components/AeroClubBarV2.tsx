@@ -1656,9 +1656,9 @@ export default function AeroClubBarV2() {
                       <div className={`flex items-center gap-4 flex-1 ${promoAnim === "slideIn" ? "v2-slide-in" : "v2-slide-out"}`}>
                         <span className="text-4xl">{current.cat.emoji}</span>
                         <div className="flex-1 text-left">
-                          <span className="text-xs font-bold uppercase tracking-widest text-white/50">{"Decouvrez"}</span>
+                          <span className="text-xs font-bold uppercase tracking-widest text-white/70">{"Decouvrez"}</span>
                           <p className="text-lg font-black text-white">{current.cat.label}</p>
-                          <span className="text-xs text-white/40">{current.count + " produit" + (current.count > 1 ? "s" : "")}</span>
+                          <span className="text-xs text-white/60">{current.count + " produit" + (current.count > 1 ? "s" : "")}</span>
                         </div>
                       </div>
                       <span className="text-amber-500 text-xl shrink-0">{"→"}</span>
@@ -1722,8 +1722,8 @@ export default function AeroClubBarV2() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-amber-500/80">{"A la une"}</span>
-                          <span className="w-6 h-px bg-amber-500/30" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">{"A la une"}</span>
+                          <span className="w-6 h-px bg-amber-500/50" />
                         </div>
                         <h2 className="text-2xl font-black text-white leading-tight truncate">{currentHero.name}</h2>
                         <div className="flex items-center gap-3 mt-2">
@@ -1764,7 +1764,7 @@ export default function AeroClubBarV2() {
                         {out && <span className="absolute top-1 right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">{"Epuise"}</span>}
                         {!out && effectiveStock(p) <= 5 && <span className="absolute -top-1 -left-1 bg-amber-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-lg animate-pulse">{"x" + effectiveStock(p)}</span>}
                         <div className={addedProductId === p.id ? "v2-pop-in" : ""}>{renderProductIcon(p.emoji, "text-3xl", "w-10 h-10")}</div>
-                        <span className="text-xs font-bold text-white/90 text-center leading-tight line-clamp-2">{p.name}</span>
+                        <span className="text-xs font-bold text-white text-center leading-tight line-clamp-2">{p.name}</span>
                         <span className="text-sm font-black text-amber-400">{formatPrice(p.price)}</span>
                       </button>
                     );
@@ -1776,15 +1776,15 @@ export default function AeroClubBarV2() {
             {/* ── VOIR TOUS / CATEGORIES / GRILLE PRODUITS ── */}
             {!showAllProducts ? (
               <button onClick={() => setShowAllProducts(true)}
-                className="w-full py-5 rounded-2xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] text-white font-bold text-base transition-all active:scale-95 cursor-pointer mb-6 flex items-center justify-center gap-3"
-              ><span>{"📦 Voir tous les produits"}</span><span className="text-slate-500 text-xs font-medium">{"(" + saleProducts.length + ")"}</span><span className="text-amber-500">{"→"}</span></button>
+                className="w-full py-5 rounded-2xl border-2 border-amber-500/40 bg-gradient-to-r from-amber-500/10 to-amber-600/5 hover:from-amber-500/20 hover:to-amber-600/10 text-white font-bold text-lg transition-all active:scale-95 cursor-pointer mb-6 flex items-center justify-center gap-3 shadow-[0_0_20px_rgba(245,158,11,0.1)]"
+              ><span>{"📦 Voir tous les produits"}</span><span className="text-amber-300/70 text-sm font-semibold">{"(" + saleProducts.length + ")"}</span><span className="text-amber-400 text-xl">{"→"}</span></button>
             ) : !saleCategory ? (
               /* ── ECRAN CATEGORIES (pleine page) ── */
               <section className="mb-6">
                 <div className="flex items-center gap-2 mb-4">
-                  <button onClick={() => { setShowAllProducts(false); setSaleCategory(null); }} className="text-sm text-slate-500 hover:text-amber-500 transition cursor-pointer">{"← Accueil"}</button>
-                  <span className="flex-1 h-px bg-white/5" />
-                  <span className="text-xs text-slate-600 font-medium">{saleProducts.length + " produits"}</span>
+                  <button onClick={() => { setShowAllProducts(false); setSaleCategory(null); }} className="text-sm text-slate-400 hover:text-amber-400 transition cursor-pointer font-semibold">{"← Accueil"}</button>
+                  <span className="flex-1 h-px bg-white/10" />
+                  <span className="text-xs text-slate-400 font-medium">{saleProducts.length + " produits"}</span>
                 </div>
                 <h2 className="text-xl font-black text-white mb-4">{"Choisir une categorie"}</h2>
                 <div className="grid grid-cols-2 gap-3">
@@ -1797,7 +1797,7 @@ export default function AeroClubBarV2() {
                       >
                         <span className="text-4xl">{cat.emoji}</span>
                         <span className="text-base font-bold text-white">{cat.label}</span>
-                        <span className="text-xs text-slate-500">{catProducts.length + " produit" + (catProducts.length > 1 ? "s" : "")}</span>
+                        <span className="text-xs text-slate-300">{catProducts.length + " produit" + (catProducts.length > 1 ? "s" : "")}</span>
                       </button>
                     );
                   })}
@@ -1808,7 +1808,7 @@ export default function AeroClubBarV2() {
                     >
                       <span className="text-4xl">{"📦"}</span>
                       <span className="text-base font-bold text-white">{"Autres"}</span>
-                      <span className="text-xs text-slate-500">{saleProducts.filter((p) => !p.category).length + " produit(s)"}</span>
+                      <span className="text-xs text-slate-300">{saleProducts.filter((p) => !p.category).length + " produit(s)"}</span>
                     </button>
                   )}
                 </div>
@@ -1817,13 +1817,13 @@ export default function AeroClubBarV2() {
               /* ── PRODUITS D'UNE CATEGORIE ── */
               <section className="mb-6">
                 <div className="flex items-center gap-2 mb-4 sticky top-[52px] z-40 bg-[#0a0f1e] py-3 -mx-5 px-5 border-b border-white/5">
-                  <button onClick={() => setSaleCategory(null)} className="text-sm text-slate-500 hover:text-amber-500 transition cursor-pointer">{"← Categories"}</button>
+                  <button onClick={() => setSaleCategory(null)} className="text-sm text-slate-400 hover:text-amber-400 transition cursor-pointer font-semibold">{"← Categories"}</button>
                   <span className="flex-1 h-px bg-white/5" />
                   {/* Navigation rapide entre categories */}
                   <div className="flex gap-1.5 flex-wrap justify-end">
                     {getCategories().filter((c) => saleProducts.some((p) => p.category === c.id)).map((cat) => (
                       <button key={cat.id} onClick={() => setSaleCategory(cat.id)}
-                        className={"h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all whitespace-nowrap " + (saleCategory === cat.id ? "bg-amber-500 text-black shadow-lg" : "bg-white/5 hover:bg-white/10 text-white/70")}
+                        className={"h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all whitespace-nowrap " + (saleCategory === cat.id ? "bg-amber-500 text-black shadow-lg" : "bg-white/5 hover:bg-white/10 text-white/90")}
                       ><span>{cat.emoji}</span><span>{cat.label}</span></button>
                     ))}
                   </div>
@@ -1844,9 +1844,9 @@ export default function AeroClubBarV2() {
                         {out && <span className="absolute top-2 right-2 bg-red-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full">{"Epuise"}</span>}
                         {!out && effectiveStock(p) <= 5 && <span className="absolute -top-1.5 -left-1.5 bg-amber-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg animate-pulse">{"x" + effectiveStock(p)}</span>}
                         <div className={addedProductId === p.id ? "v2-pop-in" : ""}>{renderProductIcon(p.emoji, "text-5xl", "w-16 h-16")}</div>
-                        <span className="text-sm font-bold text-white/90 text-center leading-tight line-clamp-2">{p.name}</span>
+                        <span className="text-sm font-bold text-white text-center leading-tight line-clamp-2">{p.name}</span>
                         <span className="text-lg font-black text-amber-400">{formatPrice(p.price)}</span>
-                        {!out && effectiveStock(p) <= 5 && <span className="text-xs text-amber-500/60">{"Plus que " + effectiveStock(p)}</span>}
+                        {!out && effectiveStock(p) <= 5 && <span className="text-xs text-amber-400/80">{"Plus que " + effectiveStock(p)}</span>}
                         {out && <span className="text-xs text-red-400 font-semibold">{"Rupture de stock"}</span>}
                       </button>
                     );
@@ -1859,7 +1859,7 @@ export default function AeroClubBarV2() {
             {!showAllProducts && (
               <section className="mb-8 v2-fade-up" style={{ animationDelay: "0.4s", animationFillMode: "both" }}>
                 <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-5">
-                  <div className="flex items-center gap-2 mb-4"><span className="text-lg">{"ℹ️"}</span><span className="text-sm font-bold text-slate-400 uppercase tracking-wider">{"Infos pratiques"}</span></div>
+                  <div className="flex items-center gap-2 mb-4"><span className="text-lg">{"ℹ️"}</span><span className="text-sm font-bold text-slate-300 uppercase tracking-wider">{"Infos pratiques"}</span></div>
                   <div className={"grid gap-4 text-sm " + (infos.length <= 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-" + Math.min(infos.length, 6))}>
                     {infos.map((info, i) => (
                       <div key={i} className="flex items-start gap-2">
