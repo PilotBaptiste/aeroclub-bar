@@ -220,9 +220,17 @@ void pollSerrures() {
 // le 3.3V est stable, les GPIO delivrent la tension max
 // aux optocouplers des relais.
 //
-// Impulsion simple : activation + maintien 8s
+// Coupe le WiFi avant activation pour liberer toute la
+// puissance sur le regulateur 3.3V (le WiFi tire 150-250mA).
+// Reconnexion automatique apres verrouillage.
 // ============================================================
 void activerSerrures() {
+  // --- COUPER LE WIFI ---
+  Serial.println(">>> WiFi OFF pour deverrouillage <<<");
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(500);  // laisser le regulateur se stabiliser
+
   Serial.println(">>> DEVERROUILLAGE <<<");
 
   if (pendingCongelateur) digitalWrite(RELAY_CONGELATEUR, HIGH);
@@ -240,11 +248,24 @@ void activerSerrures() {
   // Restaurer LED
   digitalWrite(RELAY_LED, ledState ? HIGH : LOW);
 
-  // Confirmer a l'API
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient h2;
-  if (h2.begin(client, String(API_URL) + "?action=done")) { h2.GET(); h2.end(); }
+  // --- RECONNECTER LE WIFI ---
+  Serial.print(">>> Reconnexion WiFi...");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500); Serial.print("."); attempts++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println(" OK <<<");
+    // Confirmer a l'API
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient h2;
+    if (h2.begin(client, String(API_URL) + "?action=done")) { h2.GET(); h2.end(); }
+  } else {
+    Serial.println(" ECHEC (sera retente dans loop) <<<");
+  }
 }
 
 // ============================================================
