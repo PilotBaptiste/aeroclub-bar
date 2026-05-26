@@ -132,25 +132,29 @@ void loop() {
   }
 
   // --- ACTIVATION DIFFEREE DES SERRURES ---
-  // 500ms apres le poll WiFi, le 3.3V est stable,
+  // 1.5s apres le poll WiFi, le 3.3V est stable,
   // les GPIO delivrent pleine tension aux relais
-  if (pendingUnlock && now - pendingTime >= 500) {
+  if (pendingUnlock && now - pendingTime >= 1500) {
     pendingUnlock = false;
     activerSerrures();
   }
 
   // --- TEMPERATURES (non-bloquant) ---
-  if (!tempRequested && now - lastTemp >= TEMP_INTERVAL) {
-    lastTemp = now;
-    capteurFrigo.requestTemperatures();
-    capteurCongel.requestTemperatures();
-    tempRequestTime = now;
-    tempRequested = true;
-  }
-  if (tempRequested && now - tempRequestTime >= 800) {
-    tempRequested = false;
-    lireTemperatures();
-    envoyerTemperatures();
+  // IMPORTANT : on bloque tout WiFi temperature quand un unlock
+  // est en attente, pour ne pas polluer l'alimentation
+  if (!pendingUnlock) {
+    if (!tempRequested && now - lastTemp >= TEMP_INTERVAL) {
+      lastTemp = now;
+      capteurFrigo.requestTemperatures();
+      capteurCongel.requestTemperatures();
+      tempRequestTime = now;
+      tempRequested = true;
+    }
+    if (tempRequested && now - tempRequestTime >= 800) {
+      tempRequested = false;
+      lireTemperatures();
+      envoyerTemperatures();
+    }
   }
 }
 
