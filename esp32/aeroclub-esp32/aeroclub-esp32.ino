@@ -216,43 +216,16 @@ void pollSerrures() {
 // le 3.3V est stable, les GPIO delivrent la tension max
 // aux optocouplers des relais.
 //
-// Strategie anti-stiction (pene colle apres repos) :
-//   Phase 1 : BUZZ RAPIDE — 10 impulsions ON/OFF courtes
-//             Les vibrations cassent l'adherence mecanique du pene
-//   Phase 2 : REPOS 400ms — le ressort repousse, pene desaxe
-//   Phase 3 : MAINTIEN LONG 6s — ouverture franche
-//
-// Le buzz remplace les tentatives longues qui n'arrivaient pas
-// a decoller le pene quand il etait reste immobile longtemps.
+// Impulsion simple : activation + maintien 8s
 // ============================================================
 void activerSerrures() {
-  // Congelateur : module separe, activation simple
+  Serial.println(">>> DEVERROUILLAGE <<<");
+
   if (pendingCongelateur) digitalWrite(RELAY_CONGELATEUR, HIGH);
-
-  // --- PHASE 1 : BUZZ RAPIDE (casse la stiction) ---
-  Serial.println(">>> PHASE 1 : BUZZ RAPIDE (10 impulsions) <<<");
-  for (int i = 0; i < 10; i++) {
-    // Activer (ON)
-    if (pendingFrigo) digitalWrite(RELAY_FRIGO, LOW);
-    if (pendingCafe) digitalWrite(RELAY_CAFE, LOW);
-    delay(100);
-    // Couper (OFF)
-    if (pendingFrigo) digitalWrite(RELAY_FRIGO, HIGH);
-    if (pendingCafe) digitalWrite(RELAY_CAFE, HIGH);
-    delay(80);
-    Serial.printf("  buzz %d/10\n", i + 1);
-  }
-
-  // --- PHASE 2 : REPOS 400ms (le ressort repousse) ---
-  Serial.println(">>> PHASE 2 : REPOS 400ms <<<");
-  delay(400);
-
-  // --- PHASE 3 : MAINTIEN LONG 6s (ouverture) ---
-  Serial.println(">>> PHASE 3 : MAINTIEN 6s <<<");
   if (pendingCafe) { digitalWrite(RELAY_CAFE, LOW); delay(300); }
   if (pendingFrigo) digitalWrite(RELAY_FRIGO, LOW);
 
-  delay(6000);
+  delay(8000);
 
   // --- VERROUILLER ---
   if (pendingCongelateur) digitalWrite(RELAY_CONGELATEUR, LOW);
