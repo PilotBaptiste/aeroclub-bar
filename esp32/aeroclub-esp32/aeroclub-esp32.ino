@@ -53,6 +53,7 @@ DallasTemperature capteurCongel(&oneWireCongel);
 unsigned long lastPoll = 0;
 unsigned long lastTemp = 0;
 unsigned long tempRequestTime = 0;
+unsigned long lastUnlock = 0;       // cooldown anti-boucle
 bool tempRequested = false;
 bool ledState = false;
 float tempFrigo = -127.0;
@@ -160,12 +161,15 @@ void pollSerrures() {
       }
 
       // Activation directe — une seule impulsion, 5 secondes
-      if (needCafe || needFrigo || needCongelateur) {
+      // Cooldown 10s pour ne pas reactiver en boucle
+      // (les locks restent dans KV jusqu'a l'appel "done")
+      if ((needCafe || needFrigo || needCongelateur) && (millis() - lastUnlock >= 10000)) {
         Serial.print(">>> DEVERROUILLAGE:");
         if (needCafe) Serial.print(" CAFE");
         if (needFrigo) Serial.print(" FRIGO");
         if (needCongelateur) Serial.print(" CONGELATEUR");
         Serial.println(" <<<");
+        lastUnlock = millis();
 
         if (needCongelateur) digitalWrite(RELAY_CONGELATEUR, HIGH);
         if (needCafe) digitalWrite(RELAY_CAFE, LOW);
