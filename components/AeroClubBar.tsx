@@ -894,6 +894,21 @@ export default function AeroClubBar() {
 
   const confirmPayment = (method: string, amountPaid?: number) => {
     if (!buyerName.trim() || cart.length === 0) return;
+
+    // ══ SERRURE EN PREMIER — avant tout autre fetch ══
+    const locationsNeeded = new Set<string>();
+    for (const c of cart) {
+      locationsNeeded.add(c.product.location || "frigo");
+    }
+    if (madeleineAdded && madeleineProduct?.location) {
+      locationsNeeded.add(madeleineProduct.location);
+    }
+    const lockType: string = [...locationsNeeded].join(",");
+    fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
+    setTimeout(() => {
+      fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
+    }, 2000);
+
     // Utiliser le nom canonique du membre si connu, sinon le nom tel que tapé
     const buyerKey = normalizeNameFuzzy(buyerName.trim());
     const canonicalMember = members.find(
@@ -954,24 +969,10 @@ export default function AeroClubBar() {
       }
     }
 
-    // Deverrouille la bonne serrure selon le champ location de chaque produit
-    const locationsNeeded = new Set<string>();
-    for (const c of cart) {
-      const loc = c.product.location || "frigo"; // défaut = frigo
-      locationsNeeded.add(loc);
-    }
-    // Si madeleine ajoutée, le frigo est aussi nécessaire
-    if (madeleineAdded && madeleineProduct?.location) {
-      locationsNeeded.add(madeleineProduct.location);
-    }
+    // locationsNeeded & lockType déjà calculés en haut de confirmPayment
     const hasCafe = locationsNeeded.has("cafe");
     const hasFrigo = locationsNeeded.has("frigo");
     const hasCongelateur = locationsNeeded.has("congelateur");
-    // lockType = les serrures nécessaires séparées par virgule (ex: "cafe,frigo")
-    const lockType: string = [...locationsNeeded].join(",");
-
-    // TOUJOURS ouvrir les serrures immédiatement au paiement
-    fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
 
     // Détecter produits multi-portions café (ex: "2x Cafés")
     // Détecter produits multi-portions (café, glace, madeleine, etc.)
