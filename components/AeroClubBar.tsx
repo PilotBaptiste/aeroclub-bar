@@ -904,10 +904,8 @@ export default function AeroClubBar() {
       locationsNeeded.add(madeleineProduct.location);
     }
     const lockType: string = [...locationsNeeded].join(",");
+    // Trigger unique — PAS de retry (le 2ème trigger coupe le relais en plein milieu)
     fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
-    setTimeout(() => {
-      fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
-    }, 2000);
 
     // Utiliser le nom canonique du membre si connu, sinon le nom tel que tapé
     const buyerKey = normalizeNameFuzzy(buyerName.trim());
