@@ -1094,6 +1094,9 @@ export default function AeroClubBarV2() {
     // lockType = les serrures nécessaires séparées par virgule (ex: "cafe,frigo")
     const lockType: string = [...locationsNeeded].join(",");
 
+    // TOUJOURS ouvrir les serrures immédiatement au paiement
+    fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
+
     // Détecter produits multi-portions (café, glace, madeleine, etc.)
     const servingsProducts = cart.filter((c) => getServings(c.product) > 1);
     const firstServings = servingsProducts[0];
@@ -1106,9 +1109,6 @@ export default function AeroClubBarV2() {
         step: "main",
         totalAddon: madeleineAdded ? madeleineOfferQty : 0,
       });
-    } else {
-      // Pas de modal → ouvrir les serrures immédiatement
-      fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
     }
 
     // Items pour la transaction (inclut madeleine si ajoutée)
@@ -1176,8 +1176,7 @@ export default function AeroClubBarV2() {
     if (madeleineAdded && (servingsModal.totalAddon || 0) > 0) {
       setServingsModal({ ...servingsModal, step: "addon", usedNow });
     } else {
-      // Ouvrir les serrures et fermer
-      fetch("/api/fridge?action=trigger&lock=" + servingsModal.lockType).catch(() => {});
+      // Serrures déjà ouvertes dans confirmPayment — juste fermer le modal
       setServingsModal(null);
     }
   };
@@ -1206,7 +1205,7 @@ export default function AeroClubBarV2() {
       );
     }
 
-    fetch("/api/fridge?action=trigger&lock=" + servingsModal.lockType).catch(() => {});
+    // Serrures déjà ouvertes dans confirmPayment — juste fermer le modal
     setServingsModal(null);
   };
 

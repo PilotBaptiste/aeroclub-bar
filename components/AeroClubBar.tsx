@@ -970,6 +970,9 @@ export default function AeroClubBar() {
     // lockType = les serrures nécessaires séparées par virgule (ex: "cafe,frigo")
     const lockType: string = [...locationsNeeded].join(",");
 
+    // TOUJOURS ouvrir les serrures immédiatement au paiement
+    fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
+
     // Détecter produits multi-portions café (ex: "2x Cafés")
     // Détecter produits multi-portions (café, glace, madeleine, etc.)
     const servingsProducts = cart.filter((c) => getServings(c.product) > 1);
@@ -983,9 +986,6 @@ export default function AeroClubBar() {
         step: "main",
         totalAddon: madeleineAdded ? madeleineOfferQty : 0,
       });
-    } else {
-      // Pas de modal → ouvrir les serrures immédiatement
-      fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
     }
 
     // Items pour la transaction (inclut madeleine si ajoutée)
@@ -1051,7 +1051,6 @@ export default function AeroClubBar() {
     if (madeleineAdded && (servingsModal.totalAddon || 0) > 0) {
       setServingsModal({ ...servingsModal, step: "addon", usedNow });
     } else {
-      fetch("/api/fridge?action=trigger&lock=" + servingsModal.lockType).catch(() => {});
       setServingsModal(null);
     }
   };
@@ -1080,7 +1079,6 @@ export default function AeroClubBar() {
       );
     }
 
-    fetch("/api/fridge?action=trigger&lock=" + servingsModal.lockType).catch(() => {});
     setServingsModal(null);
   };
 
