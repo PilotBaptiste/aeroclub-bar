@@ -10,8 +10,7 @@
  *   - Poll /api/fridge?action=check toutes les 2s pour serrures + LED
  *   - Envoie les temperatures toutes les 30s via POST /api/temperature
  *   - LED = ON / OFF / auto (horaire) — lu dans la reponse du poll
- *   - Serrures : double activation auto (1ere tentative + "reouvrir")
- *   - 500ms de delai post-WiFi avant activation relais
+ *   - Serrures : activation directe dans le poll
  *   - Lectures temperature non-bloquantes
  *
  * Librairies requises :
@@ -58,14 +57,6 @@ bool tempRequested = false;
 bool ledState = false;
 float tempFrigo = -127.0;
 float tempCongel = -127.0;
-
-// --- FLAGS SERRURES (activation differee du WiFi) ---
-bool pendingCafe = false;
-bool pendingFrigo = false;
-bool pendingCongelateur = false;
-bool pendingUnlock = false;
-unsigned long pendingTime = 0;
-String pendingBody = "";  // Garder le body pour la LED
 
 void setup() {
   Serial.begin(115200);
@@ -123,43 +114,28 @@ void loop() {
   unsigned long now = millis();
 
   // --- POLL SERRURES + LED (toutes les 2s) ---
-  // Le poll ne fait QUE lire l'API et stocker les flags.
-  // L'activation des relais est differee de 500ms pour que
-  // le module WiFi soit completement au repos.
   if (now - lastPoll >= POLL_INTERVAL) {
     lastPoll = now;
     pollSerrures();
   }
 
-  // --- ACTIVATION DIFFEREE DES SERRURES ---
-  // 1.5s apres le poll WiFi, le 3.3V est stable,
-  // les GPIO delivrent pleine tension aux relais
-  if (pendingUnlock && now - pendingTime >= 1500) {
-    pendingUnlock = false;
-    activerSerrures();
-  }
-
   // --- TEMPERATURES (non-bloquant) ---
-  // IMPORTANT : on bloque tout WiFi temperature quand un unlock
-  // est en attente, pour ne pas polluer l'alimentation
-  if (!pendingUnlock) {
-    if (!tempRequested && now - lastTemp >= TEMP_INTERVAL) {
-      lastTemp = now;
-      capteurFrigo.requestTemperatures();
-      capteurCongel.requestTemperatures();
-      tempRequestTime = now;
-      tempRequested = true;
-    }
-    if (tempRequested && now - tempRequestTime >= 800) {
-      tempRequested = false;
-      lireTemperatures();
-      envoyerTemperatures();
-    }
+  if (!tempRequested && now - lastTemp >= TEMP_INTERVAL) {
+    lastTemp = now;
+    capteurFrigo.requestTemperatures();
+    capteurCongel.requestTemperatures();
+    tempRequestTime = now;
+    tempRequested = true;
+  }
+  if (tempRequested && now - tempRequestTime >= 800) {
+    tempRequested = false;
+    lireTemperatures();
+    envoyerTemperatures();
   }
 }
 
 // ============================================================
-// POLL — Lit l'API, stocke les flags, N'ACTIVE RIEN
+// POLL + ACTIVATION DIRECTE
 // ============================================================
 void pollSerrures() {
   WiFiClientSecure client;
@@ -183,22 +159,36 @@ void pollSerrures() {
         needCongelateur = true;
       }
 
-      // Stocker pour activation differee (pas maintenant !)
+      // Activation directe si besoin
       if (needCafe || needFrigo || needCongelateur) {
-        pendingCafe = needCafe;
-        pendingFrigo = needFrigo;
-        pendingCongelateur = needCongelateur;
-        pendingUnlock = true;
-        pendingTime = millis();
-
-        Serial.print(">>> FLAGS RECUS:");
+        Serial.print(">>> DEVERROUILLAGE:");
         if (needCafe) Serial.print(" CAFE");
         if (needFrigo) Serial.print(" FRIGO");
         if (needCongelateur) Serial.print(" CONGELATEUR");
-        Serial.println(" (activation dans 500ms) <<<");
+        Serial.println(" <<<");
+
+        if (needCongelateur) digitalWrite(RELAY_CONGELATEUR, HIGH);
+        if (needCafe) { digitalWrite(RELAY_CAFE, LOW); delay(300); }
+        if (needFrigo) digitalWrite(RELAY_FRIGO, LOW);
+
+        delay(8000);
+
+        if (needCongelateur) digitalWrite(RELAY_CONGELATEUR, LOW);
+        if (needFrigo) digitalWrite(RELAY_FRIGO, HIGH);
+        if (needCafe) digitalWrite(RELAY_CAFE, HIGH);
+        Serial.println(">>> VERROUILLE <<<");
+
+        // Restaurer LED
+        digitalWrite(RELAY_LED, ledState ? HIGH : LOW);
+
+        // Confirmer a l'API
+        WiFiClientSecure c2;
+        c2.setInsecure();
+        HTTPClient h2;
+        if (h2.begin(c2, String(API_URL) + "?action=done")) { h2.GET(); h2.end(); }
       }
 
-      // LED — traiter immediatement (pas de probleme de courant)
+      // LED
       bool wantLed = body.indexOf("\"led\":true") >= 0;
       if (wantLed != ledState) {
         ledState = wantLed;
@@ -210,61 +200,6 @@ void pollSerrures() {
       Serial.printf("HTTP erreur : %d\n", httpCode);
       http.end();
     }
-  }
-}
-
-// ============================================================
-// ACTIVATION SERRURES — WiFi au repos, GPIO pleine puissance
-// ============================================================
-// Appelee 500ms apres le poll. Le module WiFi est inactif,
-// le 3.3V est stable, les GPIO delivrent la tension max
-// aux optocouplers des relais.
-//
-// Coupe le WiFi avant activation pour liberer toute la
-// puissance sur le regulateur 3.3V (le WiFi tire 150-250mA).
-// Reconnexion automatique apres verrouillage.
-// ============================================================
-void activerSerrures() {
-  // --- COUPER LE WIFI ---
-  Serial.println(">>> WiFi OFF pour deverrouillage <<<");
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
-  delay(500);  // laisser le regulateur se stabiliser
-
-  Serial.println(">>> DEVERROUILLAGE <<<");
-
-  if (pendingCongelateur) digitalWrite(RELAY_CONGELATEUR, HIGH);
-  if (pendingCafe) { digitalWrite(RELAY_CAFE, LOW); delay(300); }
-  if (pendingFrigo) digitalWrite(RELAY_FRIGO, LOW);
-
-  delay(8000);
-
-  // --- VERROUILLER ---
-  if (pendingCongelateur) digitalWrite(RELAY_CONGELATEUR, LOW);
-  if (pendingFrigo) digitalWrite(RELAY_FRIGO, HIGH);
-  if (pendingCafe) digitalWrite(RELAY_CAFE, HIGH);
-  Serial.println(">>> VERROUILLE <<<");
-
-  // Restaurer LED
-  digitalWrite(RELAY_LED, ledState ? HIGH : LOW);
-
-  // --- RECONNECTER LE WIFI ---
-  Serial.print(">>> Reconnexion WiFi...");
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500); Serial.print("."); attempts++;
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println(" OK <<<");
-    // Confirmer a l'API
-    WiFiClientSecure client;
-    client.setInsecure();
-    HTTPClient h2;
-    if (h2.begin(client, String(API_URL) + "?action=done")) { h2.GET(); h2.end(); }
-  } else {
-    Serial.println(" ECHEC (sera retente dans loop) <<<");
   }
 }
 
