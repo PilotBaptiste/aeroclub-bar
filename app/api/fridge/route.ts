@@ -51,13 +51,14 @@ export async function GET(request: Request) {
         }
       }
 
-      // NE PAS effacer ici — c'est le "done" qui efface
-      // (évite la race condition trigger/check)
+      // Reset locks seulement si un verrou était actif
+      if (result.cafe || result.frigo || result.congelateur || result.both) {
+        await kv.set("aeroclub-locks", EMPTY);
+      }
       return NextResponse.json(result);
     }
 
     if (action === "done") {
-      await kv.set("aeroclub-locks", EMPTY);
       return NextResponse.json({ ok: true });
     }
 
@@ -76,7 +77,7 @@ export async function GET(request: Request) {
       if (!current.cafe && !current.frigo && !current.congelateur && !current.both) {
         current.both = true;
       }
-      await kv.set("aeroclub-locks", current, { ex: 30 });
+      await kv.set("aeroclub-locks", current);
       return NextResponse.json({ ok: true, lock: lock || "both" });
     }
 
