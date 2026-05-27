@@ -160,6 +160,8 @@ void pollSerrures() {
       }
 
       // Activation directe si besoin
+      // 3 tentatives automatiques (comme manuellement ca marche au 3eme)
+      // Tentative 1: 3s — Pause 2s — Tentative 2: 3s — Pause 2s — Tentative 3: 5s
       if (needCafe || needFrigo || needCongelateur) {
         Serial.print(">>> DEVERROUILLAGE:");
         if (needCafe) Serial.print(" CAFE");
@@ -168,14 +170,26 @@ void pollSerrures() {
         Serial.println(" <<<");
 
         if (needCongelateur) digitalWrite(RELAY_CONGELATEUR, HIGH);
-        if (needCafe) { digitalWrite(RELAY_CAFE, LOW); delay(300); }
-        if (needFrigo) digitalWrite(RELAY_FRIGO, LOW);
 
-        delay(8000);
+        for (int tentative = 1; tentative <= 3; tentative++) {
+          int duree = (tentative < 3) ? 3000 : 5000;
+          Serial.printf(">>> Tentative %d/3 (%dms) <<<\n", tentative, duree);
+
+          if (needCafe) { digitalWrite(RELAY_CAFE, LOW); delay(300); }
+          if (needFrigo) digitalWrite(RELAY_FRIGO, LOW);
+
+          delay(duree);
+
+          if (needFrigo) digitalWrite(RELAY_FRIGO, HIGH);
+          if (needCafe) digitalWrite(RELAY_CAFE, HIGH);
+
+          if (tentative < 3) {
+            Serial.println(">>> Pause 2s <<<");
+            delay(2000);
+          }
+        }
 
         if (needCongelateur) digitalWrite(RELAY_CONGELATEUR, LOW);
-        if (needFrigo) digitalWrite(RELAY_FRIGO, HIGH);
-        if (needCafe) digitalWrite(RELAY_CAFE, HIGH);
         Serial.println(">>> VERROUILLE <<<");
 
         // Restaurer LED
