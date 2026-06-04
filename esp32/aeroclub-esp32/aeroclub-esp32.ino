@@ -73,10 +73,10 @@ float tempCongel = -127.0;
 void relayOn(int pin) { digitalWrite(pin, RELAY_ACTIVE_HIGH ? HIGH : LOW); }
 void relayOff(int pin) { digitalWrite(pin, RELAY_ACTIVE_HIGH ? LOW : HIGH); }
 
-// === LED WS2812B : allumer les plages recues ===
-// Format attendu : "0-2,5-7,12-14"
+// === LED WS2812B : allumer les plages recues avec couleur ===
+// Format attendu : "0-2:FF0000,5-7:00FF00" (plage:couleurHex)
+// Si pas de couleur : blanc par defaut
 void allumerLeds(String ranges) {
-  // Eteindre toutes les LED d'abord
   FastLED.clear();
 
   if (ranges.length() == 0) {
@@ -86,18 +86,37 @@ void allumerLeds(String ranges) {
 
   int idx = 0;
   while (idx < (int)ranges.length()) {
-    // Lire le debut
+    // Lire le debut de la plage
     int dashPos = ranges.indexOf('-', idx);
     if (dashPos < 0) break;
+
+    // Trouver la fin du segment (virgule ou fin de chaine)
     int commaPos = ranges.indexOf(',', dashPos);
     if (commaPos < 0) commaPos = ranges.length();
 
+    // Chercher la couleur (apres le ':')
+    int colonPos = ranges.indexOf(':', dashPos);
+    int endPos;
+    CRGB color = CRGB::White;
+
+    if (colonPos > 0 && colonPos < commaPos) {
+      // Plage avec couleur : "0-2:FF0000"
+      endPos = colonPos;
+      String hexColor = ranges.substring(colonPos + 1, commaPos);
+      // Parser le hex en RGB
+      long rgb = strtol(hexColor.c_str(), NULL, 16);
+      color = CRGB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+    } else {
+      // Plage sans couleur : "0-2"
+      endPos = commaPos;
+    }
+
     int start = ranges.substring(idx, dashPos).toInt();
-    int end = ranges.substring(dashPos + 1, commaPos).toInt();
+    int end = ranges.substring(dashPos + 1, endPos).toInt();
 
     // Allumer les LED de start a end (inclusive)
     for (int i = start; i <= end && i < NUM_LEDS; i++) {
-      if (i >= 0) leds[i] = CRGB::White;  // blanc — modifiable
+      if (i >= 0) leds[i] = color;
     }
 
     idx = commaPos + 1;

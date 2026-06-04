@@ -22,6 +22,7 @@ interface Product {
   madeleineServings?: number;  // LEGACY — migré vers servings
   ledStart?: number;           // LED WS2812B : index de début (inclusive)
   ledEnd?: number;             // LED WS2812B : index de fin (inclusive)
+  ledColor?: string;           // LED WS2812B : couleur hex (ex: "#FF0000")
 }
 
 interface Batch {
@@ -1030,15 +1031,17 @@ export default function AeroClubBarV2() {
       locationsNeeded.add(madeleineProduct.location);
     }
     const lockType: string = [...locationsNeeded].join(",");
-    // Collecter les plages LED des produits frigo achetés
+    // Collecter les plages LED + couleur des produits frigo achetés
     const ledRanges: string[] = [];
     for (const c of cart) {
       if (c.product.ledStart != null && c.product.ledEnd != null) {
-        ledRanges.push(c.product.ledStart + "-" + c.product.ledEnd);
+        const color = (c.product.ledColor || "#FFFFFF").replace("#", "");
+        ledRanges.push(c.product.ledStart + "-" + c.product.ledEnd + ":" + color);
       }
     }
     if (madeleineAdded && madeleineProduct?.ledStart != null && madeleineProduct?.ledEnd != null) {
-      ledRanges.push(madeleineProduct.ledStart + "-" + madeleineProduct.ledEnd);
+      const color = (madeleineProduct.ledColor || "#FFFFFF").replace("#", "");
+      ledRanges.push(madeleineProduct.ledStart + "-" + madeleineProduct.ledEnd + ":" + color);
     }
     const ledsParam = ledRanges.length > 0 ? "&leds=" + ledRanges.join(",") : "";
     // Trigger unique — PAS de retry (le 2ème trigger coupe le relais en plein milieu)
@@ -4692,22 +4695,44 @@ export default function AeroClubBarV2() {
                 >{label}</button>
               ))}
             </div>
-            {/* LED frigo — position sur la bande WS2812B */}
+            {/* LED frigo — position + couleur sur la bande WS2812B */}
             {(editingProduct.location || "frigo") === "frigo" && (
-              <div className="flex gap-2 mb-3">
-                <div className="flex-1">
-                  <label className="text-[10px] text-green-400 font-semibold uppercase">{"💡 LED début"}</label>
-                  <input type="number" min={0} value={editingProduct.ledStart ?? ""}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, ledStart: e.target.value === "" ? undefined : parseInt(e.target.value, 10) })}
-                    placeholder="—"
-                    className="w-full h-12 rounded-xl border border-green-700/50 bg-green-900/20 text-green-300 text-sm text-center outline-none" />
+              <div className="mb-3">
+                <div className="flex gap-2 mb-2">
+                  <div className="flex-1">
+                    <label className="text-[10px] text-green-400 font-semibold uppercase">{"💡 LED début"}</label>
+                    <input type="number" min={0} value={editingProduct.ledStart ?? ""}
+                      onChange={(e) => setEditingProduct({ ...editingProduct, ledStart: e.target.value === "" ? undefined : parseInt(e.target.value, 10) })}
+                      placeholder="—"
+                      className="w-full h-12 rounded-xl border border-green-700/50 bg-green-900/20 text-green-300 text-sm text-center outline-none" />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[10px] text-green-400 font-semibold uppercase">{"💡 LED fin"}</label>
+                    <input type="number" min={0} value={editingProduct.ledEnd ?? ""}
+                      onChange={(e) => setEditingProduct({ ...editingProduct, ledEnd: e.target.value === "" ? undefined : parseInt(e.target.value, 10) })}
+                      placeholder="—"
+                      className="w-full h-12 rounded-xl border border-green-700/50 bg-green-900/20 text-green-300 text-sm text-center outline-none" />
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <label className="text-[10px] text-green-400 font-semibold uppercase">{"💡 LED fin"}</label>
-                  <input type="number" min={0} value={editingProduct.ledEnd ?? ""}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, ledEnd: e.target.value === "" ? undefined : parseInt(e.target.value, 10) })}
-                    placeholder="—"
-                    className="w-full h-12 rounded-xl border border-green-700/50 bg-green-900/20 text-green-300 text-sm text-center outline-none" />
+                <div>
+                  <label className="text-[10px] text-green-400 font-semibold uppercase mb-1 block">{"🎨 Couleur LED"}</label>
+                  <div className="flex items-center gap-2">
+                    {[
+                      ["#FF0000", "Rouge"], ["#FF6600", "Orange"], ["#FFFF00", "Jaune"],
+                      ["#00FF00", "Vert"], ["#00FFFF", "Cyan"], ["#0088FF", "Bleu"],
+                      ["#AA00FF", "Violet"], ["#FF00AA", "Rose"], ["#FFFFFF", "Blanc"],
+                    ].map(([hex, label]) => (
+                      <button key={hex}
+                        onClick={() => setEditingProduct({ ...editingProduct, ledColor: hex })}
+                        title={label}
+                        className={"w-8 h-8 rounded-full border-2 transition-transform " + ((editingProduct.ledColor || "#FFFFFF") === hex ? "border-white scale-110" : "border-slate-600 hover:scale-105")}
+                        style={{ backgroundColor: hex }}
+                      />
+                    ))}
+                    <input type="color" value={editingProduct.ledColor || "#FFFFFF"}
+                      onChange={(e) => setEditingProduct({ ...editingProduct, ledColor: e.target.value })}
+                      className="w-8 h-8 rounded-full border border-slate-600 cursor-pointer bg-transparent" title="Couleur custom" />
+                  </div>
                 </div>
               </div>
             )}
