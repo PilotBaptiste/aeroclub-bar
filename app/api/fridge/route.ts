@@ -8,7 +8,8 @@ interface Locks {
   frigo: boolean;
   congelateur: boolean;
   both: boolean;
-  leds?: string;  // plages LED WS2812B, ex: "0-2,5-7"
+  leds?: string;  // plages LED WS2812B, ex: "0-2:FF0000,5-7:00FF00"
+  animOverride?: string;  // animation forcee (pour les tests admin)
 }
 
 const EMPTY: Locks = { cafe: false, frigo: false, congelateur: false, both: false };
@@ -18,6 +19,7 @@ export async function GET(request: Request) {
   const action = searchParams.get("action");
   const lock = searchParams.get("lock");
   const leds = searchParams.get("leds");
+  const animOverride = searchParams.get("anim");
 
   try {
     if (action === "check") {
@@ -27,8 +29,9 @@ export async function GET(request: Request) {
         kv.get("aeroclub-settings") as Promise<Record<string, unknown> | null>,
       ]);
       const l = locks || EMPTY;
-      const anim = (settings && settings.ledAnimation as string) || "none";
-      const result = { cafe: l.cafe === true, frigo: l.frigo === true, congelateur: l.congelateur === true, both: l.both === true, led: false, leds: l.leds || "", anim };
+      const anim = l.animOverride || (settings && settings.ledAnimation as string) || "none";
+      const shelf = (settings && settings.ledsPerShelf as number) || 50;
+      const result = { cafe: l.cafe === true, frigo: l.frigo === true, congelateur: l.congelateur === true, both: l.both === true, led: false, leds: l.leds || "", anim, shelf };
 
       // Calculer l'état LED
       if (settings && settings.ledEnabled) {
@@ -83,6 +86,10 @@ export async function GET(request: Request) {
       // Stocker les plages LED (fusionner si déjà existantes)
       if (leds) {
         current.leds = current.leds ? current.leds + "," + leds : leds;
+      }
+      // Stocker animation override si fournie (test admin)
+      if (animOverride) {
+        current.animOverride = animOverride;
       }
       await kv.set("aeroclub-locks", current);
       return NextResponse.json({ ok: true, lock: lock || "both" });
