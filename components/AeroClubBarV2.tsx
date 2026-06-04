@@ -104,7 +104,7 @@ interface Settings {
   ledOnTime?: string;       // heure allumage (HH:MM), ex: "08:00"
   ledOffTime?: string;      // heure extinction (HH:MM), ex: "20:00"
   ledForceState?: "on" | "off" | "auto";  // forçage manuel
-  ledAnimation?: "none" | "chase" | "edges" | "flash" | "snake" | "converge";  // animation LED produit
+  ledAnimation?: "none" | "chase" | "edges" | "flash" | "snake" | "serpentin" | "converge";  // animation LED produit
   ledsPerShelf?: number;         // nombre de LED par étagère
 }
 interface HomepageConfig {
@@ -3841,7 +3841,7 @@ export default function AeroClubBarV2() {
                 <div className="mt-3 pt-3 border-t border-slate-800">
                   <label className="text-[10px] text-green-400 font-semibold block mb-2">{"🎬 Tester une animation (sur LED ci-dessus)"}</label>
                   <div className="grid grid-cols-3 gap-1.5">
-                    {["snake", "chase", "converge", "edges", "flash", "none"].map((a) => (
+                    {["snake", "serpentin", "chase", "converge", "edges", "flash", "none"].map((a) => (
                       <button key={a} onClick={() => {
                         const num = testLedNum.trim() || "0-10";
                         const color = testLedColor.replace("#", "");
@@ -3849,7 +3849,7 @@ export default function AeroClubBarV2() {
                         fetch("/api/fridge?action=trigger&lock=frigo&leds=" + range + ":" + color + "&anim=" + a).catch(() => {});
                         showToast("🎬 Animation " + a + " lancee !");
                       }} className="py-2 rounded-lg bg-[#131b2e] border border-green-800/30 text-green-400 text-xs font-bold cursor-pointer active:scale-95">
-                        {a === "snake" ? "🐍 Serpent" : a === "chase" ? "🔦 Scanner" : a === "converge" ? "🎯 Convergent" : a === "edges" ? "◻️ Bords" : a === "flash" ? "💥 Flash" : "💡 Direct"}
+                        {a === "snake" ? "🐍 Serpent" : a === "serpentin" ? "🐍 Serpentin" : a === "chase" ? "🔦 Scanner" : a === "converge" ? "🎯 Convergent" : a === "edges" ? "◻️ Bords" : a === "flash" ? "💥 Flash" : "💡 Direct"}
                       </button>
                     ))}
                   </div>
@@ -4471,6 +4471,7 @@ export default function AeroClubBarV2() {
                     {([
                       ["none", "Aucune", "Allumage direct sur le produit"],
                       ["snake", "Serpent", "Train\u00E9e de LED qui parcourt l'\u00E9tag\u00E8re et s'arr\u00EAte sur le produit"],
+                      ["serpentin", "Serpentin", "Descend du haut en vert-jaune, d\u00E9pose chaque produit au passage"],
                       ["chase", "Scanner", "Barre lumineuse aller-retour puis se fixe sur le produit"],
                       ["converge", "Convergent", "LED partent des 2 bouts de l'\u00E9tag\u00E8re et convergent sur le produit"],
                       ["edges", "Bords", "Les bords du produit s'allument puis se remplissent"],
@@ -4486,6 +4487,7 @@ export default function AeroClubBarV2() {
                   <p className="text-[10px] text-slate-600 mt-1">
                     {(settings.ledAnimation || "none") === "none" ? "Les LED s'allument directement sur le produit" :
                      (settings.ledAnimation || "none") === "snake" ? "\uD83D\uDC0D Une train\u00E9e lumineuse serpente sur l'\u00E9tag\u00E8re puis s'arr\u00EAte sur le produit" :
+                     (settings.ledAnimation || "none") === "serpentin" ? "\uD83D\uDC0D Descend du haut en vert-jaune \u00E0 travers toutes les \u00E9tag\u00E8res, d\u00E9pose chaque produit au passage" :
                      (settings.ledAnimation || "none") === "chase" ? "\uD83D\uDD26 Une barre de lumi\u00E8re fait un aller-retour sur l'\u00E9tag\u00E8re puis se fixe" :
                      (settings.ledAnimation || "none") === "converge" ? "\uD83C\uDFAF Les LED partent des 2 extr\u00E9mit\u00E9s et convergent vers le produit" :
                      (settings.ledAnimation || "none") === "edges" ? "Les bords du produit s'allument en blanc puis se remplissent en couleur" :
