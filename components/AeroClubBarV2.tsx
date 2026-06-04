@@ -282,6 +282,22 @@ export default function AeroClubBarV2() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingTxFull, setEditingTxFull] = useState<{ tx: Transaction; lines: { productId: string; qty: number }[] } | null>(null);
   const [activeAdminTab, setActiveAdminTab] = useState("stock");
+  const [instructorBadges, setInstructorBadges] = useState<{uid: string; name: string; active: boolean}[]>([]);
+  const [instructorStock, setInstructorStock] = useState(0);
+  const [instructorLog, setInstructorLog] = useState<{uid: string; name: string; date: string}[]>([]);
+  const [instructorNewUid, setInstructorNewUid] = useState("");
+  const [instructorNewName, setInstructorNewName] = useState("");
+  const instructorLoaded = useRef(false);
+  useEffect(() => {
+    if (activeAdminTab === "instructor" && !instructorLoaded.current) {
+      instructorLoaded.current = true;
+      fetch("/api/instructor-fridge?action=settings").then(r => r.json()).then(d => {
+        setInstructorBadges(d.badges || []);
+        setInstructorStock(d.stock || 0);
+        setInstructorLog(d.accessLog || []);
+      }).catch(() => {});
+    }
+  }, [activeAdminTab]);
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(
     null,
   );
@@ -2894,6 +2910,7 @@ export default function AeroClubBarV2() {
               { key: "history", label: "\uD83D\uDCCB Ventes" },
               { key: "members", label: "\uD83D\uDC65 Comptes" },
               { key: "suggestions", label: "\uD83D\uDCA1 Idees" },
+              { key: "instructor", label: "\u2708\uFE0F Instructeurs" },
               { key: "settings", label: "\u2699 Config" },
             ].map((tab: { key: string; label: string; badge?: number }) => (
               <button
@@ -3940,6 +3957,140 @@ export default function AeroClubBarV2() {
                   {"Effacer toutes les suggestions"}
                 </button>
               )}
+            </div>
+          )}
+
+          {activeAdminTab === "instructor" && (
+            <div className="flex flex-col gap-4">
+              {/* Header + refresh */}
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white">{"✈️ Frigo Instructeurs"}</h3>
+                <button onClick={() => {
+                  fetch("/api/instructor-fridge?action=settings").then(r => r.json()).then(d => {
+                    setInstructorBadges(d.badges || []);
+                    setInstructorStock(d.stock || 0);
+                    setInstructorLog(d.accessLog || []);
+                  }).catch(() => {});
+                }} className="text-xs bg-[#1e2d4a] text-cyan-400 px-3 py-1.5 rounded-lg font-semibold cursor-pointer">{"🔄 Actualiser"}</button>
+              </div>
+
+              {/* Stock */}
+              <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-2xl p-4">
+                <h4 className="text-sm font-bold text-slate-300 mb-3">{"💧 Stock bouteilles d'eau"}</h4>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => {
+                    const n = Math.max(0, instructorStock - 1);
+                    setInstructorStock(n);
+                    fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ action: "update_stock", stock: n }) }).catch(() => {});
+                  }} className="w-12 h-12 rounded-xl bg-red-900/40 text-red-400 text-xl font-bold cursor-pointer">-</button>
+                  <div className="flex-1 text-center">
+                    <span className={"text-4xl font-black " + (instructorStock <= 3 ? "text-red-400" : instructorStock <= 10 ? "text-amber-400" : "text-emerald-400")}>{instructorStock}</span>
+                    <p className="text-[10px] text-slate-500 mt-1">{"bouteilles"}</p>
+                  </div>
+                  <button onClick={() => {
+                    const n = instructorStock + 1;
+                    setInstructorStock(n);
+                    fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ action: "update_stock", stock: n }) }).catch(() => {});
+                  }} className="w-12 h-12 rounded-xl bg-emerald-900/40 text-emerald-400 text-xl font-bold cursor-pointer">+</button>
+                  <input type="number" min={0} value={instructorStock}
+                    onChange={(e) => {
+                      const n = Math.max(0, parseInt(e.target.value, 10) || 0);
+                      setInstructorStock(n);
+                      fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ action: "update_stock", stock: n }) }).catch(() => {});
+                    }}
+                    className="w-20 h-12 rounded-xl bg-[#0f172a] border border-slate-700 text-white text-center text-lg font-bold outline-none" />
+                </div>
+              </div>
+
+              {/* Ajouter un badge */}
+              <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-2xl p-4">
+                <h4 className="text-sm font-bold text-slate-300 mb-3">{"🆕 Ajouter un badge"}</h4>
+                <div className="flex gap-2">
+                  <input placeholder="UID badge (ex: A3:F2:1B:04)" value={instructorNewUid}
+                    onChange={(e) => setInstructorNewUid(e.target.value)}
+                    className="flex-1 h-11 rounded-xl bg-[#0f172a] border border-slate-700 text-white text-sm px-3 outline-none" />
+                  <input placeholder="Nom instructeur" value={instructorNewName}
+                    onChange={(e) => setInstructorNewName(e.target.value)}
+                    className="flex-1 h-11 rounded-xl bg-[#0f172a] border border-slate-700 text-white text-sm px-3 outline-none" />
+                  <button onClick={() => {
+                    if (!instructorNewUid.trim() || !instructorNewName.trim()) return;
+                    fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"},
+                      body: JSON.stringify({ action: "add_badge", uid: instructorNewUid.trim(), name: instructorNewName.trim() })
+                    }).then(r => r.json()).then(d => {
+                      if (d.badges) setInstructorBadges(d.badges);
+                      setInstructorNewUid(""); setInstructorNewName("");
+                    }).catch(() => {});
+                  }} className="h-11 px-4 rounded-xl bg-cyan-600 text-white text-sm font-bold cursor-pointer">{"Ajouter"}</button>
+                </div>
+                <p className="text-[10px] text-slate-600 mt-2">{"Pour trouver le UID : scanner le badge avec l'ESP32, il s'affichera dans le moniteur série"}</p>
+              </div>
+
+              {/* Liste des badges */}
+              <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-2xl p-4">
+                <h4 className="text-sm font-bold text-slate-300 mb-3">{"🏷️ Badges enregistrés (" + instructorBadges.length + ")"}</h4>
+                {instructorBadges.length === 0 ? (
+                  <p className="text-sm text-slate-600 text-center py-4">{"Aucun badge enregistré"}</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {instructorBadges.map((badge) => (
+                      <div key={badge.uid} className={"flex items-center gap-3 rounded-xl px-3 py-2.5 " + (badge.active ? "bg-[#0f172a]" : "bg-red-900/20 border border-red-800/30")}>
+                        <span className="text-lg">{badge.active ? "🟢" : "🔴"}</span>
+                        <div className="flex-1">
+                          <span className="text-sm text-white font-semibold">{badge.name}</span>
+                          <span className="text-[10px] text-slate-500 ml-2 font-mono">{badge.uid}</span>
+                        </div>
+                        <button onClick={() => {
+                          fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"},
+                            body: JSON.stringify({ action: "toggle_badge", uid: badge.uid })
+                          }).then(r => r.json()).then(d => { if (d.badges) setInstructorBadges(d.badges); }).catch(() => {});
+                        }} className={"text-xs px-3 py-1.5 rounded-lg font-bold cursor-pointer " + (badge.active ? "bg-amber-900/30 text-amber-400" : "bg-emerald-900/30 text-emerald-400")}>
+                          {badge.active ? "Désactiver" : "Activer"}
+                        </button>
+                        <button onClick={() => {
+                          if (!confirm("Supprimer le badge de " + badge.name + " ?")) return;
+                          fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"},
+                            body: JSON.stringify({ action: "remove_badge", uid: badge.uid })
+                          }).then(r => r.json()).then(d => { if (d.badges) setInstructorBadges(d.badges); }).catch(() => {});
+                        }} className="text-xs px-2 py-1.5 rounded-lg bg-red-900/30 text-red-400 font-bold cursor-pointer">{"✕"}</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Journal d'accès */}
+              <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-bold text-slate-300">{"📋 Journal d'accès"}</h4>
+                  {instructorLog.length > 0 && (
+                    <button onClick={() => {
+                      if (!confirm("Effacer tout le journal ?")) return;
+                      fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({ action: "clear_log" })
+                      }).then(() => setInstructorLog([])).catch(() => {});
+                    }} className="text-[10px] text-red-400 cursor-pointer">{"Effacer"}</button>
+                  )}
+                </div>
+                {instructorLog.length === 0 ? (
+                  <p className="text-sm text-slate-600 text-center py-4">{"Aucun accès enregistré"}</p>
+                ) : (
+                  <div className="flex flex-col gap-1 max-h-[300px] overflow-y-auto">
+                    {instructorLog.slice(0, 50).map((log, i) => {
+                      const d = new Date(log.date);
+                      const dateStr = d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+                      const timeStr = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+                      return (
+                        <div key={i} className="flex items-center gap-2 text-xs py-1.5 border-b border-slate-800/50">
+                          <span className="text-slate-600 font-mono w-20">{dateStr + " " + timeStr}</span>
+                          <span className="text-white font-semibold">{log.name}</span>
+                          <span className="text-slate-600 font-mono text-[10px]">{log.uid}</span>
+                          <span className="ml-auto text-cyan-400">{"🔓 Ouvert"}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
