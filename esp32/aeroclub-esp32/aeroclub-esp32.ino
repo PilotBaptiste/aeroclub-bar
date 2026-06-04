@@ -1,21 +1,17 @@
 /*
- * AEROCLUB DU BASSIN D'ARCACHON - ESP32 Controller
- * =================================================
- * Gere :
- *   - 3 relais (serrures) : cafe (pin 5), frigo (pin 18), congelateur (pin 19)
- *   - 1 relais (LED frigo) : led vitrine (pin 2)
- *   - 2 capteurs DS18B20  : frigo (pin 15), congelateur (pin 4)
+ * AEROCLUB DU BASSIN D'ARCACHON - ESP32 4-Relay Board
+ * ====================================================
+ * Carte : LC-Relay-ESP32-4R-A2
+ * R1(GPIO33)=Café(1s)  R2(GPIO25)=Frigo(3s)  R3(GPIO26)=Congél(5s)  R4(GPIO32)=LED
  *
- * Fonctionnement :
- *   - Poll /api/fridge?action=check toutes les 2s pour serrures + LED
- *   - Envoie les temperatures toutes les 30s via POST /api/temperature
- *   - LED = ON / OFF / auto (horaire) — lu dans la reponse du poll
- *   - Serrures : activation directe dans le poll
- *   - Lectures temperature non-bloquantes
+ * LED WS2812B : bande adressable dans le frigo
+ *   - L'API renvoie "leds":"0-2,5-7" = plages de LED a allumer
+ *   - Allumées pendant l'ouverture du frigo, éteintes après
  *
  * Librairies requises :
  *   - OneWire           (par Jim Studt)
  *   - DallasTemperature (par Miles Burton)
+ *   - FastLED           (par Daniel Garcia)
  */
 
 #include <WiFi.h>
@@ -23,6 +19,7 @@
 #include <WiFiClientSecure.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <FastLED.h>
 
 // === CONFIG ===
 const char* WIFI_SSID     = "ACBA-H7";
@@ -31,13 +28,28 @@ const char* API_URL       = "https://aeroclub-bar.vercel.app/api/fridge";
 const char* TEMP_URL      = "https://aeroclub-bar.vercel.app/api/temperature";
 // ==============
 
-// --- PINS ---
-const int RELAY_CAFE        = 5;
-const int RELAY_FRIGO       = 18;
-const int RELAY_CONGELATEUR = 19;
-const int RELAY_LED         = 2;
-const int TEMP_FRIGO_PIN    = 15;
-const int TEMP_CONGEL_PIN   = 4;
+// === GPIO RELAIS ===
+const int RELAY_CAFE        = 33;
+const int RELAY_FRIGO       = 25;
+const int RELAY_CONGELATEUR = 26;
+const int RELAY_LED         = 32;
+
+// === DUREES D'OUVERTURE (ms) ===
+const unsigned long DUREE_CAFE   = 1000;
+const unsigned long DUREE_FRIGO  = 3000;
+const unsigned long DUREE_CONGEL = 5000;
+
+// === LED WS2812B ===
+const int LED_PIN       = 27;   // GPIO pour la bande WS2812B — adapter si besoin
+const int NUM_LEDS      = 60;   // nombre total de LED sur la bande — adapter
+CRGB leds[60];                  // tableau LED (doit correspondre a NUM_LEDS)
+
+// === GPIO CAPTEURS TEMPERATURE ===
+const int TEMP_FRIGO_PIN    = 16;  // adapter selon pin libre
+const int TEMP_CONGEL_PIN   = 14;
+
+// Relais actifs en HIGH sur cette carte
+const bool RELAY_ACTIVE_HIGH = true;
 
 // --- TIMING ---
 const unsigned long POLL_INTERVAL = 2000;
@@ -58,6 +70,48 @@ bool ledState = false;
 float tempFrigo = -127.0;
 float tempCongel = -127.0;
 
+void relayOn(int pin) { digitalWrite(pin, RELAY_ACTIVE_HIGH ? HIGH : LOW); }
+void relayOff(int pin) { digitalWrite(pin, RELAY_ACTIVE_HIGH ? LOW : HIGH); }
+
+// === LED WS2812B : allumer les plages recues ===
+// Format attendu : "0-2,5-7,12-14"
+void allumerLeds(String ranges) {
+  // Eteindre toutes les LED d'abord
+  FastLED.clear();
+
+  if (ranges.length() == 0) {
+    FastLED.show();
+    return;
+  }
+
+  int idx = 0;
+  while (idx < (int)ranges.length()) {
+    // Lire le debut
+    int dashPos = ranges.indexOf('-', idx);
+    if (dashPos < 0) break;
+    int commaPos = ranges.indexOf(',', dashPos);
+    if (commaPos < 0) commaPos = ranges.length();
+
+    int start = ranges.substring(idx, dashPos).toInt();
+    int end = ranges.substring(dashPos + 1, commaPos).toInt();
+
+    // Allumer les LED de start a end (inclusive)
+    for (int i = start; i <= end && i < NUM_LEDS; i++) {
+      if (i >= 0) leds[i] = CRGB::White;  // blanc — modifiable
+    }
+
+    idx = commaPos + 1;
+  }
+
+  FastLED.show();
+  Serial.printf("LED WS2812B : %s\n", ranges.c_str());
+}
+
+void eteindreLeds() {
+  FastLED.clear();
+  FastLED.show();
+}
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -66,25 +120,34 @@ void setup() {
   pinMode(RELAY_FRIGO, OUTPUT);
   pinMode(RELAY_CONGELATEUR, OUTPUT);
   pinMode(RELAY_LED, OUTPUT);
-  digitalWrite(RELAY_CAFE, HIGH);
-  digitalWrite(RELAY_FRIGO, HIGH);
-  digitalWrite(RELAY_CONGELATEUR, LOW);
-  digitalWrite(RELAY_LED, LOW);
+  relayOff(RELAY_CAFE);
+  relayOff(RELAY_FRIGO);
+  relayOff(RELAY_CONGELATEUR);
+  relayOff(RELAY_LED);
+
+  // Init bande LED WS2812B
+  FastLED.addLeds<WS2812B, 27, GRB>(leds, NUM_LEDS);
+  FastLED.setBrightness(150);  // luminosite 0-255
+  FastLED.clear();
+  FastLED.show();
 
   capteurFrigo.begin();
   capteurCongel.begin();
 
   Serial.println();
   Serial.println("=== AERO-CLUB DU BASSIN D'ARCACHON ===");
+  Serial.println("=== Carte 4-Relay + LED WS2812B ===");
   Serial.printf("DS18B20 - Frigo: %d, Congelateur: %d\n",
                 capteurFrigo.getDeviceCount(), capteurCongel.getDeviceCount());
+  Serial.printf("WS2812B - %d LEDs sur GPIO %d\n", NUM_LEDS, LED_PIN);
 
   Serial.print("WiFi : ");
   Serial.println(WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-    delay(500); Serial.print("."); attempts++;
+    delay(500); Serial.print(".");
+    attempts++;
   }
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("\nWiFi OK - IP : " + WiFi.localIP().toString());
@@ -113,13 +176,11 @@ void loop() {
 
   unsigned long now = millis();
 
-  // --- POLL SERRURES + LED (toutes les 2s) ---
   if (now - lastPoll >= POLL_INTERVAL) {
     lastPoll = now;
     pollSerrures();
   }
 
-  // --- TEMPERATURES (non-bloquant) ---
   if (!tempRequested && now - lastTemp >= TEMP_INTERVAL) {
     lastTemp = now;
     capteurFrigo.requestTemperatures();
@@ -148,7 +209,6 @@ void pollSerrures() {
       String body = http.getString();
       http.end();
 
-      // Lire les flags serrures
       bool needCafe = body.indexOf("\"cafe\":true") >= 0;
       bool needFrigo = body.indexOf("\"frigo\":true") >= 0;
       bool needCongelateur = body.indexOf("\"congelateur\":true") >= 0;
@@ -159,42 +219,78 @@ void pollSerrures() {
         needCongelateur = true;
       }
 
-      // Activation directe — une seule impulsion, 5 secondes
-      // Cooldown 10s pour ne pas reactiver en boucle
-      // (les locks restent dans KV jusqu'a l'appel "done")
+      // Extraire les plages LED de la reponse
+      String ledRanges = "";
+      int ledsIdx = body.indexOf("\"leds\":\"");
+      if (ledsIdx >= 0) {
+        int start = ledsIdx + 8;
+        int end = body.indexOf("\"", start);
+        if (end > start) {
+          ledRanges = body.substring(start, end);
+        }
+      }
+
       if (needCafe || needFrigo || needCongelateur) {
         Serial.print(">>> DEVERROUILLAGE:");
-        if (needCafe) Serial.print(" CAFE");
-        if (needFrigo) Serial.print(" FRIGO");
-        if (needCongelateur) Serial.print(" CONGELATEUR");
+        if (needCafe) Serial.print(" CAFE(1s)");
+        if (needFrigo) Serial.print(" FRIGO(3s)");
+        if (needCongelateur) Serial.print(" CONGELATEUR(5s)");
         Serial.println(" <<<");
 
-        if (needCongelateur) digitalWrite(RELAY_CONGELATEUR, HIGH);
-        if (needCafe) digitalWrite(RELAY_CAFE, LOW);
-        if (needFrigo) digitalWrite(RELAY_FRIGO, LOW);
+        // Allumer les LED des produits achetes
+        if (ledRanges.length() > 0) {
+          allumerLeds(ledRanges);
+        }
 
-        delay(5000);
+        // Tout activer en meme temps
+        if (needCafe) relayOn(RELAY_CAFE);
+        if (needFrigo) relayOn(RELAY_FRIGO);
+        if (needCongelateur) relayOn(RELAY_CONGELATEUR);
 
-        if (needCongelateur) digitalWrite(RELAY_CONGELATEUR, LOW);
-        if (needFrigo) digitalWrite(RELAY_FRIGO, HIGH);
-        if (needCafe) digitalWrite(RELAY_CAFE, HIGH);
+        unsigned long startTime = millis();
+        bool cafeOff = !needCafe;
+        bool frigoOff = !needFrigo;
+        bool congelOff = !needCongelateur;
+
+        // Couper chaque relais a sa duree
+        while (!cafeOff || !frigoOff || !congelOff) {
+          unsigned long elapsed = millis() - startTime;
+          if (!cafeOff && elapsed >= DUREE_CAFE) {
+            relayOff(RELAY_CAFE);
+            cafeOff = true;
+            Serial.println("  Cafe ferme");
+          }
+          if (!frigoOff && elapsed >= DUREE_FRIGO) {
+            relayOff(RELAY_FRIGO);
+            frigoOff = true;
+            Serial.println("  Frigo ferme");
+          }
+          if (!congelOff && elapsed >= DUREE_CONGEL) {
+            relayOff(RELAY_CONGELATEUR);
+            congelOff = true;
+            Serial.println("  Congelateur ferme");
+          }
+          delay(10);
+        }
+
+        // Eteindre les LED apres fermeture
+        eteindreLeds();
+
         Serial.println(">>> VERROUILLE <<<");
 
-        // Restaurer LED
-        digitalWrite(RELAY_LED, ledState ? HIGH : LOW);
+        if (ledState) relayOn(RELAY_LED); else relayOff(RELAY_LED);
 
-        // Confirmer a l'API
         WiFiClientSecure c2;
         c2.setInsecure();
         HTTPClient h2;
         if (h2.begin(c2, String(API_URL) + "?action=done")) { h2.GET(); h2.end(); }
       }
 
-      // LED
+      // LED vitrine
       bool wantLed = body.indexOf("\"led\":true") >= 0;
       if (wantLed != ledState) {
         ledState = wantLed;
-        digitalWrite(RELAY_LED, ledState ? HIGH : LOW);
+        if (ledState) relayOn(RELAY_LED); else relayOff(RELAY_LED);
         Serial.printf("LED vitrine : %s\n", ledState ? "ON" : "OFF");
       }
 

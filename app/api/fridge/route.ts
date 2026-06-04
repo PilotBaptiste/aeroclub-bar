@@ -8,6 +8,7 @@ interface Locks {
   frigo: boolean;
   congelateur: boolean;
   both: boolean;
+  leds?: string;  // plages LED WS2812B, ex: "0-2,5-7"
 }
 
 const EMPTY: Locks = { cafe: false, frigo: false, congelateur: false, both: false };
@@ -16,6 +17,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action");
   const lock = searchParams.get("lock");
+  const leds = searchParams.get("leds");
 
   try {
     if (action === "check") {
@@ -25,7 +27,7 @@ export async function GET(request: Request) {
         kv.get("aeroclub-settings") as Promise<Record<string, unknown> | null>,
       ]);
       const l = locks || EMPTY;
-      const result = { cafe: l.cafe === true, frigo: l.frigo === true, congelateur: l.congelateur === true, both: l.both === true, led: false };
+      const result = { cafe: l.cafe === true, frigo: l.frigo === true, congelateur: l.congelateur === true, both: l.both === true, led: false, leds: l.leds || "" };
 
       // Calculer l'état LED
       if (settings && settings.ledEnabled) {
@@ -76,6 +78,10 @@ export async function GET(request: Request) {
       // Fallback si aucun lock reconnu
       if (!current.cafe && !current.frigo && !current.congelateur && !current.both) {
         current.both = true;
+      }
+      // Stocker les plages LED (fusionner si déjà existantes)
+      if (leds) {
+        current.leds = current.leds ? current.leds + "," + leds : leds;
       }
       await kv.set("aeroclub-locks", current);
       return NextResponse.json({ ok: true, lock: lock || "both" });

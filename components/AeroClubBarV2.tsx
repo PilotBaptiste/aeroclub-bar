@@ -20,6 +20,8 @@ interface Product {
   coffeeAddonQty?: number;     // qté offerte par achat café (ex: 2 madeleines)
   coffeeAddonPrice?: number;   // prix du lot (ex: 0.80€ pour 2)
   madeleineServings?: number;  // LEGACY — migré vers servings
+  ledStart?: number;           // LED WS2812B : index de début (inclusive)
+  ledEnd?: number;             // LED WS2812B : index de fin (inclusive)
 }
 
 interface Batch {
@@ -1028,8 +1030,19 @@ export default function AeroClubBarV2() {
       locationsNeeded.add(madeleineProduct.location);
     }
     const lockType: string = [...locationsNeeded].join(",");
+    // Collecter les plages LED des produits frigo achetés
+    const ledRanges: string[] = [];
+    for (const c of cart) {
+      if (c.product.ledStart != null && c.product.ledEnd != null) {
+        ledRanges.push(c.product.ledStart + "-" + c.product.ledEnd);
+      }
+    }
+    if (madeleineAdded && madeleineProduct?.ledStart != null && madeleineProduct?.ledEnd != null) {
+      ledRanges.push(madeleineProduct.ledStart + "-" + madeleineProduct.ledEnd);
+    }
+    const ledsParam = ledRanges.length > 0 ? "&leds=" + ledRanges.join(",") : "";
     // Trigger unique — PAS de retry (le 2ème trigger coupe le relais en plein milieu)
-    fetch("/api/fridge?action=trigger&lock=" + lockType).catch(() => {});
+    fetch("/api/fridge?action=trigger&lock=" + lockType + ledsParam).catch(() => {});
 
     // Utiliser le nom canonique du membre si connu, sinon le nom tel que tapé
     const buyerKey = normalizeNameFuzzy(buyerName.trim());
@@ -4679,6 +4692,25 @@ export default function AeroClubBarV2() {
                 >{label}</button>
               ))}
             </div>
+            {/* LED frigo — position sur la bande WS2812B */}
+            {(editingProduct.location || "frigo") === "frigo" && (
+              <div className="flex gap-2 mb-3">
+                <div className="flex-1">
+                  <label className="text-[10px] text-green-400 font-semibold uppercase">{"💡 LED début"}</label>
+                  <input type="number" min={0} value={editingProduct.ledStart ?? ""}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, ledStart: e.target.value === "" ? undefined : parseInt(e.target.value, 10) })}
+                    placeholder="—"
+                    className="w-full h-12 rounded-xl border border-green-700/50 bg-green-900/20 text-green-300 text-sm text-center outline-none" />
+                </div>
+                <div className="flex-1">
+                  <label className="text-[10px] text-green-400 font-semibold uppercase">{"💡 LED fin"}</label>
+                  <input type="number" min={0} value={editingProduct.ledEnd ?? ""}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, ledEnd: e.target.value === "" ? undefined : parseInt(e.target.value, 10) })}
+                    placeholder="—"
+                    className="w-full h-12 rounded-xl border border-green-700/50 bg-green-900/20 text-green-300 text-sm text-center outline-none" />
+                </div>
+              </div>
+            )}
             <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-xl px-3 py-3 cursor-pointer mb-3">
               <input type="checkbox" checked={getServings(editingProduct) >= 2}
                 onChange={(e) => setEditingProduct({ ...editingProduct, servings: e.target.checked ? (editingProduct.servings || editingProduct.coffeeServings || 2) : undefined })}
