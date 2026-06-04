@@ -104,6 +104,7 @@ interface Settings {
   ledOnTime?: string;       // heure allumage (HH:MM), ex: "08:00"
   ledOffTime?: string;      // heure extinction (HH:MM), ex: "20:00"
   ledForceState?: "on" | "off" | "auto";  // forçage manuel
+  ledAnimation?: "none" | "chase" | "edges" | "flash";  // animation LED produit
 }
 interface HomepageConfig {
   featuredProductIds?: string[];
@@ -262,6 +263,7 @@ export default function AeroClubBarV2() {
     buyer: string;
     method: string;
     lockType: string;
+    ledsParam: string;
   } | null>(null);
   const [sumupLoading, setSumupLoading] = useState(false);
   const [sumupError, setSumupError] = useState<string | null>(null);
@@ -287,6 +289,8 @@ export default function AeroClubBarV2() {
   const [instructorLog, setInstructorLog] = useState<{uid: string; name: string; date: string}[]>([]);
   const [instructorNewUid, setInstructorNewUid] = useState("");
   const [instructorNewName, setInstructorNewName] = useState("");
+  const [testLedNum, setTestLedNum] = useState("");
+  const [testLedColor, setTestLedColor] = useState("#FF0000");
   const instructorLoaded = useRef(false);
   useEffect(() => {
     if (activeAdminTab === "instructor" && !instructorLoaded.current) {
@@ -1169,6 +1173,7 @@ export default function AeroClubBarV2() {
       buyer: canonicalBuyer,
       method,
       lockType,
+      ledsParam,
     });
     setPaymentStatus("success");
     showToast("Merci " + canonicalBuyer.split(" ")[0] + " !");
@@ -2701,7 +2706,7 @@ export default function AeroClubBarV2() {
                               key={l}
                               disabled={isBusy}
                               onClick={() => {
-                                fetch("/api/fridge?action=trigger&lock=" + l).catch(() => {});
+                                fetch("/api/fridge?action=trigger&lock=" + l + (lastOrder.ledsParam || "")).catch(() => {});
                                 showToast(icon + " Deverrouillage envoye !");
                                 setLockRetriggerCountdown(10);
                                 if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
@@ -3793,6 +3798,47 @@ export default function AeroClubBarV2() {
                 >{"\uD83D\uDD13 Ouvrir tout"}</button>
               </div>
 
+              {/* Test LED WS2812B */}
+              <div className="bg-[#0f172a] border border-green-800/50 rounded-xl p-4 mb-2">
+                <span className="text-xs font-bold text-green-400 uppercase tracking-wider block mb-3">{"💡 Test LED frigo"}</span>
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <label className="text-[10px] text-slate-500 block mb-1">{"N° LED (ex: 0-5)"}</label>
+                    <input value={testLedNum} onChange={(e) => setTestLedNum(e.target.value)}
+                      placeholder="0-5 ou 3"
+                      className="w-full h-10 rounded-lg bg-[#131b2e] border border-slate-700 text-white text-sm px-3 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500 block mb-1">{"Couleur"}</label>
+                    <input type="color" value={testLedColor} onChange={(e) => setTestLedColor(e.target.value)}
+                      className="w-10 h-10 rounded-lg border border-slate-700 cursor-pointer bg-transparent" />
+                  </div>
+                  <button onClick={() => {
+                    const num = testLedNum.trim();
+                    if (!num) return;
+                    const color = testLedColor.replace("#", "");
+                    const range = num.includes("-") ? num : num + "-" + num;
+                    fetch("/api/fridge?action=trigger&lock=frigo&leds=" + range + ":" + color).catch(() => {});
+                    showToast("💡 LED " + num + " allumee !");
+                  }} className="h-10 px-4 rounded-lg bg-green-600 text-white text-sm font-bold cursor-pointer active:scale-95">
+                    {"Allumer"}
+                  </button>
+                  <button onClick={() => {
+                    fetch("/api/fridge?action=trigger&lock=&leds=").catch(() => {});
+                    showToast("LED eteintes");
+                  }} className="h-10 px-4 rounded-lg bg-slate-700 text-slate-300 text-sm font-bold cursor-pointer active:scale-95">
+                    {"Eteindre"}
+                  </button>
+                </div>
+                <div className="flex gap-1 mt-2 flex-wrap">
+                  {["#FF0000","#FF6600","#FFFF00","#00FF00","#00FFFF","#0088FF","#AA00FF","#FF00AA","#FFFFFF"].map((c) => (
+                    <button key={c} onClick={() => setTestLedColor(c)}
+                      className={"w-6 h-6 rounded-full border " + (testLedColor === c ? "border-white border-2" : "border-slate-600")}
+                      style={{ backgroundColor: c }} />
+                  ))}
+                </div>
+              </div>
+
               {/* Créer un membre */}
               <div className="bg-[#0f172a] border border-emerald-800 rounded-xl p-4">
                 <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block mb-3">{"+ Ajouter un membre"}</span>
@@ -4391,6 +4437,30 @@ export default function AeroClubBarV2() {
                     )}
                   </>
                 )}
+                {/* Animation LED produit */}
+                <div className="mt-3 pt-3 border-t border-slate-800">
+                  <span className="text-xs font-bold text-green-400 uppercase tracking-wider block mb-2">{"\uD83C\uDFAC Animation LED produit"}</span>
+                  <div className="flex gap-1.5">
+                    {([
+                      ["none", "Aucune", "Allumage direct"],
+                      ["chase", "D\u00E9fil\u00E9", "Les LED d\u00E9filent puis s'arr\u00EAtent sur le produit"],
+                      ["edges", "Bords", "Les bords s'allument en blanc, le produit en couleur"],
+                      ["flash", "Flash", "Le produit clignote 3x puis reste allum\u00E9"],
+                    ] as const).map(([mode, label, desc]) => (
+                      <button key={mode}
+                        onClick={() => setSettings((prev) => ({ ...prev, ledAnimation: mode }))}
+                        title={desc}
+                        className={"flex-1 py-2 rounded-xl text-xs font-bold cursor-pointer active:scale-95 transition-all " + ((settings.ledAnimation || "none") === mode ? "bg-green-600 text-white shadow-lg" : "bg-[#131b2e] border border-slate-700 text-slate-500")}
+                      >{label}</button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-600 mt-1">
+                    {(settings.ledAnimation || "none") === "none" ? "Les LED s'allument directement sur le produit" :
+                     (settings.ledAnimation || "none") === "chase" ? "Les LED d\u00E9filent de gauche \u00E0 droite puis s'arr\u00EAtent sur le produit" :
+                     (settings.ledAnimation || "none") === "edges" ? "Les LED aux extr\u00E9mit\u00E9s s'allument en blanc, le produit en couleur" :
+                     "Les LED du produit clignotent 3 fois puis restent allum\u00E9es"}
+                  </p>
+                </div>
               </div>
               <div className="h-px bg-[#1e2d4a] my-3" />
               <h3 className="text-base font-bold">

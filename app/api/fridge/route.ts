@@ -27,7 +27,8 @@ export async function GET(request: Request) {
         kv.get("aeroclub-settings") as Promise<Record<string, unknown> | null>,
       ]);
       const l = locks || EMPTY;
-      const result = { cafe: l.cafe === true, frigo: l.frigo === true, congelateur: l.congelateur === true, both: l.both === true, led: false, leds: l.leds || "" };
+      const anim = (settings && settings.ledAnimation as string) || "none";
+      const result = { cafe: l.cafe === true, frigo: l.frigo === true, congelateur: l.congelateur === true, both: l.both === true, led: false, leds: l.leds || "", anim };
 
       // Calculer l'état LED
       if (settings && settings.ledEnabled) {

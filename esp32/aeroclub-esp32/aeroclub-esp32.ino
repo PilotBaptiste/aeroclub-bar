@@ -150,6 +150,18 @@ void setup() {
   FastLED.clear();
   FastLED.show();
 
+  // === TEST LED AU DEMARRAGE — 10 premieres LED en rouge pendant 10s ===
+  Serial.println("TEST LED : allumage 0-9 en rouge...");
+  for (int i = 0; i < 10 && i < NUM_LEDS; i++) {
+    leds[i] = CRGB::Red;
+  }
+  FastLED.show();
+  delay(10000);
+  FastLED.clear();
+  FastLED.show();
+  Serial.println("TEST LED : eteint.");
+  // === FIN TEST — supprimer ce bloc une fois valide ===
+
   capteurFrigo.begin();
   capteurCongel.begin();
 
