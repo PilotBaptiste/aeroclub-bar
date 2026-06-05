@@ -58,8 +58,8 @@ export async function GET(request: Request) {
         }
       }
 
-      // Reset locks seulement si un verrou était actif
-      if (result.cafe || result.frigo || result.congelateur || result.both) {
+      // Reset locks seulement si un verrou était actif ou si des LEDs sont à afficher
+      if (result.cafe || result.frigo || result.congelateur || result.both || result.leds) {
         await kv.set("aeroclub-locks", EMPTY);
       }
       return NextResponse.json(result);
@@ -80,8 +80,8 @@ export async function GET(request: Request) {
         else if (l === "congelateur") current.congelateur = true;
         else if (l === "both") current.both = true;
       }
-      // Fallback si aucun lock reconnu
-      if (!current.cafe && !current.frigo && !current.congelateur && !current.both) {
+      // Fallback si aucun lock reconnu (sauf si lock=none pour test LED)
+      if (lock !== "none" && !current.cafe && !current.frigo && !current.congelateur && !current.both) {
         current.both = true;
       }
       // Stocker les plages LED (fusionner si déjà existantes)

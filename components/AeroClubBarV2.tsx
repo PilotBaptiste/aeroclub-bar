@@ -3820,13 +3820,13 @@ export default function AeroClubBarV2() {
                     if (!num) return;
                     const color = testLedColor.replace("#", "");
                     const range = num.includes("-") ? num : num + "-" + num;
-                    fetch("/api/fridge?action=trigger&lock=frigo&leds=" + range + ":" + color).catch(() => {});
+                    fetch("/api/fridge?action=trigger&lock=none&leds=" + range + ":" + color + "&anim=none").catch(() => {});
                     showToast("💡 LED " + num + " allumee !");
                   }} className="h-10 px-4 rounded-lg bg-green-600 text-white text-sm font-bold cursor-pointer active:scale-95">
                     {"Allumer"}
                   </button>
                   <button onClick={() => {
-                    fetch("/api/fridge?action=trigger&lock=&leds=").catch(() => {});
+                    fetch("/api/fridge?action=trigger&lock=none&leds=&anim=none").catch(() => {});
                     showToast("LED eteintes");
                   }} className="h-10 px-4 rounded-lg bg-slate-700 text-slate-300 text-sm font-bold cursor-pointer active:scale-95">
                     {"Eteindre"}
@@ -3847,7 +3847,7 @@ export default function AeroClubBarV2() {
                         const num = testLedNum.trim() || "0-10";
                         const color = testLedColor.replace("#", "");
                         const range = num.includes("-") ? num : num + "-" + num;
-                        fetch("/api/fridge?action=trigger&lock=frigo&leds=" + range + ":" + color + "&anim=" + a).catch(() => {});
+                        fetch("/api/fridge?action=trigger&lock=none&leds=" + range + ":" + color + "&anim=" + a).catch(() => {});
                         showToast("🎬 Animation " + a + " lancee !");
                       }} className="py-2 rounded-lg bg-[#131b2e] border border-green-800/30 text-green-400 text-xs font-bold cursor-pointer active:scale-95">
                         {a === "snake" ? "🐍 Serpent" : a === "serpentin" ? "🐍 Serpentin" : a === "chase" ? "🔦 Scanner" : a === "converge" ? "🎯 Convergent" : a === "edges" ? "◻️ Bords" : a === "flash" ? "💥 Flash" : "💡 Direct"}
@@ -3866,20 +3866,13 @@ export default function AeroClubBarV2() {
                         ranges.push(p.ledStart + "-" + p.ledEnd + ":" + color);
                       });
                       if (ranges.length === 0) { showToast("Aucun produit avec LED configuree"); return; }
-                      // Envoyer par groupes de 10 pour eviter URL trop longue
-                      for (let i = 0; i < ranges.length; i += 10) {
-                        const chunk = ranges.slice(i, i + 10).join(",");
-                        const lock = i === 0 ? "frigo" : "";
-                        setTimeout(() => {
-                          fetch("/api/fridge?action=trigger&lock=" + lock + "&leds=" + chunk + "&anim=none").catch(() => {});
-                        }, i * 50);
-                      }
+                      fetch("/api/fridge?action=trigger&lock=none&leds=" + ranges.join(",") + "&anim=none").catch(() => {});
                       showToast("💡 " + ranges.length + " produits allumes !");
                     }} className="flex-1 py-3 rounded-lg bg-green-600 text-white text-sm font-bold cursor-pointer active:scale-95">
                       {"💡 ON — Allumer tous les produits"}
                     </button>
                     <button onClick={() => {
-                      fetch("/api/fridge?action=trigger&lock=&leds=").catch(() => {});
+                      fetch("/api/fridge?action=trigger&lock=none&leds=&anim=none").catch(() => {});
                       showToast("LED eteintes");
                     }} className="flex-1 py-3 rounded-lg bg-red-900/50 text-red-400 text-sm font-bold cursor-pointer active:scale-95 border border-red-800/30">
                       {"OFF — Tout eteindre"}
@@ -5037,13 +5030,13 @@ export default function AeroClubBarV2() {
                   <button onClick={() => {
                     if (editingProduct.ledStart == null || editingProduct.ledEnd == null) { showToast("Configure LED debut/fin d'abord"); return; }
                     const color = (editingProduct.ledColor || "#FFFFFF").replace("#", "");
-                    fetch("/api/fridge?action=trigger&lock=frigo&leds=" + editingProduct.ledStart + "-" + editingProduct.ledEnd + ":" + color + "&anim=none").catch(() => {});
+                    fetch("/api/fridge?action=trigger&lock=none&leds=" + editingProduct.ledStart + "-" + editingProduct.ledEnd + ":" + color + "&anim=none").catch(() => {});
                     showToast("💡 LED " + editingProduct.name + " allumee !");
                   }} className="flex-1 py-2.5 rounded-xl bg-green-600 text-white text-xs font-bold cursor-pointer active:scale-95">
                     {"💡 Tester cette LED"}
                   </button>
                   <button onClick={() => {
-                    fetch("/api/fridge?action=trigger&lock=&leds=").catch(() => {});
+                    fetch("/api/fridge?action=trigger&lock=none&leds=&anim=none").catch(() => {});
                     showToast("LED eteinte");
                   }} className="py-2.5 px-4 rounded-xl bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer active:scale-95">
                     {"OFF"}
