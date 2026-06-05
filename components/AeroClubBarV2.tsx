@@ -3866,7 +3866,14 @@ export default function AeroClubBarV2() {
                         ranges.push(p.ledStart + "-" + p.ledEnd + ":" + color);
                       });
                       if (ranges.length === 0) { showToast("Aucun produit avec LED configuree"); return; }
-                      fetch("/api/fridge?action=trigger&lock=frigo&leds=" + ranges.join(",") + "&anim=none").catch(() => {});
+                      // Envoyer par groupes de 10 pour eviter URL trop longue
+                      for (let i = 0; i < ranges.length; i += 10) {
+                        const chunk = ranges.slice(i, i + 10).join(",");
+                        const lock = i === 0 ? "frigo" : "";
+                        setTimeout(() => {
+                          fetch("/api/fridge?action=trigger&lock=" + lock + "&leds=" + chunk + "&anim=none").catch(() => {});
+                        }, i * 50);
+                      }
                       showToast("💡 " + ranges.length + " produits allumes !");
                     }} className="flex-1 py-3 rounded-lg bg-green-600 text-white text-sm font-bold cursor-pointer active:scale-95">
                       {"💡 ON — Allumer tous les produits"}
