@@ -5025,6 +5025,23 @@ export default function AeroClubBarV2() {
                       className="w-8 h-8 rounded-full border border-slate-600 cursor-pointer bg-transparent" title="Couleur custom" />
                   </div>
                 </div>
+                {/* Bouton tester LED du produit */}
+                <div className="flex gap-2 mt-2">
+                  <button onClick={() => {
+                    if (editingProduct.ledStart == null || editingProduct.ledEnd == null) { showToast("Configure LED debut/fin d'abord"); return; }
+                    const color = (editingProduct.ledColor || "#FFFFFF").replace("#", "");
+                    fetch("/api/fridge?action=trigger&lock=frigo&leds=" + editingProduct.ledStart + "-" + editingProduct.ledEnd + ":" + color + "&anim=none").catch(() => {});
+                    showToast("💡 LED " + editingProduct.name + " allumee !");
+                  }} className="flex-1 py-2.5 rounded-xl bg-green-600 text-white text-xs font-bold cursor-pointer active:scale-95">
+                    {"💡 Tester cette LED"}
+                  </button>
+                  <button onClick={() => {
+                    fetch("/api/fridge?action=trigger&lock=&leds=").catch(() => {});
+                    showToast("LED eteinte");
+                  }} className="py-2.5 px-4 rounded-xl bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer active:scale-95">
+                    {"OFF"}
+                  </button>
+                </div>
               </div>
             )}
             <label className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-xl px-3 py-3 cursor-pointer mb-3">
