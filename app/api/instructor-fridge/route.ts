@@ -3,6 +3,19 @@ import { NextResponse } from "next/server";
 
 export const runtime = "edge";
 
+async function sendTelegram(message: string) {
+  const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+  const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+  if (!BOT_TOKEN || !CHAT_ID) return;
+  try {
+    await fetch("https://api.telegram.org/bot" + BOT_TOKEN + "/sendMessage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: CHAT_ID, text: message, parse_mode: "HTML" }),
+    });
+  } catch { /* ignore */ }
+}
+
 interface Badge {
   uid: string;
   name: string;
@@ -72,6 +85,13 @@ export async function GET(request: Request) {
         settings.accessLog = settings.accessLog.slice(0, 200);
       }
       await kv.set("aeroclub-instructor", settings);
+
+      // Alerte Telegram si stock bas
+      if (settings.stock === 5) {
+        sendTelegram("⚠️ <b>Frigo Instructeurs</b>\n\n💧 Stock bas : <b>5 bouteilles</b> restantes\n\nPensez à réapprovisionner !");
+      } else if (settings.stock === 0) {
+        sendTelegram("🚨 <b>Frigo Instructeurs</b>\n\n💧 Stock ÉPUISÉ : <b>0 bouteille</b>\n\nLe frigo est vide !");
+      }
 
       return NextResponse.json({
         authorized: true,
