@@ -31,7 +31,8 @@ export async function GET(request: Request) {
       const l = locks || EMPTY;
       const anim = l.animOverride || (settings && settings.ledAnimation as string) || "none";
       const shelf = (settings && settings.ledsPerShelf as number) || 50;
-      const result = { cafe: l.cafe === true, frigo: l.frigo === true, congelateur: l.congelateur === true, both: l.both === true, led: false, leds: l.leds || "", anim, shelf };
+      const bright = (settings && settings.ledBrightness as number) || 150;
+      const result = { cafe: l.cafe === true, frigo: l.frigo === true, congelateur: l.congelateur === true, both: l.both === true, led: false, leds: l.leds || "", anim, shelf, bright };
 
       // Calculer l'état LED
       if (settings && settings.ledEnabled) {

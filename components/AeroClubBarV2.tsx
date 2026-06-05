@@ -106,6 +106,7 @@ interface Settings {
   ledForceState?: "on" | "off" | "auto";  // forçage manuel
   ledAnimation?: "none" | "chase" | "edges" | "flash" | "snake" | "serpentin" | "converge";  // animation LED produit
   ledsPerShelf?: number;         // nombre de LED par étagère
+  ledBrightness?: number;        // luminosité LED WS2812B (0-255)
 }
 interface HomepageConfig {
   featuredProductIds?: string[];
@@ -4462,6 +4463,18 @@ export default function AeroClubBarV2() {
                       onChange={(e) => setSettings((prev) => ({ ...prev, ledsPerShelf: Math.max(1, parseInt(e.target.value, 10) || 50) }))}
                       className="w-24 h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none" />
                     <p className="text-[10px] text-slate-500 flex-1">{"Nombre de LED par \u00E9tag\u00E8re (pour les animations). Ex: 50 si tu as 50 LED par rang."}</p>
+                  </div>
+                </div>
+                {/* Luminosit\u00E9 LED */}
+                <div className="mt-3 pt-3 border-t border-slate-800">
+                  <span className="text-xs font-bold text-green-400 uppercase tracking-wider block mb-2">{"\uD83D\uDD06 Luminosit\u00E9 LED produit"}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-slate-600 text-xs">\uD83C\uDF11</span>
+                    <input type="range" min={5} max={255} value={settings.ledBrightness || 150}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, ledBrightness: parseInt(e.target.value, 10) }))}
+                      className="flex-1 accent-green-500 h-2 cursor-pointer" />
+                    <span className="text-slate-600 text-xs">\u2600\uFE0F</span>
+                    <span className="text-white text-sm font-bold w-12 text-center">{Math.round(((settings.ledBrightness || 150) / 255) * 100) + "%"}</span>
                   </div>
                 </div>
                 {/* Animation LED produit */}
