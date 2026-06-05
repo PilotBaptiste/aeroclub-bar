@@ -3855,6 +3855,30 @@ export default function AeroClubBarV2() {
                     ))}
                   </div>
                 </div>
+                {/* Bouton ON/OFF — allumer toutes les LED configurées */}
+                <div className="mt-3 pt-3 border-t border-slate-800">
+                  <label className="text-[10px] text-green-400 font-semibold block mb-2">{"📍 Positionnement produits — allumer toutes les LED configurées"}</label>
+                  <div className="flex gap-2">
+                    <button onClick={() => {
+                      const ranges: string[] = [];
+                      products.filter(p => !p.archived && p.ledStart != null && p.ledEnd != null).forEach(p => {
+                        const color = (p.ledColor || "#FFFFFF").replace("#", "");
+                        ranges.push(p.ledStart + "-" + p.ledEnd + ":" + color);
+                      });
+                      if (ranges.length === 0) { showToast("Aucun produit avec LED configuree"); return; }
+                      fetch("/api/fridge?action=trigger&lock=frigo&leds=" + ranges.join(",") + "&anim=none").catch(() => {});
+                      showToast("💡 " + ranges.length + " produits allumes !");
+                    }} className="flex-1 py-3 rounded-lg bg-green-600 text-white text-sm font-bold cursor-pointer active:scale-95">
+                      {"💡 ON — Allumer tous les produits"}
+                    </button>
+                    <button onClick={() => {
+                      fetch("/api/fridge?action=trigger&lock=&leds=").catch(() => {});
+                      showToast("LED eteintes");
+                    }} className="flex-1 py-3 rounded-lg bg-red-900/50 text-red-400 text-sm font-bold cursor-pointer active:scale-95 border border-red-800/30">
+                      {"OFF — Tout eteindre"}
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Créer un membre */}
