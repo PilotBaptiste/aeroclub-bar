@@ -2,11 +2,12 @@
  * AEROCLUB DU BASSIN D'ARCACHON - ESP32 4-Relay Board
  * ====================================================
  * Carte : LC-Relay-ESP32-4R-A2
- * R1(GPIO33)=Café(1s)  R2(GPIO25)=Frigo(3s)  R3(GPIO26)=Congél(5s)  R4(GPIO32)=LED
+ * R1(GPIO33)=Café(1s)  R2(GPIO25)=Frigo(3s)  R3(GPIO26)=Congél(5s)  R4(GPIO32)=LED vitrine
  *
- * LED WS2812B : bande adressable dans le frigo
- *   - L'API renvoie "leds":"0-2,5-7" = plages de LED a allumer
- *   - Allumées pendant l'ouverture du frigo, éteintes après
+ * LED WS2812B : bande adressable dans le frigo (180 LEDs, 3 étagères x 60)
+ *   - L'API renvoie "leds":"0-2:FF0000,5-7:00FF00" = plages de LED a allumer
+ *   - Allumées pendant l'ouverture du frigo ou seules (test admin lock=none)
+ *   - Éteintes après DUREE_LEDS
  *
  * Librairies requises :
  *   - OneWire           (par Jim Studt)
@@ -38,14 +39,30 @@ const int RELAY_LED         = 32;
 const unsigned long DUREE_CAFE   = 1000;
 const unsigned long DUREE_FRIGO  = 3000;
 const unsigned long DUREE_CONGEL = 5000;
+const unsigned long DUREE_LEDS   = 5000;  // durée affichage LED produits
 
 // === LED WS2812B ===
-const int LED_PIN       = 27;   // GPIO pour la bande WS2812B — adapter si besoin
-const int NUM_LEDS      = 60;   // nombre total de LED sur la bande — adapter
-CRGB leds[60];                  // tableau LED (doit correspondre a NUM_LEDS)
+const int LED_PIN       = 27;
+const int NUM_LEDS      = 180;  // 3 étagères x 60 LEDs
+CRGB leds[180];
+
+// === PLAGES LED ===
+const int MAX_RANGES = 40;
+struct LedRange {
+  int start;
+  int end;
+  CRGB color;
+};
+LedRange ranges[MAX_RANGES];
+int rangeCount = 0;
+
+// === ANIMATION ===
+String currentAnim = "none";
+int ledsPerShelf = 30;
+int ledBrightness = 150;
 
 // === GPIO CAPTEURS TEMPERATURE ===
-const int TEMP_FRIGO_PIN    = 16;  // adapter selon pin libre
+const int TEMP_FRIGO_PIN    = 16;
 const int TEMP_CONGEL_PIN   = 14;
 
 // Relais actifs en HIGH sur cette carte
@@ -73,64 +90,268 @@ float tempCongel = -127.0;
 void relayOn(int pin) { digitalWrite(pin, RELAY_ACTIVE_HIGH ? HIGH : LOW); }
 void relayOff(int pin) { digitalWrite(pin, RELAY_ACTIVE_HIGH ? LOW : HIGH); }
 
-// === LED WS2812B : allumer les plages recues avec couleur ===
-// Format attendu : "0-2:FF0000,5-7:00FF00" (plage:couleurHex)
-// Si pas de couleur : blanc par defaut
-void allumerLeds(String ranges) {
-  FastLED.clear();
-
-  if (ranges.length() == 0) {
-    FastLED.show();
-    return;
-  }
+// ============================================================
+// PARSING DES PLAGES LED  — "0-2:FF0000,5-7:00FF00"
+// ============================================================
+void parseRanges(String input) {
+  rangeCount = 0;
+  if (input.length() == 0) return;
 
   int idx = 0;
-  while (idx < (int)ranges.length()) {
-    // Lire le debut de la plage
-    int dashPos = ranges.indexOf('-', idx);
+  while (idx < (int)input.length() && rangeCount < MAX_RANGES) {
+    int dashPos = input.indexOf('-', idx);
     if (dashPos < 0) break;
 
-    // Trouver la fin du segment (virgule ou fin de chaine)
-    int commaPos = ranges.indexOf(',', dashPos);
-    if (commaPos < 0) commaPos = ranges.length();
+    int commaPos = input.indexOf(',', dashPos);
+    if (commaPos < 0) commaPos = input.length();
 
-    // Chercher la couleur (apres le ':')
-    int colonPos = ranges.indexOf(':', dashPos);
-    int endPos;
+    int colonPos = input.indexOf(':', dashPos);
     CRGB color = CRGB::White;
+    int endPos;
 
     if (colonPos > 0 && colonPos < commaPos) {
-      // Plage avec couleur : "0-2:FF0000"
       endPos = colonPos;
-      String hexColor = ranges.substring(colonPos + 1, commaPos);
-      // Parser le hex en RGB
+      String hexColor = input.substring(colonPos + 1, commaPos);
       long rgb = strtol(hexColor.c_str(), NULL, 16);
       color = CRGB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
     } else {
-      // Plage sans couleur : "0-2"
       endPos = commaPos;
     }
 
-    int start = ranges.substring(idx, dashPos).toInt();
-    int end = ranges.substring(dashPos + 1, endPos).toInt();
+    int s = input.substring(idx, dashPos).toInt();
+    int e = input.substring(dashPos + 1, endPos).toInt();
 
-    // Allumer les LED de start a end (inclusive)
-    for (int i = start; i <= end && i < NUM_LEDS; i++) {
-      if (i >= 0) leds[i] = color;
-    }
+    ranges[rangeCount].start = s;
+    ranges[rangeCount].end = e;
+    ranges[rangeCount].color = color;
+    rangeCount++;
 
     idx = commaPos + 1;
   }
 
-  FastLED.show();
-  Serial.printf("LED WS2812B : %s\n", ranges.c_str());
+  Serial.printf("  Parsed %d plages LED\n", rangeCount);
 }
 
+// ============================================================
+// ALLUMER LES LED SELON LES PLAGES (sans animation)
+// ============================================================
+void allumerLedsDirect() {
+  for (int i = 0; i < NUM_LEDS; i++) leds[i] = CRGB::Black;
+  for (int r = 0; r < rangeCount; r++) {
+    for (int i = ranges[r].start; i <= ranges[r].end && i < NUM_LEDS; i++) {
+      if (i >= 0) leds[i] = ranges[r].color;
+    }
+  }
+  FastLED.show();
+}
+
+// ============================================================
+// ETEINDRE TOUTES LES LED
+// ============================================================
 void eteindreLeds() {
-  FastLED.clear();
+  for (int i = 0; i < NUM_LEDS; i++) leds[i] = CRGB::Black;
   FastLED.show();
+  delay(50);
+  for (int i = 0; i < NUM_LEDS; i++) leds[i] = CRGB::Black;
+  FastLED.show();
+  rangeCount = 0;  // ← réactive le nettoyage anti-bruit dans loop()
 }
 
+// ============================================================
+// ANIMATIONS LED
+// ============================================================
+void animSnake(int shelfSize) {
+  // Arc-en-ciel qui parcourt chaque étagère puis dépose les couleurs produits
+  int totalShelves = (NUM_LEDS + shelfSize - 1) / shelfSize;
+  for (int shelf = 0; shelf < totalShelves; shelf++) {
+    int shelfStart = shelf * shelfSize;
+    int shelfEnd = min(shelfStart + shelfSize - 1, NUM_LEDS - 1);
+    // Snake arc-en-ciel sur cette étagère
+    for (int pos = shelfStart; pos <= shelfEnd; pos++) {
+      for (int i = 0; i < NUM_LEDS; i++) leds[i] = CRGB::Black;
+      // Dessiner le serpent (5 LED de queue)
+      for (int t = 0; t < 5; t++) {
+        int p = pos - t;
+        if (p >= shelfStart && p <= shelfEnd) {
+          leds[p] = CHSV((pos * 10 + t * 30) % 256, 255, 255 - t * 40);
+        }
+      }
+      // Garder les produits déjà déposés sur les étagères précédentes
+      for (int r = 0; r < rangeCount; r++) {
+        if (ranges[r].end < shelfStart) {
+          for (int i = ranges[r].start; i <= ranges[r].end && i < NUM_LEDS; i++) {
+            if (i >= 0) leds[i] = ranges[r].color;
+          }
+        }
+      }
+      FastLED.show();
+      delay(8);
+    }
+  }
+  // Fin : afficher les couleurs finales
+  allumerLedsDirect();
+}
+
+void animSerpentin(int shelfSize) {
+  // Descend toutes les étagères en serpentin et dépose les couleurs
+  int totalShelves = (NUM_LEDS + shelfSize - 1) / shelfSize;
+  for (int shelf = 0; shelf < totalShelves; shelf++) {
+    int shelfStart = shelf * shelfSize;
+    int shelfEnd = min(shelfStart + shelfSize - 1, NUM_LEDS - 1);
+    bool reverse = (shelf % 2 == 1);
+    int len = shelfEnd - shelfStart + 1;
+    for (int step = 0; step < len; step++) {
+      int pos = reverse ? (shelfEnd - step) : (shelfStart + step);
+      // Effacer cette étagère sauf les couleurs déjà déposées
+      for (int i = shelfStart; i <= shelfEnd; i++) {
+        bool isProduct = false;
+        for (int r = 0; r < rangeCount; r++) {
+          if (ranges[r].end < shelfStart) continue; // étagère précédente, garder
+          if (i >= ranges[r].start && i <= ranges[r].end) {
+            // Vérifier si on a déjà dépassé ce produit
+            bool passed = reverse ? (pos < ranges[r].start) : (pos > ranges[r].end);
+            if (passed) { leds[i] = ranges[r].color; isProduct = true; }
+          }
+        }
+        if (!isProduct && i >= shelfStart) {
+          // Seulement effacer sur l'étagère courante
+          bool keepFromPrev = false;
+          for (int r = 0; r < rangeCount; r++) {
+            if (i >= ranges[r].start && i <= ranges[r].end && ranges[r].end < shelfStart) {
+              keepFromPrev = true;
+            }
+          }
+          if (!keepFromPrev) leds[i] = CRGB::Black;
+        }
+      }
+      // Tête du serpentin
+      leds[pos] = CHSV((shelf * 80 + step * 5) % 256, 255, 255);
+      if (reverse ? (pos + 1 <= shelfEnd) : (pos - 1 >= shelfStart)) {
+        int tail = reverse ? pos + 1 : pos - 1;
+        leds[tail] = CHSV((shelf * 80 + step * 5) % 256, 255, 120);
+      }
+      // Garder les étagères précédentes
+      for (int r = 0; r < rangeCount; r++) {
+        if (ranges[r].end < shelfStart) {
+          for (int i = ranges[r].start; i <= ranges[r].end && i < NUM_LEDS; i++) {
+            if (i >= 0) leds[i] = ranges[r].color;
+          }
+        }
+      }
+      FastLED.show();
+      delay(10);
+    }
+  }
+  allumerLedsDirect();
+}
+
+void animChase() {
+  // Scanner Knight Rider sur toute la bande
+  for (int rep = 0; rep < 3; rep++) {
+    for (int pos = 0; pos < NUM_LEDS; pos++) {
+      for (int i = 0; i < NUM_LEDS; i++) leds[i] = CRGB::Black;
+      for (int t = 0; t < 5; t++) {
+        int p = pos - t;
+        if (p >= 0 && p < NUM_LEDS) {
+          leds[p] = CRGB(255 - t * 50, 0, 0);
+        }
+      }
+      FastLED.show();
+      delay(3);
+    }
+    for (int pos = NUM_LEDS - 1; pos >= 0; pos--) {
+      for (int i = 0; i < NUM_LEDS; i++) leds[i] = CRGB::Black;
+      for (int t = 0; t < 5; t++) {
+        int p = pos + t;
+        if (p >= 0 && p < NUM_LEDS) {
+          leds[p] = CRGB(255 - t * 50, 0, 0);
+        }
+      }
+      FastLED.show();
+      delay(3);
+    }
+  }
+  allumerLedsDirect();
+}
+
+void animConverge() {
+  // Les LED convergent depuis les bords vers chaque produit
+  int maxDist = 0;
+  for (int r = 0; r < rangeCount; r++) {
+    int center = (ranges[r].start + ranges[r].end) / 2;
+    maxDist = max(maxDist, max(center, NUM_LEDS - center));
+  }
+  for (int dist = maxDist; dist >= 0; dist--) {
+    for (int i = 0; i < NUM_LEDS; i++) leds[i] = CRGB::Black;
+    for (int r = 0; r < rangeCount; r++) {
+      int center = (ranges[r].start + ranges[r].end) / 2;
+      int lo = center - dist;
+      int hi = center + dist;
+      if (lo >= 0 && lo < NUM_LEDS) leds[lo] = ranges[r].color;
+      if (hi >= 0 && hi < NUM_LEDS) leds[hi] = ranges[r].color;
+      // Si on est arrivé au produit, remplir
+      if (dist <= (ranges[r].end - ranges[r].start) / 2) {
+        for (int i = ranges[r].start; i <= ranges[r].end && i < NUM_LEDS; i++) {
+          if (i >= 0) leds[i] = ranges[r].color;
+        }
+      }
+    }
+    FastLED.show();
+    delay(8);
+  }
+  allumerLedsDirect();
+}
+
+void animEdges() {
+  // Flash des bords puis remplissage produit
+  for (int flash = 0; flash < 3; flash++) {
+    for (int r = 0; r < rangeCount; r++) {
+      if (ranges[r].start >= 0 && ranges[r].start < NUM_LEDS)
+        leds[ranges[r].start] = ranges[r].color;
+      if (ranges[r].end >= 0 && ranges[r].end < NUM_LEDS)
+        leds[ranges[r].end] = ranges[r].color;
+    }
+    FastLED.show();
+    delay(150);
+    for (int i = 0; i < NUM_LEDS; i++) leds[i] = CRGB::Black;
+    FastLED.show();
+    delay(100);
+  }
+  allumerLedsDirect();
+}
+
+void animFlash() {
+  // 3 flashs blancs puis affichage final
+  for (int f = 0; f < 3; f++) {
+    for (int r = 0; r < rangeCount; r++) {
+      for (int i = ranges[r].start; i <= ranges[r].end && i < NUM_LEDS; i++) {
+        if (i >= 0) leds[i] = CRGB::White;
+      }
+    }
+    FastLED.show();
+    delay(80);
+    for (int i = 0; i < NUM_LEDS; i++) leds[i] = CRGB::Black;
+    FastLED.show();
+    delay(80);
+  }
+  allumerLedsDirect();
+}
+
+// Dispatch animation
+void allumerLedsAvecAnim(String anim, int shelfSize) {
+  if (rangeCount == 0) return;
+  if (anim == "snake") animSnake(shelfSize);
+  else if (anim == "serpentin") animSerpentin(shelfSize);
+  else if (anim == "chase") animChase();
+  else if (anim == "converge") animConverge();
+  else if (anim == "edges") animEdges();
+  else if (anim == "flash") animFlash();
+  else allumerLedsDirect();
+}
+
+// ============================================================
+// SETUP
+// ============================================================
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -146,21 +367,10 @@ void setup() {
 
   // Init bande LED WS2812B
   FastLED.addLeds<WS2812B, 27, GRB>(leds, NUM_LEDS);
-  FastLED.setBrightness(150);  // luminosite 0-255
-  FastLED.clear();
+  FastLED.setBrightness(150);
+  // Nettoyage complet au démarrage
+  for (int i = 0; i < NUM_LEDS; i++) leds[i] = CRGB::Black;
   FastLED.show();
-
-  // === TEST LED AU DEMARRAGE — 10 premieres LED en rouge pendant 10s ===
-  Serial.println("TEST LED : allumage 0-9 en rouge...");
-  for (int i = 0; i < 10 && i < NUM_LEDS; i++) {
-    leds[i] = CRGB::Red;
-  }
-  FastLED.show();
-  delay(10000);
-  FastLED.clear();
-  FastLED.show();
-  Serial.println("TEST LED : eteint.");
-  // === FIN TEST — supprimer ce bloc une fois valide ===
 
   capteurFrigo.begin();
   capteurCongel.begin();
@@ -195,6 +405,9 @@ void setup() {
   Serial.println("=== Init OK ===\n");
 }
 
+// ============================================================
+// LOOP
+// ============================================================
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi perdu, reconnexion...");
@@ -206,6 +419,12 @@ void loop() {
   }
 
   unsigned long now = millis();
+
+  // Anti-bruit : nettoyage périodique quand aucune LED produit n'est active
+  if (rangeCount == 0 && now - lastPoll >= 1000) {
+    for (int i = 0; i < NUM_LEDS; i++) leds[i] = CRGB::Black;
+    FastLED.show();
+  }
 
   if (now - lastPoll >= POLL_INTERVAL) {
     lastPoll = now;
@@ -240,6 +459,8 @@ void pollSerrures() {
       String body = http.getString();
       http.end();
 
+      Serial.println("Body: " + body);
+
       bool needCafe = body.indexOf("\"cafe\":true") >= 0;
       bool needFrigo = body.indexOf("\"frigo\":true") >= 0;
       bool needCongelateur = body.indexOf("\"congelateur\":true") >= 0;
@@ -250,7 +471,7 @@ void pollSerrures() {
         needCongelateur = true;
       }
 
-      // Extraire les plages LED de la reponse
+      // Extraire les plages LED de la réponse
       String ledRanges = "";
       int ledsIdx = body.indexOf("\"leds\":\"");
       if (ledsIdx >= 0) {
@@ -261,6 +482,37 @@ void pollSerrures() {
         }
       }
 
+      // Extraire animation
+      String anim = "none";
+      int animIdx = body.indexOf("\"anim\":\"");
+      if (animIdx >= 0) {
+        int start = animIdx + 8;
+        int end = body.indexOf("\"", start);
+        if (end > start) anim = body.substring(start, end);
+      }
+
+      // Extraire shelf (LEDs par étagère)
+      int shelfIdx = body.indexOf("\"shelf\":");
+      if (shelfIdx >= 0) {
+        int start = shelfIdx + 8;
+        int end = start;
+        while (end < (int)body.length() && (body[end] >= '0' && body[end] <= '9')) end++;
+        if (end > start) ledsPerShelf = body.substring(start, end).toInt();
+      }
+
+      // Extraire luminosité
+      int brightIdx = body.indexOf("\"bright\":");
+      if (brightIdx >= 0) {
+        int start = brightIdx + 9;
+        int end = start;
+        while (end < (int)body.length() && (body[end] >= '0' && body[end] <= '9')) end++;
+        if (end > start) {
+          ledBrightness = body.substring(start, end).toInt();
+          FastLED.setBrightness(ledBrightness);
+        }
+      }
+
+      // ═══ CAS 1 : Serrures à ouvrir (avec ou sans LEDs) ═══
       if (needCafe || needFrigo || needCongelateur) {
         Serial.print(">>> DEVERROUILLAGE:");
         if (needCafe) Serial.print(" CAFE(1s)");
@@ -268,12 +520,16 @@ void pollSerrures() {
         if (needCongelateur) Serial.print(" CONGELATEUR(5s)");
         Serial.println(" <<<");
 
-        // Allumer les LED des produits achetes
+        // Couper la LED vitrine pendant l'affichage produits
+        if (ledState) relayOff(RELAY_LED);
+
+        // Allumer les LED des produits achetés
         if (ledRanges.length() > 0) {
-          allumerLeds(ledRanges);
+          parseRanges(ledRanges);
+          allumerLedsAvecAnim(anim, ledsPerShelf);
         }
 
-        // Tout activer en meme temps
+        // Tout activer en même temps
         if (needCafe) relayOn(RELAY_CAFE);
         if (needFrigo) relayOn(RELAY_FRIGO);
         if (needCongelateur) relayOn(RELAY_CONGELATEUR);
@@ -282,9 +538,10 @@ void pollSerrures() {
         bool cafeOff = !needCafe;
         bool frigoOff = !needFrigo;
         bool congelOff = !needCongelateur;
+        bool ledsOff = (ledRanges.length() == 0);
 
-        // Couper chaque relais a sa duree
-        while (!cafeOff || !frigoOff || !congelOff) {
+        // Couper chaque relais à sa durée
+        while (!cafeOff || !frigoOff || !congelOff || !ledsOff) {
           unsigned long elapsed = millis() - startTime;
           if (!cafeOff && elapsed >= DUREE_CAFE) {
             relayOff(RELAY_CAFE);
@@ -301,23 +558,51 @@ void pollSerrures() {
             congelOff = true;
             Serial.println("  Congelateur ferme");
           }
+          if (!ledsOff && elapsed >= DUREE_LEDS) {
+            eteindreLeds();
+            ledsOff = true;
+            Serial.println("  LEDs eteintes");
+          }
           delay(10);
         }
 
-        // Eteindre les LED apres fermeture
-        eteindreLeds();
+        // Si les LEDs n'avaient pas de timer séparé
+        if (ledRanges.length() > 0 && rangeCount > 0) {
+          eteindreLeds();
+        }
 
         Serial.println(">>> VERROUILLE <<<");
 
-        if (ledState) relayOn(RELAY_LED); else relayOff(RELAY_LED);
+        // Restaurer la LED vitrine
+        if (ledState) relayOn(RELAY_LED);
 
+        // Confirmer à l'API
         WiFiClientSecure c2;
         c2.setInsecure();
         HTTPClient h2;
         if (h2.begin(c2, String(API_URL) + "?action=done")) { h2.GET(); h2.end(); }
       }
+      // ═══ CAS 2 : LED seules, pas de serrure (test admin, lock=none) ═══
+      else if (ledRanges.length() > 0) {
+        Serial.println(">>> LED SEULES (test admin) <<<");
 
-      // LED vitrine
+        // Couper la LED vitrine pendant l'affichage
+        if (ledState) relayOff(RELAY_LED);
+
+        parseRanges(ledRanges);
+        allumerLedsAvecAnim(anim, ledsPerShelf);
+
+        // Garder allumé DUREE_LEDS
+        delay(DUREE_LEDS);
+        eteindreLeds();
+
+        Serial.println(">>> LED ETEINTES <<<");
+
+        // Restaurer la LED vitrine
+        if (ledState) relayOn(RELAY_LED);
+      }
+
+      // LED vitrine (relais R4)
       bool wantLed = body.indexOf("\"led\":true") >= 0;
       if (wantLed != ledState) {
         ledState = wantLed;
@@ -338,18 +623,25 @@ void pollSerrures() {
 void lireTemperatures() {
   float t;
   t = capteurFrigo.getTempCByIndex(0);
-  if (t != DEVICE_DISCONNECTED_C && t != -127.0) tempFrigo = t;
+  // Toujours mettre à jour : valeur valide OU -127 si capteur absent
+  if (t != DEVICE_DISCONNECTED_C && t != -127.0 && t != 85.0) {
+    tempFrigo = t;
+  } else {
+    tempFrigo = -127.0;  // capteur absent/erreur → signaler au frontend
+  }
   t = capteurCongel.getTempCByIndex(0);
-  if (t != DEVICE_DISCONNECTED_C && t != -127.0) tempCongel = t;
+  if (t != DEVICE_DISCONNECTED_C && t != -127.0 && t != 85.0) {
+    tempCongel = t;
+  } else {
+    tempCongel = -127.0;
+  }
   Serial.printf("Temp - Frigo: %.1f C | Congel: %.1f C\n", tempFrigo, tempCongel);
 }
 
 void envoyerTemperatures() {
   if (WiFi.status() != WL_CONNECTED) return;
-  if (tempFrigo == -127.0 && tempCongel == -127.0) {
-    Serial.println("Pas de temp valide");
-    return;
-  }
+  // Toujours envoyer, même si les deux sont invalides (-127)
+  // pour que le frontend ait un timestamp frais et sache que l'ESP32 est vivant
 
   WiFiClientSecure client;
   client.setInsecure();

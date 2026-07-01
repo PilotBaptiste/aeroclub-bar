@@ -2234,7 +2234,16 @@ export default function AeroClubBarV2() {
                             )}
                             <button
                               onClick={() => {
-                                fetch("/api/fridge?action=trigger&lock=" + avoirLocks).catch(() => {});
+                                // Collecter les LED des produits avoir pour le trigger
+                                const avoirLedRanges: string[] = [];
+                                for (const ac of availableCredits) {
+                                  if (ac.product.ledStart != null && ac.product.ledEnd != null) {
+                                    const color = (ac.product.ledColor || "#FFFFFF").replace("#", "");
+                                    avoirLedRanges.push(ac.product.ledStart + "-" + ac.product.ledEnd + ":" + color);
+                                  }
+                                }
+                                const avoirLedsParam = avoirLedRanges.length > 0 ? "&leds=" + avoirLedRanges.join(",") : "";
+                                fetch("/api/fridge?action=trigger&lock=" + avoirLocks + avoirLedsParam).catch(() => {});
                                 // Déduire chaque avoir + stock
                                 const usedIds = new Set<string>();
                                 for (const ac of availableCredits) {
@@ -2244,6 +2253,17 @@ export default function AeroClubBarV2() {
                                   ));
                                   usedIds.add(ac.productId);
                                 }
+                                // Enregistrer une transaction pour la traçabilité
+                                const avoirTx: Transaction = {
+                                  id: Date.now().toString(36),
+                                  items: availableCredits.map((ac) => "1x " + ac.product.name + " (avoir)").join(", "),
+                                  total: 0,
+                                  totalCost: availableCredits.reduce((s, ac) => s + (ac.product.cost || 0), 0),
+                                  buyer: canonical,
+                                  date: new Date().toISOString(),
+                                  method: "avoir-produit",
+                                };
+                                setTransactions((prev) => [avoirTx, ...prev]);
                                 // Retirer du panier ce qui est couvert par l'avoir
                                 const remaining = cart.filter((c) => !usedIds.has(c.product.id));
                                 setCart(remaining);
@@ -2903,11 +2923,18 @@ export default function AeroClubBarV2() {
                 </div>
               );
             })()}
-            {temperatures.lastUpdate && (
-              <p className="col-span-2 text-[10px] text-slate-600 text-center">
-                {"\uD83D\uDD04 Mise a jour : " + new Date(temperatures.lastUpdate).toLocaleTimeString("fr-FR")}
-              </p>
-            )}
+            {temperatures.lastUpdate && (() => {
+              const ageMs = Date.now() - new Date(temperatures.lastUpdate).getTime();
+              const ageMin = Math.floor(ageMs / 60000);
+              const stale = ageMin > 5;
+              return (
+                <p className={"col-span-2 text-[10px] text-center " + (stale ? "text-red-500 font-bold" : "text-slate-600")}>
+                  {stale
+                    ? "\u26A0\uFE0F Derniere maj il y a " + (ageMin > 60 ? Math.floor(ageMin / 60) + "h" + (ageMin % 60 > 0 ? String(ageMin % 60).padStart(2, "0") : "") : ageMin + " min") + " \u2014 capteur HS ?"
+                    : "\uD83D\uDD04 Mise a jour : " + new Date(temperatures.lastUpdate).toLocaleTimeString("fr-FR")}
+                </p>
+              );
+            })()}
           </div>
           <div className="flex gap-1 mb-4">
             {[
@@ -3136,6 +3163,20 @@ export default function AeroClubBarV2() {
                           >{emoji}</button>
                         ))}
                       </div>
+                      {p.ledStart != null && p.ledEnd != null && (
+                        <button
+                          onClick={() => {
+                            const color = (p.ledColor || "#FFFFFF").replace("#", "");
+                            fetch("/api/fridge?action=trigger&lock=none&leds=" + p.ledStart + "-" + p.ledEnd + ":" + color + "&anim=none").catch(() => {});
+                            showToast("\uD83D\uDCA1 " + p.name + " \u2014 LED " + p.ledStart + "-" + p.ledEnd);
+                            setTimeout(() => {
+                              fetch("/api/fridge?action=trigger&lock=none&leds=&anim=none").catch(() => {});
+                            }, 5000);
+                          }}
+                          className="text-[11px] px-2 py-1 rounded-lg border border-green-700 bg-green-900/20 text-green-400 font-bold cursor-pointer"
+                          title={"Tester LED " + p.ledStart + "-" + p.ledEnd}
+                        >{"\uD83D\uDCA1"}</button>
+                      )}
                       <button
                         onClick={() => { setRestockingProduct(p); setRestockForm({ qty: 1, newPrice: p.price, newCost: p.cost, method: "especes" }); }}
                         className="text-[11px] px-2.5 py-1 rounded-lg border border-emerald-700 bg-emerald-900/20 text-emerald-400 font-bold cursor-pointer"
@@ -3658,7 +3699,7 @@ export default function AeroClubBarV2() {
                 </div>
               )}
               <div className="flex gap-1.5 flex-wrap">
-                {(["espèces", "carte", "avoir", "offert", "bureau"] as const).map((m) => (
+                {(["espèces", "carte", "avoir", "avoir-produit", "offert", "bureau"] as const).map((m) => (
                   <button
                     key={m}
                     onClick={() => setFilterMethod((prev) => (prev === m ? null : m))}
@@ -3705,9 +3746,11 @@ export default function AeroClubBarV2() {
                               ? "\uD83D\uDCB0"
                               : tx.method === "avoir"
                                 ? "\uD83D\uDCB3 avoir"
-                                : tx.method === "offert"
-                                  ? "\uD83C\uDF81 offert"
-                                  : "\uD83D\uDCB3") +
+                                : tx.method === "avoir-produit"
+                                  ? "\uD83C\uDF9F\uFE0F avoir produit"
+                                  : tx.method === "offert"
+                                    ? "\uD83C\uDF81 offert"
+                                    : "\uD83D\uDCB3") +
                             " " +
                             tx.method}
                         </span>
@@ -5571,35 +5614,40 @@ export default function AeroClubBarV2() {
               )}
             </p>
             <div className="flex flex-col gap-2">
-              {Array.from({ length: servingsModal.totalServings }, (_, i) => i + 1).map((n) => {
-                const leftover = servingsModal.totalServings - n;
-                return (
-                  <button
-                    key={n}
-                    onClick={() => handleServingsChoice(n)}
-                    className={
-                      "w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 flex items-center justify-between px-5 " +
-                      (n === servingsModal.totalServings
-                        ? "bg-emerald-600 text-white"
-                        : "border border-amber-600 bg-amber-900/20 text-amber-300")
-                    }
-                  >
-                    <span className="flex items-center gap-1.5">{renderProductIcon(servingsModal.emoji, "text-base", "w-5 h-5")}<span>{n === servingsModal.totalServings ? " Les " + n + " maintenant" : " " + n + " maintenant"}</span></span>
-                    {leftover > 0 && (
-                      <span className="text-xs text-slate-400 font-normal">
-                        {"→ +" + leftover + " avoir"}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-              {/* Option : toutes en avoir */}
+              {/* Bouton principal : TOUTES maintenant (le plus courant) */}
               <button
-                onClick={() => handleServingsChoice(0)}
-                className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 border border-slate-600 bg-slate-800/30 text-slate-300 px-5"
+                onClick={() => handleServingsChoice(servingsModal.totalServings)}
+                className="w-full py-4 rounded-xl font-bold text-base cursor-pointer active:scale-95 bg-emerald-600 text-white px-5 shadow-lg"
               >
-                <span className="flex items-center gap-1.5 justify-center">{renderProductIcon(servingsModal.emoji, "text-base", "w-5 h-5")}<span>{servingsModal.totalServings + " en avoir (prochaine fois)"}</span></span>
+                <span className="flex items-center gap-1.5 justify-center">{renderProductIcon(servingsModal.emoji, "text-lg", "w-6 h-6")}<span>{servingsModal.totalServings === 1 ? " 1 maintenant" : " Les " + servingsModal.totalServings + " maintenant"}</span></span>
               </button>
+              {/* Options avec avoir — plus petit, secondaire */}
+              {servingsModal.totalServings > 1 && (
+                <div className="mt-1 pt-2 border-t border-slate-700/50">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider text-center mb-2">{"ou garder en avoir :"}</p>
+                  <div className="flex flex-col gap-1.5">
+                    {Array.from({ length: servingsModal.totalServings - 1 }, (_, i) => i + 1).map((n) => {
+                      const leftover = servingsModal.totalServings - n;
+                      return (
+                        <button
+                          key={n}
+                          onClick={() => handleServingsChoice(n)}
+                          className="w-full py-2.5 rounded-xl text-xs cursor-pointer active:scale-95 flex items-center justify-between px-5 border border-amber-700/30 bg-amber-900/10 text-amber-300/80"
+                        >
+                          <span className="flex items-center gap-1.5">{renderProductIcon(servingsModal.emoji, "text-sm", "w-4 h-4")}<span>{n + " maintenant"}</span></span>
+                          <span className="text-[11px] text-slate-500">{"→ +" + leftover + " avoir"}</span>
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={() => handleServingsChoice(0)}
+                      className="w-full py-2 rounded-xl text-xs cursor-pointer active:scale-95 border border-slate-700/30 bg-slate-800/20 text-slate-500 px-5"
+                    >
+                      <span className="flex items-center gap-1.5 justify-center">{renderProductIcon(servingsModal.emoji, "text-sm", "w-4 h-4")}<span>{servingsModal.totalServings + " en avoir (prochaine fois)"}</span></span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

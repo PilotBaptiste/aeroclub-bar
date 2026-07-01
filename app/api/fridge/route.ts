@@ -80,12 +80,15 @@ export async function GET(request: Request) {
         else if (l === "congelateur") current.congelateur = true;
         else if (l === "both") current.both = true;
       }
-      // Fallback si aucun lock reconnu (sauf si lock=none pour test LED)
-      if (lock !== "none" && !current.cafe && !current.frigo && !current.congelateur && !current.both) {
-        current.both = true;
-      }
+      // PAS de fallback both:true — si aucun lock reconnu, on ne déclenche rien
+      // (évite les ouvertures fantômes du tiroir café)
+      // Les anciens appels sans lock explicite doivent être corrigés côté front
       // Stocker les plages LED (fusionner si déjà existantes)
-      if (leds) {
+      // leds="" (param présent mais vide) = extinction → effacer les LEDs en attente
+      // leds=null (param absent) = ne pas toucher aux LEDs
+      if (leds === "") {
+        delete current.leds;
+      } else if (leds) {
         current.leds = current.leds ? current.leds + "," + leds : leds;
       }
       // Stocker animation override si fournie (test admin)
