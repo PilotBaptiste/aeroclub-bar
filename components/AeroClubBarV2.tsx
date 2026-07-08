@@ -342,7 +342,7 @@ export default function AeroClubBarV2() {
   const [productCredits, setProductCredits] = useState<Record<string, Record<string, number>>>({});
   // Modal générique de choix de portions (café, glace, madeleine, etc.)
   const [servingsModal, setServingsModal] = useState<{
-    buyer: string; totalServings: number; lockType: string; productId: string;
+    buyer: string; totalServings: number; lockType: string; ledsParam: string; productId: string;
     emoji: string; productName: string;
     step: "main" | "addon"; usedNow?: number;
     totalAddon?: number;
@@ -1135,13 +1135,11 @@ export default function AeroClubBarV2() {
     const hasFrigo = locationsNeeded.has("frigo");
     const hasCongelateur = locationsNeeded.has("congelateur");
 
-    // Détecter produits multi-portions (café, glace, madeleine, etc.)
-    const servingsProducts = cart.filter((c) => getServings(c.product) > 1);
     const firstServings = servingsProducts[0];
     if (firstServings) {
       const totalSrv = servingsProducts.reduce((s, c) => s + c.qty * getServings(c.product), 0);
       setServingsModal({
-        buyer: canonicalBuyer, totalServings: totalSrv, lockType,
+        buyer: canonicalBuyer, totalServings: totalSrv, lockType, ledsParam,
         productId: firstServings.product.id,
         emoji: firstServings.product.emoji, productName: firstServings.product.name,
         step: "main",
