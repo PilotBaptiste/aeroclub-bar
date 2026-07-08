@@ -312,7 +312,7 @@ export default function AeroClubBar() {
   const [newCategoryForm, setNewCategoryForm] = useState<{ label: string; emoji: string; hasCupCost: boolean } | null>(null);
   const [productCredits, setProductCredits] = useState<Record<string, Record<string, number>>>({});
   const [servingsModal, setServingsModal] = useState<{
-    buyer: string; totalServings: number; lockType: string; productId: string;
+    buyer: string; totalServings: number; lockType: string; ledsParam: string; productId: string;
     emoji: string; productName: string;
     step: "main" | "addon"; usedNow?: number;
     totalAddon?: number;
@@ -358,19 +358,19 @@ export default function AeroClubBar() {
         if (data.members) setMembers(data.members as MemberAccount[]);
         if (data.procurements) setProcurements(data.procurements as Procurement[]);
         // Migration avoirs : ancien format (coffeeCredits/madeleineCredits) → productCredits
+        const mergedCredits: Record<string, Record<string, number>> = (data.productCredits as Record<string, Record<string, number>>) || {};
         {
           const prods = (data.products || []) as Product[];
-          const merged: Record<string, Record<string, number>> = (data.productCredits as Record<string, Record<string, number>>) || {};
           if (data.coffeeCredits) {
             const cafeProd = prods.find((p) => (p.coffeeServings || 0) > 1 || ((p.servings || 0) > 1 && (p.name.toLowerCase().includes("caf"))));
-            if (cafeProd) merged[cafeProd.id] = { ...(merged[cafeProd.id] || {}), ...(data.coffeeCredits as Record<string, number>) };
+            if (cafeProd) mergedCredits[cafeProd.id] = { ...(mergedCredits[cafeProd.id] || {}), ...(data.coffeeCredits as Record<string, number>) };
           }
           if (data.madeleineCredits) {
             const madProd = prods.find((p) => p.coffeeAddon || (p.madeleineServings || 0) > 1);
-            if (madProd) merged[madProd.id] = { ...(merged[madProd.id] || {}), ...(data.madeleineCredits as Record<string, number>) };
+            if (madProd) mergedCredits[madProd.id] = { ...(mergedCredits[madProd.id] || {}), ...(data.madeleineCredits as Record<string, number>) };
           }
-          setProductCredits(merged);
         }
+        setProductCredits(mergedCredits);
         if (data.batches) setBatches(data.batches as Batch[]);
         // Immediately backup to localStorage
         if (data.products) backupToLocalStorage("aeroclub-products", data.products);
@@ -379,7 +379,7 @@ export default function AeroClubBar() {
         if (data.suggestions) backupToLocalStorage("aeroclub-suggestions", data.suggestions);
         if (data.members) backupToLocalStorage("aeroclub-members", data.members);
         if (data.procurements) backupToLocalStorage("aeroclub-procurements", data.procurements);
-        backupToLocalStorage("aeroclub-product-credits", productCredits);
+        backupToLocalStorage("aeroclub-product-credits", mergedCredits);
         if (data.batches) backupToLocalStorage("aeroclub-batches", data.batches);
         setLoading(false);
         // Enable saves only after successful load + small delay for React state to settle
@@ -920,8 +920,14 @@ export default function AeroClubBar() {
       ledRanges.push(madeleineProduct.ledStart + "-" + madeleineProduct.ledEnd + ":" + color);
     }
     const ledsParam = ledRanges.length > 0 ? "&leds=" + ledRanges.join(",") : "";
-    // Trigger unique — PAS de retry (le 2ème trigger coupe le relais en plein milieu)
-    fetch("/api/fridge?action=trigger&lock=" + lockType + ledsParam).catch(() => {});
+    // Vérifier si on a des produits multi-portions (café etc.) — si oui, le modal
+    // doit s'afficher AVANT d'ouvrir la serrure
+    const servingsProducts = cart.filter((c) => getServings(c.product) > 1);
+    const hasServingsModal = servingsProducts.length > 0;
+    // Trigger serrure UNIQUEMENT si pas de modal servings — sinon on attend le choix
+    if (!hasServingsModal) {
+      fetch("/api/fridge?action=trigger&lock=" + lockType + ledsParam).catch(() => {});
+    }
 
     // Utiliser le nom canonique du membre si connu, sinon le nom tel que tapé
     const buyerKey = normalizeNameFuzzy(buyerName.trim());
@@ -995,7 +1001,7 @@ export default function AeroClubBar() {
     if (firstServings) {
       const totalSrv = servingsProducts.reduce((s, c) => s + c.qty * getServings(c.product), 0);
       setServingsModal({
-        buyer: canonicalBuyer, totalServings: totalSrv, lockType,
+        buyer: canonicalBuyer, totalServings: totalSrv, lockType, ledsParam,
         productId: firstServings.product.id,
         emoji: firstServings.product.emoji, productName: firstServings.product.name,
         step: "main",
@@ -1066,6 +1072,7 @@ export default function AeroClubBar() {
     if (madeleineAdded && (servingsModal.totalAddon || 0) > 0) {
       setServingsModal({ ...servingsModal, step: "addon", usedNow });
     } else {
+      fetch("/api/fridge?action=trigger&lock=" + servingsModal.lockType + (servingsModal.ledsParam || "")).catch(() => {});
       setServingsModal(null);
     }
   };
@@ -1094,6 +1101,7 @@ export default function AeroClubBar() {
       );
     }
 
+    fetch("/api/fridge?action=trigger&lock=" + servingsModal.lockType + (servingsModal.ledsParam || "")).catch(() => {});
     setServingsModal(null);
   };
 
