@@ -9,7 +9,8 @@ interface Product {
   cost: number;
   stock: number;
   stockReserve?: number;
-  coffeeServings?: number;
+  servings?: number;           // portions par achat (ex: 2 = vendu par lot de 2, génère des avoirs)
+  coffeeServings?: number;     // LEGACY — migré vers servings
   legacyStock?: number;
   legacyPrice?: number;
   archived?: boolean;
@@ -19,7 +20,6 @@ interface Product {
   coffeeAddonQty?: number;     // qté offerte par achat café (ex: 2 madeleines)
   coffeeAddonPrice?: number;   // prix du lot (ex: 0.80€ pour 2)
   madeleineServings?: number;  // LEGACY — migré vers servings
-  servings?: number;            // portions par achat (générique)
   ledStart?: number;           // LED WS2812B : index de début (inclusive)
   ledEnd?: number;             // LED WS2812B : index de fin (inclusive)
   ledColor?: string;           // LED WS2812B : couleur hex (ex: "#FF0000")
@@ -99,10 +99,19 @@ interface Settings {
   sumupFeeRate?: number;
   categories?: Category[];
   supportPhone?: string;
+  homepage?: HomepageConfig;
   ledEnabled?: boolean;     // LED frigo vitrine activée
   ledOnTime?: string;       // heure allumage (HH:MM), ex: "08:00"
   ledOffTime?: string;      // heure extinction (HH:MM), ex: "20:00"
   ledForceState?: "on" | "off" | "auto";  // forçage manuel
+  ledAnimation?: "none" | "chase" | "edges" | "flash" | "snake" | "serpentin" | "converge";  // animation LED produit
+  ledsPerShelf?: number;         // nombre de LED par étagère
+  ledBrightness?: number;        // luminosité LED WS2812B (0-255)
+}
+interface HomepageConfig {
+  featuredProductIds?: string[];
+  showCombo?: boolean;
+  infos?: { emoji: string; title: string; subtitle: string }[];
 }
 
 const DEFAULT_PRODUCTS: Product[] = [
@@ -168,6 +177,11 @@ const DEFAULT_CATEGORIES: Category[] = [
   { id: "nourriture", label: "Bouffe", emoji: "🍫" },
 ];
 const DEFAULT_SETTINGS: Settings = { clubName: "Aero-Club", adminPin: "1234", bureauPin: "1215" };
+
+// Nombre de portions par achat (servings générique, fallback legacy coffeeServings/madeleineServings)
+function getServings(p: Product): number {
+  return p.servings || p.coffeeServings || p.madeleineServings || 1;
+}
 
 function formatPrice(p: number) {
   return p.toFixed(2).replace(".", ",") + " \u20AC";
@@ -235,12 +249,7 @@ function restoreFromLocalStorage(key: string): unknown | null {
   } catch { return null; }
 }
 
-// Nombre de portions par achat (servings générique, fallback legacy coffeeServings/madeleineServings)
-function getServings(p: Product): number {
-  return p.servings || p.coffeeServings || p.madeleineServings || 1;
-}
-
-export default function AeroClubBar() {
+export default function AeroClubBarV2() {
   const [view, setView] = useState("member");
   const [products, setProducts] = useState<Product[]>(DEFAULT_PRODUCTS);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -256,6 +265,7 @@ export default function AeroClubBar() {
     buyer: string;
     method: string;
     lockType: string;
+    ledsParam: string;
   } | null>(null);
   const [sumupLoading, setSumupLoading] = useState(false);
   const [sumupError, setSumupError] = useState<string | null>(null);
@@ -276,6 +286,24 @@ export default function AeroClubBar() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingTxFull, setEditingTxFull] = useState<{ tx: Transaction; lines: { productId: string; qty: number }[] } | null>(null);
   const [activeAdminTab, setActiveAdminTab] = useState("stock");
+  const [instructorBadges, setInstructorBadges] = useState<{uid: string; name: string; active: boolean}[]>([]);
+  const [instructorStock, setInstructorStock] = useState(0);
+  const [instructorLog, setInstructorLog] = useState<{uid: string; name: string; date: string}[]>([]);
+  const [instructorNewUid, setInstructorNewUid] = useState("");
+  const [instructorNewName, setInstructorNewName] = useState("");
+  const [testLedNum, setTestLedNum] = useState("");
+  const [testLedColor, setTestLedColor] = useState("#FF0000");
+  const instructorLoaded = useRef(false);
+  useEffect(() => {
+    if (activeAdminTab === "instructor" && !instructorLoaded.current) {
+      instructorLoaded.current = true;
+      fetch("/api/instructor-fridge?action=settings").then(r => r.json()).then(d => {
+        setInstructorBadges(d.badges || []);
+        setInstructorStock(d.stock || 0);
+        setInstructorLog(d.accessLog || []);
+      }).catch(() => {});
+    }
+  }, [activeAdminTab]);
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(
     null,
   );
@@ -310,7 +338,9 @@ export default function AeroClubBar() {
   const [saleCategory, setSaleCategory] = useState<string | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [newCategoryForm, setNewCategoryForm] = useState<{ label: string; emoji: string; hasCupCost: boolean } | null>(null);
+  // Avoirs génériques par produit : { productId: { memberName: count } }
   const [productCredits, setProductCredits] = useState<Record<string, Record<string, number>>>({});
+  // Modal générique de choix de portions (café, glace, madeleine, etc.)
   const [servingsModal, setServingsModal] = useState<{
     buyer: string; totalServings: number; lockType: string; ledsParam: string; productId: string;
     emoji: string; productName: string;
@@ -319,17 +349,26 @@ export default function AeroClubBar() {
   } | null>(null);
   const [avoirUsedInCheckout, setAvoirUsedInCheckout] = useState<Set<string>>(new Set());
   const [madeleineAdded, setMadeleineAdded] = useState(false);
-  // madeleineStandaloneModal removed — now handled by servingsModal
   const [temperatures, setTemperatures] = useState<{ frigo: number | null; congelateur: number | null; lastUpdate: string | null }>({ frigo: null, congelateur: null, lastUpdate: null });
   const [batches, setBatches] = useState<Batch[]>([]);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [editingMember, setEditingMember] = useState<{ name: string; newName: string; balance: number; credits: Record<string, number> } | null>(null);
+  // ── V2 Homepage design states ──
+  const [showAllProducts, setShowAllProducts] = useState(false);
+  const [promoIndex, setPromoIndex] = useState(0);
+  const [promoAnim, setPromoAnim] = useState("slideIn");
+  const promoTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [heroIndex, setHeroIndex] = useState(0);
+  const [heroAnim, setHeroAnim] = useState("slideIn");
+  const [addedProductId, setAddedProductId] = useState<string | null>(null);
+  const allProductsTimerRef = useRef<NodeJS.Timeout | null>(null);
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false);
   const sumupIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sumupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearCartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lockRetriggerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const heroTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Debounced save to avoid too many API calls
   // CRITICAL: never save if load never succeeded (prevents overwriting real data with defaults)
@@ -363,11 +402,15 @@ export default function AeroClubBar() {
           const prods = (data.products || []) as Product[];
           if (data.coffeeCredits) {
             const cafeProd = prods.find((p) => (p.coffeeServings || 0) > 1 || ((p.servings || 0) > 1 && (p.name.toLowerCase().includes("caf"))));
-            if (cafeProd) mergedCredits[cafeProd.id] = { ...(mergedCredits[cafeProd.id] || {}), ...(data.coffeeCredits as Record<string, number>) };
+            if (cafeProd) {
+              mergedCredits[cafeProd.id] = { ...(mergedCredits[cafeProd.id] || {}), ...(data.coffeeCredits as Record<string, number>) };
+            }
           }
           if (data.madeleineCredits) {
             const madProd = prods.find((p) => p.coffeeAddon || (p.madeleineServings || 0) > 1);
-            if (madProd) mergedCredits[madProd.id] = { ...(mergedCredits[madProd.id] || {}), ...(data.madeleineCredits as Record<string, number>) };
+            if (madProd) {
+              mergedCredits[madProd.id] = { ...(mergedCredits[madProd.id] || {}), ...(data.madeleineCredits as Record<string, number>) };
+            }
           }
         }
         setProductCredits(mergedCredits);
@@ -553,6 +596,7 @@ export default function AeroClubBar() {
   const getCategories = () => settings.categories || DEFAULT_CATEGORIES;
   const effectiveStock = (p: Product) => Math.floor(p.stock / getServings(p));
 
+  // Helper: total avoirs d'un membre (tous produits confondus)
   const getMemberTotalCredits = (name: string) => {
     let total = 0;
     for (const pid of Object.keys(productCredits)) {
@@ -560,21 +604,22 @@ export default function AeroClubBar() {
     }
     return total;
   };
+  // Helper: avoirs d'un membre pour un produit spécifique
   const getMemberProductCredit = (productId: string, name: string) => productCredits[productId]?.[name] || 0;
-
+  // Helper: ajouter des avoirs pour un produit
   const addProductCredit = (productId: string, name: string, qty: number) => {
     setProductCredits((prev) => ({
       ...prev,
       [productId]: { ...(prev[productId] || {}), [name]: (prev[productId]?.[name] || 0) + qty },
     }));
   };
+  // Helper: déduire un avoir pour un produit
   const useProductCredit = (productId: string, name: string) => {
     setProductCredits((prev) => {
-      const current = prev[productId]?.[name] || 0;
-      if (current <= 0) return prev;
-      const updated = { ...prev[productId], [name]: current - 1 };
-      if (updated[name] <= 0) delete updated[name];
-      return { ...prev, [productId]: updated };
+      const next = { ...prev, [productId]: { ...(prev[productId] || {}), [name]: Math.max(0, (prev[productId]?.[name] || 0) - 1) } };
+      if (next[productId][name] <= 0) { delete next[productId][name]; }
+      if (Object.keys(next[productId]).length === 0) { delete next[productId]; }
+      return next;
     });
   };
 
@@ -614,6 +659,103 @@ export default function AeroClubBar() {
   useEffect(() => {
     if (coffeeUnitsInCart === 0) setMadeleineAdded(false);
   }, [coffeeUnitsInCart]);
+
+  // ── V2 Homepage computed ──
+  const hpConfig = settings.homepage || {};
+  const featuredIds = hpConfig.featuredProductIds || [];
+  const saleProducts = products.filter((p) => !p.archived && (!p.coffeeAddon || getServings(p) > 1));
+
+  // Popular products by sales count
+  const popularProducts = [...saleProducts].map((p) => {
+    const salesCount = transactions.reduce((s, t) => s + (t.items.includes(p.name) ? 1 : 0), 0);
+    return { ...p, salesCount };
+  }).sort((a, b) => b.salesCount - a.salesCount).filter((p) => p.salesCount > 0);
+
+  // Hero carousel products
+  const heroProducts = featuredIds.length > 0
+    ? featuredIds.map((id) => saleProducts.find((p) => p.id === id)).filter(Boolean) as Product[]
+    : (popularProducts.length >= 3 ? popularProducts.slice(0, 5) : saleProducts.slice(0, 5));
+
+  // Combo café + madeleine
+  const cafeProductForCombo = saleProducts.find((p) =>
+    (p.name.toLowerCase().includes("café") || p.name.toLowerCase().includes("cafe")) && getServings(p) > 1
+  ) || saleProducts.find((p) => p.name.toLowerCase().includes("café") || p.name.toLowerCase().includes("cafe"));
+  const addonProductForCombo = products.find((p) => p.coffeeAddon && !p.archived);
+  const showCombo = hpConfig.showCombo !== false;
+  const combo = showCombo && cafeProductForCombo && addonProductForCombo ? { cafe: cafeProductForCombo, addon: addonProductForCombo, totalPrice: cafeProductForCombo.price + (addonProductForCombo.coffeeAddonPrice || 0.80) } : null;
+
+  // Infos pratiques
+  const defaultInfos = [
+    { emoji: "☕", title: "Cafe", subtitle: "Tiroir a droite" },
+    { emoji: "🧊", title: "Boissons", subtitle: "Dans le frigo" },
+    { emoji: "🧁", title: "Madeleines", subtitle: "Dans le frigo" },
+    { emoji: "💳", title: "Paiement", subtitle: "Especes ou carte" },
+  ];
+  const infos = hpConfig.infos || defaultInfos;
+
+  // Hero carousel timer
+  useEffect(() => {
+    if (heroProducts.length <= 1 || showAllProducts) return;
+    heroTimerRef.current = setInterval(() => {
+      setHeroAnim("slideOut");
+      setTimeout(() => { setHeroIndex((i) => (i + 1) % heroProducts.length); setHeroAnim("slideIn"); }, 400);
+    }, 4000);
+    return () => { if (heroTimerRef.current) clearInterval(heroTimerRef.current); };
+  }, [heroProducts.length, showAllProducts]);
+
+  // Promo carousel: catégories avec produits à promouvoir
+  const promoCategories = getCategories().filter((c) => saleProducts.some((p) => p.category === c.id));
+  const promoBanners = promoCategories.map((cat) => {
+    const catProducts = saleProducts.filter((p) => p.category === cat.id);
+    return { cat, count: catProducts.length };
+  });
+
+  useEffect(() => {
+    if (promoBanners.length <= 1 || showAllProducts) return;
+    promoTimerRef.current = setInterval(() => {
+      setPromoAnim("slideOut");
+      setTimeout(() => { setPromoIndex((i) => (i + 1) % promoBanners.length); setPromoAnim("slideIn"); }, 400);
+    }, 5000);
+    return () => { if (promoTimerRef.current) clearInterval(promoTimerRef.current); };
+  }, [promoBanners.length, showAllProducts]);
+
+  // Auto-retour à l'accueil après 2 min sans interaction quand "voir tous les produits"
+  useEffect(() => {
+    if (!showAllProducts) {
+      if (allProductsTimerRef.current) { clearTimeout(allProductsTimerRef.current); allProductsTimerRef.current = null; }
+      return;
+    }
+    const resetTimer = () => {
+      if (allProductsTimerRef.current) clearTimeout(allProductsTimerRef.current);
+      allProductsTimerRef.current = setTimeout(() => {
+        setShowAllProducts(false);
+        setSaleCategory(null);
+      }, 120000); // 2 minutes
+    };
+    resetTimer();
+    const events = ["click", "touchstart", "scroll"];
+    events.forEach((e) => window.addEventListener(e, resetTimer, { passive: true }));
+    return () => {
+      if (allProductsTimerRef.current) clearTimeout(allProductsTimerRef.current);
+      events.forEach((e) => window.removeEventListener(e, resetTimer));
+    };
+  }, [showAllProducts]);
+
+  // V2 Homepage admin helpers
+  const updateHomepage = (patch: Partial<HomepageConfig>) => {
+    setSettings((prev) => ({ ...prev, homepage: { ...(prev.homepage || {}), ...patch } }));
+  };
+  const toggleFeatured = (id: string) => {
+    const cur = [...featuredIds]; const idx = cur.indexOf(id);
+    if (idx >= 0) cur.splice(idx, 1); else cur.push(id);
+    updateHomepage({ featuredProductIds: cur });
+  };
+  const updateInfo = (index: number, field: "emoji" | "title" | "subtitle", value: string) => {
+    const cur = [...infos]; cur[index] = { ...cur[index], [field]: value };
+    updateHomepage({ infos: cur });
+  };
+  const addInfo = () => updateHomepage({ infos: [...infos, { emoji: "📌", title: "Titre", subtitle: "Description" }] });
+  const removeInfo = (index: number) => { const cur = [...infos]; cur.splice(index, 1); updateHomepage({ infos: cur }); };
 
   // Normalize a full name by sorting tokens alphabetically so
   // Rendu de l'icône produit : emoji texte OU image si l'emoji est une URL http
@@ -688,6 +830,7 @@ export default function AeroClubBar() {
 
   const addToCart = (p: Product) => {
     if (effectiveStock(p) <= 0) return;
+    setAddedProductId(p.id); setTimeout(() => setAddedProductId(null), 600);
     setCart((prev) => {
       const ex = prev.find((c) => c.product.id === p.id);
       if (ex) {
@@ -760,6 +903,7 @@ export default function AeroClubBar() {
     setShowBureauPin(false);
     setBureauPinInput("");
     setAvoirUsedInCheckout(new Set());
+    // madeleineStandaloneModal removed — now handled by servingsModal
   };
   const getCartQty = (pid: string) => {
     const i = cart.find((c) => c.product.id === pid);
@@ -920,11 +1064,8 @@ export default function AeroClubBar() {
       ledRanges.push(madeleineProduct.ledStart + "-" + madeleineProduct.ledEnd + ":" + color);
     }
     const ledsParam = ledRanges.length > 0 ? "&leds=" + ledRanges.join(",") : "";
-    // Vérifier si on a des produits multi-portions (café etc.) — si oui, le modal
-    // doit s'afficher AVANT d'ouvrir la serrure
     const servingsProducts = cart.filter((c) => getServings(c.product) > 1);
     const hasServingsModal = servingsProducts.length > 0;
-    // Trigger serrure UNIQUEMENT si pas de modal servings — sinon on attend le choix
     if (!hasServingsModal) {
       fetch("/api/fridge?action=trigger&lock=" + lockType + ledsParam).catch(() => {});
     }
@@ -944,7 +1085,7 @@ export default function AeroClubBar() {
       for (const item of cartSnapshot) {
         updated = updated.map((p) => {
           if (p.id !== item.product.id) return p;
-          // Produits café/madeleine avec servings : la déduction est reportée dans le modal de choix
+          // Produits vendus par lot (servings > 1) : la déduction est reportée dans le modal de choix
           if (getServings(item.product) > 1) return p;
           let newLegacyStock = p.legacyStock || 0;
           const fromLegacy = Math.min(newLegacyStock, item.qty);
@@ -989,7 +1130,7 @@ export default function AeroClubBar() {
       }
     }
 
-    // locationsNeeded & lockType déjà calculés en haut de confirmPayment
+    // lockType déjà calculé et trigger déjà envoyé en haut de confirmPayment
     const hasCafe = locationsNeeded.has("cafe");
     const hasFrigo = locationsNeeded.has("frigo");
     const hasCongelateur = locationsNeeded.has("congelateur");
@@ -1033,6 +1174,7 @@ export default function AeroClubBar() {
       buyer: canonicalBuyer,
       method,
       lockType,
+      ledsParam,
     });
     setPaymentStatus("success");
     showToast("Merci " + canonicalBuyer.split(" ")[0] + " !");
@@ -1059,6 +1201,7 @@ export default function AeroClubBar() {
       const prod = products.find((p) => p.id === servingsModal.productId);
       showToast(servingsModal.buyer.split(" ")[0] + " a " + ((getMemberProductCredit(servingsModal.productId, servingsModal.buyer)) + remaining) + " avoir(s) " + (prod?.emoji || "") + " " + (prod?.name || ""));
     }
+    // Deduire uniquement les portions reellement consommees maintenant
     if (servingsModal.productId) {
       setProducts((prev) => prev.map((p) => {
         if (p.id !== servingsModal.productId) return p;
@@ -1066,6 +1209,7 @@ export default function AeroClubBar() {
         return { ...p, stock: Math.max(0, p.stock - usedNow), legacyStock: Math.max(0, (p.legacyStock || 0) - fromLegacy) };
       }));
     }
+    // Si madeleine ajoutée au checkout → passer à l'étape distribution
     if (madeleineAdded && (servingsModal.totalAddon || 0) > 0) {
       setServingsModal({ ...servingsModal, step: "addon", usedNow });
     } else {
@@ -1101,6 +1245,8 @@ export default function AeroClubBar() {
     fetch("/api/fridge?action=trigger&lock=" + servingsModal.lockType + (servingsModal.ledsParam || "")).catch(() => {});
     setServingsModal(null);
   };
+
+  // handleMadeleineStandaloneChoice removed — handled by generic servingsModal
 
   const handleAdminLogin = () => {
     if (pinInput === settings.adminPin) {
@@ -1174,6 +1320,7 @@ export default function AeroClubBar() {
 
   const openMemberModal = (name: string) => {
     const bal = getMemberBalance(name);
+    // Collecter les avoirs par produit pour ce membre
     const credits: Record<string, number> = {};
     for (const pid of Object.keys(productCredits)) {
       const cnt = productCredits[pid]?.[name] || 0;
@@ -1212,9 +1359,11 @@ export default function AeroClubBar() {
       for (const pid of Object.keys(prev)) {
         next[pid] = { ...prev[pid] };
       }
+      // Remove old name from all products
       for (const pid of Object.keys(next)) {
         delete next[pid][oldName];
       }
+      // Apply new credit values
       const memberKey = trimmedNew;
       for (const [pid, val] of Object.entries(credits)) {
         if (val > 0) {
@@ -1242,9 +1391,9 @@ export default function AeroClubBar() {
       const next = { ...prev };
       for (const pid of Object.keys(next)) {
         if (next[pid][name] !== undefined) {
-          const copy = { ...next[pid] };
-          delete copy[name];
-          next[pid] = copy;
+          next[pid] = { ...next[pid] };
+          delete next[pid][name];
+          if (Object.keys(next[pid]).length === 0) delete next[pid];
         }
       }
       return next;
@@ -1437,7 +1586,28 @@ export default function AeroClubBar() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0f1c] text-slate-200 relative overflow-hidden">
+    <div className="min-h-screen bg-[#0a0f1e] text-slate-200 relative" style={{ overflowX: "clip" }}>
+      <style>{`
+        @keyframes slideIn { from { opacity: 0; transform: translateX(80px) scale(0.9); } to { opacity: 1; transform: translateX(0) scale(1); } }
+        @keyframes slideOut { from { opacity: 1; transform: translateX(0) scale(1); } to { opacity: 0; transform: translateX(-80px) scale(0.9); } }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-12px); } }
+        @keyframes popIn { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1.2); } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes cartBounce { 0% { transform: scale(1); } 30% { transform: scale(1.3); } 60% { transform: scale(0.9); } 100% { transform: scale(1); } }
+        @keyframes gradient { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+        @keyframes comboSlide { from { opacity: 0; transform: translateX(-40px) rotate(-5deg); } to { opacity: 1; transform: translateX(0) rotate(0deg); } }
+        @keyframes comboPop { 0% { opacity: 0; transform: scale(0) rotate(10deg); } 60% { transform: scale(1.15) rotate(-3deg); } 100% { opacity: 1; transform: scale(1) rotate(0deg); } }
+        @keyframes pulseGlow { 0%, 100% { box-shadow: 0 0 20px rgba(245, 158, 11, 0.2); } 50% { box-shadow: 0 0 40px rgba(245, 158, 11, 0.4); } }
+        @keyframes tagFloat { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-6px) rotate(2deg); } }
+        @keyframes shimmer { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
+        .v2-slide-in { animation: slideIn 0.5s cubic-bezier(.22,1,.36,1) forwards; }
+        .v2-slide-out { animation: slideOut 0.4s cubic-bezier(.22,1,.36,1) forwards; }
+        .v2-fade-up { animation: fadeUp 0.6s cubic-bezier(.22,1,.36,1) forwards; }
+        .v2-float { animation: float 3s ease-in-out infinite; }
+        .v2-pop-in { animation: popIn 0.4s cubic-bezier(.22,1,.36,1) forwards; }
+        .v2-gradient-bg { background: linear-gradient(-45deg, #1e1b4b, #0f172a, #1a1a2e, #0d1117); background-size: 300% 300%; animation: gradient 8s ease infinite; }
+        .v2-shimmer { background: linear-gradient(90deg, #f59e0b 25%, #fbbf24 50%, #f59e0b 75%); background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 3s linear infinite; }
+      `}</style>
       {/* CRITICAL: Warning banner when data load failed — saves are blocked */}
       {loadFailed && (
         <div className="fixed top-0 left-0 right-0 z-[100] bg-red-600 text-white px-4 py-3 flex items-center justify-between gap-3 shadow-lg">
@@ -1465,155 +1635,303 @@ export default function AeroClubBar() {
       )}
 
       {view === "member" && (
-        <div className="min-h-screen flex flex-col items-center px-4 pb-32">
-          <div className="flex items-center justify-center gap-4 pt-6 pb-4 relative w-full">
-            <img src="/logo-acba.png" alt="" className="w-14 h-14 rounded-2xl object-contain" />
-            <div className="text-center">
-              <h1 className="text-2xl font-extrabold text-amber-500 tracking-tight">
-                {settings.clubName}
-              </h1>
-              <p className="text-slate-500 text-xs font-medium">
-                {"Touchez un produit pour l'ajouter"}
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                setView("login");
-                setPinInput("");
-              }}
-              className="absolute top-4 right-1 text-slate-700 text-base p-2 hover:text-slate-400 transition cursor-pointer"
-            >
-              {"\u2699\uFE0F"}
-            </button>
-          </div>
-
-          {/* Filtres catégorie */}
-          {products.some((p) => p.category) && (
-            <div className="flex items-center gap-0.5 w-full max-w-2xl bg-[#0d1525] rounded-2xl p-1.5 mb-4 shadow-inner">
-              <button
-                onClick={() => setSaleCategory(null)}
-                className={"flex-1 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 cursor-pointer " + (saleCategory === null ? "bg-amber-500 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}
-              >{"Tout"}</button>
-              {getCategories().filter((c) => products.some((p) => !p.archived && p.category === c.id)).map((cat) => (
-                <button
-                  key={cat.id}
-                  onClick={() => setSaleCategory(cat.id)}
-                  className={"flex-1 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 cursor-pointer " + (saleCategory === cat.id ? "bg-amber-500 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}
-                >
-                  {cat.emoji + " " + cat.label}
+        <div className="min-h-screen">
+          {/* ═══ V2 HEADER ═══ */}
+          <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#0a0f1e]/80 border-b border-white/5">
+            <div className="max-w-4xl mx-auto px-5 py-3 flex items-center justify-between">
+              <button onClick={() => { setShowAllProducts(false); }} className="flex items-center gap-3 cursor-pointer">
+                <img src="/logo-acba.png" alt="" className="w-10 h-10 rounded-xl object-contain" />
+                <div>
+                  <h1 className="text-base font-black tracking-tight v2-shimmer">{settings.clubName.toUpperCase() + " BAR"}</h1>
+                  <p className="text-[11px] text-slate-500 font-medium tracking-wider">{"BASSIN D'ARCACHON"}</p>
+                </div>
+              </button>
+              {/* Temperatures */}
+              <div className="flex items-center gap-3">
+                <span className={"text-[11px] font-bold " + (temperatures.frigo === null ? "text-slate-600" : temperatures.frigo <= 10 ? "text-emerald-400" : "text-red-400")}>
+                  {"🧊 " + (temperatures.frigo !== null ? temperatures.frigo.toFixed(1) + "°" : "--")}
+                </span>
+                <span className={"text-[11px] font-bold " + (temperatures.congelateur === null ? "text-slate-600" : temperatures.congelateur <= -10 ? "text-emerald-400" : "text-red-400")}>
+                  {"❄️ " + (temperatures.congelateur !== null ? temperatures.congelateur.toFixed(1) + "°" : "--")}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <button onClick={() => { setView("login"); setPinInput(""); }}
+                  className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 transition-all active:scale-90 cursor-pointer">
+                  <span className="text-xl">{"⚙️"}</span>
                 </button>
-              ))}
+                <button onClick={() => setShowSuggestionModal(true)}
+                  className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 transition-all active:scale-90 cursor-pointer">
+                  <span className="text-xl">{"💡"}</span>
+                </button>
+              </div>
             </div>
-          )}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 w-full max-w-2xl">
-            {products.filter((p) => !p.archived && !p.coffeeAddon && (!saleCategory || p.category === saleCategory)).map((p) => {
-              const out = effectiveStock(p) <= 0;
-              const qty = getCartQty(p.id);
-              const stock = effectiveStock(p);
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => addToCart(p)}
-                  disabled={out}
-                  className={
-                    "bg-[#131b2e] border-2 rounded-2xl py-4 px-3 flex flex-col items-center gap-1.5 transition-all duration-200 relative " +
-                    (out
-                      ? "opacity-40 cursor-not-allowed border-[#1e2d4a]"
-                      : qty > 0
-                        ? "border-amber-500 shadow-lg shadow-amber-500/20 cursor-pointer active:scale-95"
-                        : "border-[#1e2d4a] hover:border-amber-500/40 cursor-pointer active:scale-95")
-                  }
-                >
-                  {qty > 0 && (
-                    <div className="absolute -top-2.5 -right-2.5 w-7 h-7 rounded-full bg-amber-500 text-black text-sm font-extrabold flex items-center justify-center shadow-lg ring-2 ring-[#0a0f1c]">
-                      {String(qty)}
-                    </div>
-                  )}
-                  <div className="h-12 flex items-center justify-center">
-                    {renderProductIcon(p.emoji, "text-5xl", "w-12 h-12")}
-                  </div>
-                  <span className="text-sm font-bold text-center leading-tight text-slate-100">{p.name}</span>
-                  <span className="text-lg font-extrabold text-amber-500">
-                    {formatPrice(p.price)}
-                  </span>
-                  {!out && (
-                    <div className="w-full flex items-center gap-2 mt-0.5">
-                      <div className="flex-1 h-1.5 rounded-full bg-[#0a0f1c] overflow-hidden">
-                        <div
-                          className={"h-full rounded-full transition-all " + (stock <= 3 ? "bg-red-500" : stock <= 8 ? "bg-orange-400" : "bg-emerald-500")}
-                          style={{ width: Math.min(100, (stock / Math.max(stock, 30)) * 100) + "%" }}
-                        />
+          </header>
+
+          {/* ═══ V2 MAIN CONTENT ═══ */}
+          <main className={"max-w-4xl mx-auto px-5 " + (showAllProducts ? "pb-6" : "pb-32")}>
+
+            {/* ── PROMO CAROUSEL (catégories défilantes) ── */}
+            {promoBanners.length > 0 && !showAllProducts && (
+              <section className="mt-4 mb-4 v2-fade-up" style={{ animationDelay: "0.1s", animationFillMode: "both" }}>
+                {(() => {
+                  const current = promoBanners[promoIndex % promoBanners.length];
+                  if (!current) return null;
+                  const gradients = [
+                    "from-blue-950/60 to-cyan-950/40 border-blue-800/30",
+                    "from-purple-950/60 to-pink-950/40 border-purple-800/30",
+                    "from-emerald-950/60 to-teal-950/40 border-emerald-800/30",
+                    "from-orange-950/60 to-amber-950/40 border-orange-800/30",
+                    "from-rose-950/60 to-red-950/40 border-rose-800/30",
+                  ];
+                  const grad = gradients[promoIndex % gradients.length];
+                  return (
+                    <button onClick={() => { setShowAllProducts(true); setSaleCategory(current.cat.id); }}
+                      className={"w-full relative overflow-hidden rounded-2xl border bg-gradient-to-r " + grad + " px-5 py-4 flex items-center gap-4 transition-all active:scale-[0.98] cursor-pointer"}
+                    >
+                      <div className={`flex items-center gap-4 flex-1 ${promoAnim === "slideIn" ? "v2-slide-in" : "v2-slide-out"}`}>
+                        <span className="text-4xl">{current.cat.emoji}</span>
+                        <div className="flex-1 text-left">
+                          <span className="text-xs font-bold uppercase tracking-widest text-white/70">{"Decouvrez"}</span>
+                          <p className="text-lg font-black text-white">{current.cat.label}</p>
+                          <span className="text-xs text-white/60">{current.count + " produit" + (current.count > 1 ? "s" : "")}</span>
+                        </div>
                       </div>
-                      <span className={"text-[10px] font-bold tabular-nums " + (stock <= 3 ? "text-red-400" : stock <= 8 ? "text-orange-400" : "text-slate-500")}>
-                        {String(stock)}
-                      </span>
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+                      <span className="text-amber-500 text-xl shrink-0">{"→"}</span>
+                      {promoBanners.length > 1 && (
+                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                          {promoBanners.map((_, i) => (
+                            <span key={i} className={"w-1 h-1 rounded-full transition-all " + (i === promoIndex % promoBanners.length ? "bg-white w-3" : "bg-white/20")} />
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })()}
+              </section>
+            )}
 
-          {/* Suggestion button */}
-          <button
-            onClick={() => setShowSuggestionModal(true)}
-            className="mt-5 w-full max-w-2xl flex items-center justify-center gap-2 py-3.5 rounded-2xl border border-[#1e2d4a] bg-[#131b2e] text-slate-400 text-sm font-semibold hover:border-amber-500/40 hover:text-amber-500 transition cursor-pointer"
-          >
-            <span>{"\uD83D\uDCA1"}</span>
-            <span>{"Une idee ? Proposez un produit ou une suggestion !"}</span>
-          </button>
+            {/* ── COMBO CAFÉ + MADELEINE (compact) ── */}
+            {combo && !showAllProducts && (
+              <section className="mb-4 v2-fade-up" style={{ animationDelay: "0.15s", animationFillMode: "both" }}>
+                <div className="relative overflow-hidden rounded-2xl border border-pink-800/30 bg-gradient-to-br from-[#1a0d1e] via-[#151025] to-[#0d1520] p-4">
+                  <div className="absolute top-3 right-4 text-xs" style={{ animation: "tagFloat 2s ease-in-out infinite" }}>{"✨"}</div>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <div className="w-12 h-12 rounded-xl bg-amber-900/30 border border-amber-700/30 flex items-center justify-center">{renderProductIcon(combo.cafe.emoji, "text-2xl", "w-8 h-8")}</div>
+                      <span className="text-xl font-black text-pink-400">{"+"}</span>
+                      <div className="w-12 h-12 rounded-xl bg-pink-900/30 border border-pink-700/30 flex items-center justify-center">{renderProductIcon(combo.addon.emoji, "text-2xl", "w-8 h-8")}</div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-pink-400">{"Offre Combo"}</span>
+                      </div>
+                      <p className="text-sm font-bold text-white truncate">{combo.cafe.name + " + " + (combo.addon.coffeeAddonQty || 2) + " " + combo.addon.name + "s"}</p>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="text-xl font-black text-amber-400">{formatPrice(combo.totalPrice)}</span>
+                      <button onClick={() => { if (effectiveStock(combo.cafe) > 0) addToCart(combo.cafe); }} disabled={effectiveStock(combo.cafe) <= 0}
+                        className={"px-5 py-2.5 rounded-xl font-bold text-sm transition-all active:scale-90 " + (effectiveStock(combo.cafe) > 0 ? "bg-gradient-to-r from-amber-600 to-pink-600 text-white cursor-pointer shadow-[0_0_15px_rgba(219,39,119,0.2)]" : "bg-slate-800 text-slate-600 cursor-not-allowed")}
+                      >{effectiveStock(combo.cafe) > 0 ? "Ajouter" : "Epuise"}</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* ── HERO CAROUSEL ── */}
+            {heroProducts.length > 0 && !showAllProducts && (() => {
+              const currentHero = heroProducts[heroIndex % heroProducts.length];
+              if (!currentHero) return null;
+              return (
+                <section className="mb-4">
+                  <div className="relative overflow-hidden rounded-3xl v2-gradient-bg p-6 min-h-[160px] flex items-center" style={{ animation: "pulseGlow 3s ease-in-out infinite" }}>
+                    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                      <div className="absolute -top-10 -right-10 w-40 h-40 bg-amber-500/5 rounded-full blur-2xl" />
+                      <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl" />
+                    </div>
+                    <div className={`relative flex items-center gap-6 w-full ${heroAnim === "slideIn" ? "v2-slide-in" : "v2-slide-out"}`}>
+                      <div className="flex-shrink-0 v2-float">
+                        <div className="w-20 h-20 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center shadow-2xl border border-white/10">
+                          {renderProductIcon(currentHero.emoji, "text-4xl", "w-12 h-12")}
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">{"A la une"}</span>
+                          <span className="w-6 h-px bg-amber-500/50" />
+                        </div>
+                        <h2 className="text-2xl font-black text-white leading-tight truncate">{currentHero.name}</h2>
+                        <div className="flex items-center gap-3 mt-2">
+                          <span className="text-2xl font-black text-amber-400">{formatPrice(currentHero.price)}</span>
+                          <button onClick={() => { if (effectiveStock(currentHero) > 0) addToCart(currentHero); }} disabled={effectiveStock(currentHero) <= 0}
+                            className={"px-5 py-2 rounded-full text-sm font-bold transition-all active:scale-90 " + (effectiveStock(currentHero) > 0 ? "bg-amber-500 text-black hover:bg-amber-400 cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.3)]" : "bg-slate-700 text-slate-500 cursor-not-allowed")}
+                          >{effectiveStock(currentHero) > 0 ? "Ajouter +" : "Epuise"}</button>
+                        </div>
+                      </div>
+                    </div>
+                    {heroProducts.length > 1 && (
+                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+                        {heroProducts.map((_, i) => (
+                          <button key={i} onClick={() => { setHeroAnim("slideOut"); setTimeout(() => { setHeroIndex(i); setHeroAnim("slideIn"); }, 300); }}
+                            className={"w-1.5 h-1.5 rounded-full transition-all cursor-pointer " + (i === heroIndex % heroProducts.length ? "bg-amber-500 w-4" : "bg-white/20 hover:bg-white/40")} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              );
+            })()}
+
+            {/* ── TOP VENTES ── */}
+            {popularProducts.length > 0 && !showAllProducts && (
+              <section className="mb-6">
+                <div className="flex items-center gap-2 mb-3"><span className="text-base font-black text-white">{"🔥 Top ventes"}</span><span className="flex-1 h-px bg-white/5" /></div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {popularProducts.slice(0, 12).map((p, i) => {
+                    const qty = getCartQty(p.id);
+                    const out = effectiveStock(p) <= 0;
+                    const stock = effectiveStock(p);
+                    return (
+                      <button key={p.id} onClick={() => { if (!out) addToCart(p); }} disabled={out}
+                        className={"relative flex flex-col items-center gap-2 p-4 rounded-2xl border transition-all active:scale-90 v2-fade-up " + (addedProductId === p.id ? "bg-amber-500/20 border-amber-500/50 scale-95 cursor-pointer" : out ? "bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed grayscale" : qty > 0 ? "bg-amber-500/10 border-amber-500/40 cursor-pointer" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-amber-500/20 cursor-pointer")}
+                        style={{ animationDelay: (0.04 * i) + "s", animationFillMode: "both" }}
+                      >
+                        {qty > 0 && <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-amber-500 text-black text-xs font-extrabold flex items-center justify-center shadow-lg ring-2 ring-[#0a0f1e]">{String(qty)}</div>}
+                        {out && <span className="absolute top-1.5 right-1.5 bg-red-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full">{"Epuise"}</span>}
+                        <div className={"h-11 flex items-center justify-center " + (addedProductId === p.id ? "v2-pop-in" : "")}>{renderProductIcon(p.emoji, "text-4xl", "w-11 h-11")}</div>
+                        <span className="text-sm font-bold text-white text-center leading-tight line-clamp-2">{p.name}</span>
+                        <span className="text-base font-black text-amber-400">{formatPrice(p.price)}</span>
+                        {!out && (
+                          <div className="w-full flex items-center gap-2">
+                            <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                              <div className={"h-full rounded-full transition-all " + (stock <= 3 ? "bg-red-500" : stock <= 8 ? "bg-orange-400" : "bg-emerald-500/60")} style={{ width: Math.min(100, (stock / Math.max(stock, 30)) * 100) + "%" }} />
+                            </div>
+                            <span className={"text-[10px] font-bold tabular-nums " + (stock <= 3 ? "text-red-400" : stock <= 8 ? "text-orange-400" : "text-slate-600")}>{String(stock)}</span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* ── VOIR TOUS / CATEGORIES / GRILLE PRODUITS ── */}
+            {!showAllProducts ? (
+              <button onClick={() => setShowAllProducts(true)}
+                className="w-full py-5 rounded-2xl border-2 border-amber-500/40 bg-gradient-to-r from-amber-500/10 to-amber-600/5 hover:from-amber-500/20 hover:to-amber-600/10 text-white font-bold text-lg transition-all active:scale-95 cursor-pointer mb-6 flex items-center justify-center gap-3 shadow-[0_0_20px_rgba(245,158,11,0.1)]"
+              ><span>{"📦 Voir tous les produits"}</span><span className="text-amber-300/70 text-sm font-semibold">{"(" + saleProducts.length + ")"}</span><span className="text-amber-400 text-xl">{"→"}</span></button>
+            ) : !saleCategory ? (
+              /* ── ECRAN CATEGORIES (pleine page) ── */
+              <section className="mb-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <button onClick={() => { setShowAllProducts(false); setSaleCategory(null); }} className="text-sm text-slate-400 hover:text-amber-400 transition cursor-pointer font-semibold">{"← Accueil"}</button>
+                  <span className="flex-1 h-px bg-white/10" />
+                  <span className="text-xs text-slate-400 font-medium">{saleProducts.length + " produits"}</span>
+                </div>
+                <h2 className="text-xl font-black text-white mb-4">{"Choisir une categorie"}</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  {getCategories().filter((c) => saleProducts.some((p) => p.category === c.id)).map((cat, i) => {
+                    const catProducts = saleProducts.filter((p) => p.category === cat.id);
+                    return (
+                      <button key={cat.id} onClick={() => setSaleCategory(cat.id)}
+                        className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-amber-500/30 p-5 flex flex-col items-center gap-3 transition-all active:scale-95 cursor-pointer v2-fade-up"
+                        style={{ animationDelay: (0.06 * i) + "s", animationFillMode: "both" }}
+                      >
+                        <span className="text-4xl">{cat.emoji}</span>
+                        <span className="text-base font-bold text-white">{cat.label}</span>
+                        <span className="text-xs text-slate-300">{catProducts.length + " produit" + (catProducts.length > 1 ? "s" : "")}</span>
+                      </button>
+                    );
+                  })}
+                  {/* Sans categorie */}
+                  {saleProducts.some((p) => !p.category) && (
+                    <button onClick={() => setSaleCategory("_none")}
+                      className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-amber-500/30 p-5 flex flex-col items-center gap-3 transition-all active:scale-95 cursor-pointer v2-fade-up"
+                    >
+                      <span className="text-4xl">{"📦"}</span>
+                      <span className="text-base font-bold text-white">{"Autres"}</span>
+                      <span className="text-xs text-slate-300">{saleProducts.filter((p) => !p.category).length + " produit(s)"}</span>
+                    </button>
+                  )}
+                </div>
+              </section>
+            ) : (
+              /* ── PRODUITS D'UNE CATEGORIE ── */
+              <section className="mb-6">
+                <div className="flex items-center gap-2 mb-4 sticky top-[52px] z-40 bg-[#0a0f1e] py-3 -mx-5 px-5 border-b border-white/5">
+                  <button onClick={() => setSaleCategory(null)} className="text-sm text-slate-400 hover:text-amber-400 transition cursor-pointer font-semibold">{"← Categories"}</button>
+                  <span className="flex-1 h-px bg-white/5" />
+                  {/* Navigation rapide entre categories */}
+                  <div className="flex gap-1.5 flex-wrap justify-end">
+                    {getCategories().filter((c) => saleProducts.some((p) => p.category === c.id)).map((cat) => (
+                      <button key={cat.id} onClick={() => setSaleCategory(cat.id)}
+                        className={"h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all whitespace-nowrap " + (saleCategory === cat.id ? "bg-amber-500 text-black shadow-lg" : "bg-white/5 hover:bg-white/10 text-white/90")}
+                      ><span>{cat.emoji}</span><span>{cat.label}</span></button>
+                    ))}
+                  </div>
+                </div>
+                <h2 className="text-xl font-black text-white mb-4">
+                  {(() => { const c = getCategories().find((c) => c.id === saleCategory); return c ? c.emoji + " " + c.label : "📦 Autres"; })()}
+                </h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  {saleProducts.filter((p) => saleCategory === "_none" ? !p.category : p.category === saleCategory).map((p, i) => {
+                    const out = effectiveStock(p) <= 0;
+                    const qty = getCartQty(p.id);
+                    return (
+                      <button key={p.id} onClick={() => { if (!out) addToCart(p); }} disabled={out}
+                        className={"relative flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all active:scale-90 v2-fade-up " + (addedProductId === p.id ? "bg-amber-500/20 border-amber-500/50 cursor-pointer" : out ? "bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed grayscale" : qty > 0 ? "bg-amber-500/10 border-amber-500/40 cursor-pointer" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-amber-500/20 cursor-pointer")}
+                        style={{ animationDelay: (0.03 * i) + "s", animationFillMode: "both" }}
+                      >
+                        {qty > 0 && <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-amber-500 text-black text-xs font-extrabold flex items-center justify-center shadow-lg">{String(qty)}</div>}
+                        {out && <span className="absolute top-2 right-2 bg-red-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full">{"Epuise"}</span>}
+                        {!out && effectiveStock(p) <= 5 && <span className="absolute -top-1.5 -left-1.5 bg-amber-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg animate-pulse">{"x" + effectiveStock(p)}</span>}
+                        <div className={addedProductId === p.id ? "v2-pop-in" : ""}>{renderProductIcon(p.emoji, "text-5xl", "w-16 h-16")}</div>
+                        <span className="text-sm font-bold text-white text-center leading-tight line-clamp-2">{p.name}</span>
+                        <span className="text-lg font-black text-amber-400">{formatPrice(p.price)}</span>
+                        {!out && effectiveStock(p) <= 5 && <span className="text-xs text-amber-400/80">{"Plus que " + effectiveStock(p)}</span>}
+                        {out && <span className="text-xs text-red-400 font-semibold">{"Rupture de stock"}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* ── INFOS PRATIQUES ── */}
+            {!showAllProducts && (
+              <section className="mb-8 v2-fade-up" style={{ animationDelay: "0.4s", animationFillMode: "both" }}>
+                <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-5">
+                  <div className="flex items-center gap-2 mb-4"><span className="text-lg">{"ℹ️"}</span><span className="text-sm font-bold text-slate-300 uppercase tracking-wider">{"Infos pratiques"}</span></div>
+                  <div className={"grid gap-4 text-sm " + (infos.length <= 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-" + Math.min(infos.length, 6))}>
+                    {infos.map((info, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <span className="text-base">{info.emoji}</span>
+                        <div><p className="font-bold text-white/80">{info.title}</p><p className="text-slate-500">{info.subtitle}</p></div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
+          </main>
 
           {/* Suggestion modal */}
           {showSuggestionModal && (
-            <div
-              className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 p-4"
-              onClick={() => setShowSuggestionModal(false)}
-            >
-              <div
-                className="bg-[#131b2e] border border-[#1e2d4a] rounded-3xl p-6 max-w-sm w-full shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <h2 className="text-lg font-bold mb-1">
-                  {"\uD83D\uDCA1 Une suggestion ?"}
-                </h2>
-                <p className="text-xs text-slate-500 mb-4">
-                  {
-                    "Proposez un produit, une amelioration, ou dites-nous ce qui vous ferait plaisir !"
-                  }
-                </p>
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 p-4" onClick={() => setShowSuggestionModal(false)}>
+              <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-3xl p-6 max-w-sm w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <h2 className="text-lg font-bold mb-1">{"💡 Une suggestion ?"}</h2>
+                <p className="text-xs text-slate-500 mb-4">{"Proposez un produit, une amelioration, ou dites-nous ce qui vous ferait plaisir !"}</p>
                 <div className="flex flex-col gap-3">
-                  <input
-                    type="text"
-                    placeholder="Votre nom (optionnel)"
-                    value={suggestionAuthor}
-                    onChange={(e) => setSuggestionAuthor(e.target.value)}
-                    className="h-10 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-sm px-3 outline-none focus:border-amber-500"
-                  />
-                  <textarea
-                    placeholder="Votre suggestion..."
-                    value={suggestionText}
-                    onChange={(e) => setSuggestionText(e.target.value)}
-                    rows={3}
-                    className="rounded-xl border border-slate-700 bg-[#0f172a] text-white text-sm p-3 outline-none focus:border-amber-500 resize-none"
-                  />
-                  <button
-                    onClick={submitSuggestion}
-                    disabled={!suggestionText.trim()}
-                    className={
-                      "w-full py-3 rounded-xl font-bold text-sm transition-all " +
-                      (suggestionText.trim()
-                        ? "bg-amber-500 text-black active:scale-95 cursor-pointer"
-                        : "bg-slate-800 text-slate-600 cursor-not-allowed")
-                    }
-                  >
-                    {"Envoyer"}
-                  </button>
-                  <button
-                    onClick={() => setShowSuggestionModal(false)}
-                    className="text-slate-500 text-sm cursor-pointer"
-                  >
-                    {"Annuler"}
-                  </button>
+                  <input type="text" placeholder="Votre nom (optionnel)" value={suggestionAuthor} onChange={(e) => setSuggestionAuthor(e.target.value)}
+                    className="h-10 rounded-xl border border-slate-700 bg-[#0f172a] text-white text-sm px-3 outline-none focus:border-amber-500" />
+                  <textarea placeholder="Votre suggestion..." value={suggestionText} onChange={(e) => setSuggestionText(e.target.value)} rows={3}
+                    className="rounded-xl border border-slate-700 bg-[#0f172a] text-white text-sm p-3 outline-none focus:border-amber-500 resize-none" />
+                  <button onClick={submitSuggestion} disabled={!suggestionText.trim()}
+                    className={"w-full py-3 rounded-xl font-bold text-sm transition-all " + (suggestionText.trim() ? "bg-amber-500 text-black active:scale-95 cursor-pointer" : "bg-slate-800 text-slate-600 cursor-not-allowed")}
+                  >{"Envoyer"}</button>
+                  <button onClick={() => setShowSuggestionModal(false)} className="text-slate-500 text-sm cursor-pointer">{"Annuler"}</button>
                 </div>
               </div>
             </div>
@@ -1621,7 +1939,7 @@ export default function AeroClubBar() {
 
           {cartCount > 0 && !showCheckout && (
             <div className="fixed bottom-0 left-0 right-0 bg-[#131b2e] border-t border-[#1e2d4a] p-4 z-30">
-              <div className="max-w-2xl mx-auto">
+              <div className="max-w-lg mx-auto">
                 <div className="flex flex-wrap gap-2 mb-3">
                   {cart.map((item) => {
                     const expiry = cartExpiries[item.product.id];
@@ -1745,7 +2063,7 @@ export default function AeroClubBar() {
                         </div>
                       ))}
                     </div>
-                    {/* ── Offre madeleine (avant paiement) — masqué si avoir café dispo ── */}
+                    {/* ── Offre madeleine (avant paiement) — masqué si avoir café dispo (le toggle ne sert pas dans le flow avoir) ── */}
                     {madeleineOfferQty > 0 && madeleineProduct && (() => {
                       const bk = normalizeNameFuzzy(buyerName.trim());
                       const cn = buyerName.trim() ? (members.find((m) => normalizeNameFuzzy(m.name) === bk)?.name || buyerName.trim()) : "";
@@ -1874,28 +2192,24 @@ export default function AeroClubBar() {
                         )}
                     </div>
 
-                    {/* ── Bloc paiement : avoir produit prioritaire ou paiement normal ── */}
+                    {/* ── Bloc paiement : avoir café prioritaire ou paiement normal ── */}
                     {(() => {
                       const buyerKey = normalizeNameFuzzy(buyerName.trim());
                       const canonical = buyerName.trim() ? (members.find((m) => normalizeNameFuzzy(m.name) === buyerKey)?.name || buyerName.trim()) : "";
-                      const cartHasFrigo = cart.some((c) =>
-                        !c.product.name.toLowerCase().includes("café") &&
-                        !c.product.name.toLowerCase().includes("cafe"),
-                      );
-
-                      // ── Avoirs génériques par produit ──
+                      // Chercher les avoirs disponibles pour les produits du panier
                       const availableCredits: { productId: string; product: Product; credit: number }[] = [];
                       if (canonical) {
                         for (const c of cart) {
                           const cr = getMemberProductCredit(c.product.id, canonical);
-                          if (cr > 0 && !avoirUsedInCheckout.has(c.product.id)) {
-                            availableCredits.push({ productId: c.product.id, product: c.product, credit: cr });
-                          }
+                          if (cr > 0 && !avoirUsedInCheckout.has(c.product.id)) availableCredits.push({ productId: c.product.id, product: c.product, credit: cr });
                         }
                       }
+                      const cafCredit = 0; // legacy, replaced by availableCredits
+                      const cartHasFrigo = cart.some((c) => (c.product.location || "frigo") === "frigo");
                       const showAvoirSection = buyerName.trim() && availableCredits.length > 0;
 
                       if (showAvoirSection) {
+                        // Construire le label et les locks à partir des avoirs disponibles
                         const avoirParts = availableCredits.map((ac) => ac.product.emoji + " 1 " + ac.product.name);
                         const avoirLabel = avoirParts.join(" + ");
                         const locksNeeded = new Set<string>();
@@ -1937,13 +2251,16 @@ export default function AeroClubBar() {
                                 }
                                 const avoirLedsParam = avoirLedRanges.length > 0 ? "&leds=" + avoirLedRanges.join(",") : "";
                                 fetch("/api/fridge?action=trigger&lock=" + avoirLocks + avoirLedsParam).catch(() => {});
+                                // Déduire chaque avoir + stock
+                                const usedIds = new Set<string>();
                                 for (const ac of availableCredits) {
                                   useProductCredit(ac.productId, canonical);
                                   setProducts((prev) => prev.map((p) =>
                                     p.id === ac.productId ? { ...p, stock: Math.max(0, p.stock - 1) } : p
                                   ));
+                                  usedIds.add(ac.productId);
                                 }
-                                // Transaction pour traçabilité
+                                // Enregistrer une transaction pour la traçabilité
                                 const avoirTx: Transaction = {
                                   id: Date.now().toString(36),
                                   items: availableCredits.map((ac) => "1x " + ac.product.name + " (avoir)").join(", "),
@@ -1954,14 +2271,18 @@ export default function AeroClubBar() {
                                   method: "avoir-produit",
                                 };
                                 setTransactions((prev) => [avoirTx, ...prev]);
-                                const usedProductIds = new Set(availableCredits.map((ac) => ac.productId));
-                                const remaining = cart.filter((c) => !usedProductIds.has(c.product.id) && !c.product.coffeeAddon);
+                                // Retirer du panier ce qui est couvert par l'avoir
+                                const remaining = cart.filter((c) => !usedIds.has(c.product.id));
                                 setCart(remaining);
                                 if (remaining.length > 0) {
-                                  setAvoirUsedInCheckout(new Set(availableCredits.map((ac) => ac.productId)));
+                                  setAvoirUsedInCheckout((prev) => {
+                                    const next = new Set(prev);
+                                    for (const id of usedIds) next.add(id);
+                                    return next;
+                                  });
                                   showToast(availableCredits.map((ac) => ac.product.emoji + " " + ac.product.name).join(" + ") + " — passez au paiement");
                                 } else {
-                                  showToast(availableCredits.map((ac) => ac.product.emoji).join(" ") + " Serrures ouvertes !");
+                                  showToast(availableCredits.map((ac) => ac.product.emoji).join(" + ") + " Ouverts !");
                                   clearCart();
                                   setBuyerName("");
                                 }
@@ -1969,19 +2290,20 @@ export default function AeroClubBar() {
                               className="w-full py-4 rounded-xl font-extrabold text-lg active:scale-95 cursor-pointer bg-amber-500 text-black shadow-[0_0_20px_rgba(245,158,11,0.3)]"
                             >
                               {avoirLabel}
-                              {totalAfter > 0 && (
-                                <span className="block text-sm font-semibold opacity-70 mt-0.5">
-                                  {"(" + totalAfter + " avoir" + (totalAfter > 1 ? "s" : "") + " restant" + (totalAfter > 1 ? "s" : "") + ")"}
-                                </span>
-                              )}
+                              <span className="block text-sm font-semibold opacity-70 mt-0.5">
+                                {totalAfter > 0
+                                  ? "(" + totalAfter + " avoir" + (totalAfter > 1 ? "s" : "") + " restant" + (totalAfter > 1 ? "s" : "") + ")"
+                                  : ""}
+                              </span>
                             </button>
                             {cart.length === 0 && (
                               <p className="text-[11px] text-slate-400 text-center">
-                                {"Ouvre les serrures sans paiement"}
+                                {"Ouvre " + [...locksNeeded].map((l) => l === "cafe" ? "le tiroir cafe" : l === "congelateur" ? "le congelateur" : "le frigo").join(" + ") + " sans paiement"}
                               </p>
                             )}
                             <button
                               onClick={() => {
+                                // Marquer tous les avoirs comme "utilisés" pour passer au paiement normal
                                 setAvoirUsedInCheckout(new Set(availableCredits.map((ac) => ac.productId)));
                               }}
                               className="text-[11px] text-slate-300 underline cursor-pointer hover:text-white text-center mt-1"
@@ -2391,43 +2713,50 @@ export default function AeroClubBar() {
                       )}
                     </div>
 
-                    {/* Bandeau serrure */}
-                    <div className="w-full bg-emerald-900/30 border border-emerald-700/40 rounded-xl p-3 flex flex-col items-center gap-2">
-                      <p className="text-sm font-semibold text-emerald-400">
-                        {lastOrder.lockType === "cafe"
-                          ? "\u2615 Tiroir caf\u00e9 d\u00e9verrouill\u00e9 !"
-                          : lastOrder.lockType === "frigo"
-                            ? "\uD83C\uDF7A Frigo d\u00e9verrouill\u00e9 !"
-                            : lastOrder.lockType === "congelateur"
-                              ? "\u2744\uFE0F Cong\u00e9lateur d\u00e9verrouill\u00e9 !"
-                              : "\uD83D\uDD13 Serrures d\u00e9verrouill\u00e9es !"}
-                      </p>
-                      {lockRetriggerCountdown === null ? (
-                        <button
-                          onClick={() => {
-                            fetch("/api/fridge?action=trigger&lock=" + lastOrder.lockType).catch(() => {});
-                            setLockRetriggerCountdown(5);
-                            if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
-                            lockRetriggerTimerRef.current = setInterval(() => {
-                              setLockRetriggerCountdown((prev) => {
-                                if (prev === null || prev <= 1) {
-                                  if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
-                                  lockRetriggerTimerRef.current = null;
-                                  return 0;
-                                }
-                                return prev - 1;
-                              });
-                            }, 1000);
-                          }}
-                          className="text-xs px-4 py-1.5 rounded-lg bg-emerald-700/40 text-emerald-300 font-semibold cursor-pointer hover:bg-emerald-700/60 active:scale-95"
-                        >
-                          {"\uD83D\uDD13 R\u00e9-ouvrir"}
-                        </button>
-                      ) : lockRetriggerCountdown > 0 ? (
-                        <p className="text-xs text-emerald-500 font-bold tabular-nums">
-                          {"Ferme dans " + lockRetriggerCountdown + "s\u2026"}
+                    {/* Message patience + boutons ouverture */}
+                    <div className="w-full flex flex-col gap-3 mt-1">
+                      <div className="bg-amber-900/20 border border-amber-700/30 rounded-xl p-4 text-center">
+                        <p className="text-base font-bold text-amber-400">
+                          {"Patientez, la serrure se deverrouille..."}
                         </p>
-                      ) : null}
+                        <p className="text-xs text-amber-400/60 mt-1">
+                          {"Cela peut prendre quelques secondes"}
+                        </p>
+                      </div>
+                      <p className="text-xs text-slate-500 text-center">{"La serrure ne s'ouvre pas ?"}</p>
+                      <div className="flex flex-col gap-2 w-full">
+                        {lastOrder.lockType.split(",").map((lock) => {
+                          const l = lock.trim();
+                          const label = l === "cafe" ? "Ouvrir le tiroir cafe" : l === "frigo" ? "Ouvrir le frigo" : l === "congelateur" ? "Ouvrir le congelateur" : "Ouvrir";
+                          const icon = l === "cafe" ? "\u2615" : l === "frigo" ? "\uD83C\uDF7A" : l === "congelateur" ? "\u2744\uFE0F" : "\uD83D\uDD13";
+                          const isBusy = lockRetriggerCountdown !== null && lockRetriggerCountdown > 0;
+                          return (
+                            <button
+                              key={l}
+                              disabled={isBusy}
+                              onClick={() => {
+                                fetch("/api/fridge?action=trigger&lock=" + l + (lastOrder.ledsParam || "")).catch(() => {});
+                                showToast(icon + " Deverrouillage envoye !");
+                                setLockRetriggerCountdown(10);
+                                if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
+                                lockRetriggerTimerRef.current = setInterval(() => {
+                                  setLockRetriggerCountdown((prev) => {
+                                    if (prev === null || prev <= 1) {
+                                      if (lockRetriggerTimerRef.current) clearInterval(lockRetriggerTimerRef.current);
+                                      lockRetriggerTimerRef.current = null;
+                                      return null;
+                                    }
+                                    return prev - 1;
+                                  });
+                                }, 1000);
+                              }}
+                              className={"w-full py-4 rounded-xl font-bold text-lg active:scale-95 cursor-pointer shadow-lg transition-all " + (isBusy ? "bg-slate-700 text-slate-400 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-500 text-white")}
+                            >
+                              {isBusy ? "Deverrouillage en cours... " + lockRetriggerCountdown + "s" : icon + " " + label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
 
                     <p className="text-slate-600 text-xs mt-2">
@@ -2616,11 +2945,13 @@ export default function AeroClubBar() {
           </div>
           <div className="flex gap-1 mb-4">
             {[
+              { key: "homepage", label: "\uD83C\uDFE0 Accueil" },
               { key: "stock", label: "\uD83D\uDCE6 Stock", badge: products.filter(p => !p.archived && p.stock <= 5).length || undefined },
               { key: "finance", label: "\uD83D\uDCB0 Finances" },
               { key: "history", label: "\uD83D\uDCCB Ventes" },
               { key: "members", label: "\uD83D\uDC65 Comptes" },
               { key: "suggestions", label: "\uD83D\uDCA1 Idees" },
+              { key: "instructor", label: "\u2708\uFE0F Instructeurs" },
               { key: "settings", label: "\u2699 Config" },
             ].map((tab: { key: string; label: string; badge?: number }) => (
               <button
@@ -2638,6 +2969,69 @@ export default function AeroClubBar() {
               </button>
             ))}
           </div>
+
+          {/* ── Homepage config tab ── */}
+          {activeAdminTab === "homepage" && (
+            <div className="flex flex-col gap-5">
+              {/* Featured products */}
+              <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-2xl p-5">
+                <h3 className="text-base font-extrabold text-white mb-1">{"⭐ Produits a la une"}</h3>
+                <p className="text-xs text-slate-500 mb-4">{"Selectionnez les produits du carousel. Si aucun, les plus vendus s'affichent."}</p>
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                  {saleProducts.map((p) => {
+                    const isFeatured = featuredIds.includes(p.id);
+                    return (
+                      <button key={p.id} onClick={() => toggleFeatured(p.id)}
+                        className={"flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all active:scale-90 cursor-pointer " + (isFeatured ? "bg-amber-500/20 border-amber-500/50" : "bg-[#0a0f1c] border-[#1e2d4a] hover:border-amber-500/30")}
+                      >
+                        {renderProductIcon(p.emoji, "text-2xl", "w-7 h-7")}
+                        <span className="text-[10px] font-bold text-white/80 text-center leading-tight line-clamp-1">{p.name}</span>
+                        {isFeatured && <span className="text-[9px] text-amber-400 font-bold">{"★ A la une"}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                {featuredIds.length > 0 && (
+                  <button onClick={() => updateHomepage({ featuredProductIds: [] })} className="mt-3 text-xs text-slate-500 hover:text-amber-400 cursor-pointer transition">{"Reinitialiser (mode auto)"}</button>
+                )}
+              </div>
+
+              {/* Combo toggle */}
+              <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-2xl p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-extrabold text-white">{"☕ Combo Cafe + Madeleine"}</h3>
+                    <p className="text-xs text-slate-500 mt-1">{"Afficher le bloc combo sur la page d'accueil"}</p>
+                  </div>
+                  <button onClick={() => updateHomepage({ showCombo: !showCombo })}
+                    className={"w-14 h-8 rounded-full transition-all cursor-pointer relative " + (showCombo ? "bg-emerald-500" : "bg-slate-700")}
+                  >
+                    <div className={"w-6 h-6 bg-white rounded-full absolute top-1 transition-all shadow " + (showCombo ? "right-1" : "left-1")} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Infos pratiques */}
+              <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-2xl p-5">
+                <h3 className="text-base font-extrabold text-white mb-1">{"ℹ️ Infos pratiques"}</h3>
+                <p className="text-xs text-slate-500 mb-4">{"Modifiez les informations en bas de la page d'accueil"}</p>
+                <div className="flex flex-col gap-3">
+                  {infos.map((info, i) => (
+                    <div key={i} className="flex items-center gap-3 bg-[#0a0f1c] border border-[#1e2d4a] rounded-xl p-3">
+                      <input value={info.emoji} onChange={(e) => updateInfo(i, "emoji", e.target.value)}
+                        className="w-12 h-10 rounded-lg bg-[#131b2e] border border-[#1e2d4a] text-center text-lg outline-none text-white" />
+                      <input value={info.title} onChange={(e) => updateInfo(i, "title", e.target.value)}
+                        className="flex-1 h-10 rounded-lg bg-[#131b2e] border border-[#1e2d4a] px-3 text-sm font-bold text-white outline-none" />
+                      <input value={info.subtitle} onChange={(e) => updateInfo(i, "subtitle", e.target.value)}
+                        className="flex-1 h-10 rounded-lg bg-[#131b2e] border border-[#1e2d4a] px-3 text-sm text-slate-300 outline-none" />
+                      <button onClick={() => removeInfo(i)} className="text-red-400 hover:text-red-300 text-lg cursor-pointer active:scale-90">{"✕"}</button>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={addInfo} className="mt-3 px-4 py-2 rounded-xl bg-[#0a0f1c] border border-[#1e2d4a] hover:border-amber-500/30 text-sm text-slate-400 font-bold cursor-pointer transition active:scale-95">{"+ Ajouter une info"}</button>
+              </div>
+            </div>
+          )}
 
           {activeAdminTab === "stock" && (
             <div className="flex flex-col gap-3">
@@ -2943,7 +3337,7 @@ export default function AeroClubBar() {
                   {newProduct.coffeeAddon && (
                     <div className="flex gap-2 mb-2">
                       <div className="flex-1">
-                        <label className="text-[10px] text-slate-500 block mb-1">{"Qte par lot"}</label>
+                        <label className="text-[10px] text-slate-500 block mb-1">{"Qte par lot (addon)"}</label>
                         <input type="number" value={newProduct.coffeeAddonQty || 2} min={1}
                           onChange={(e) => setNewProduct({ ...newProduct, coffeeAddonQty: parseInt(e.target.value) || 2 })}
                           className="w-full bg-[#0f172a] border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
@@ -2961,7 +3355,7 @@ export default function AeroClubBar() {
                       <input type="checkbox" checked={(newProduct.madeleineServings || 0) >= 2}
                         onChange={(e) => setNewProduct({ ...newProduct, madeleineServings: e.target.checked ? (newProduct.coffeeAddonQty || 2) : undefined })}
                         className="w-4 h-4 accent-amber-500" />
-                      <span className="text-xs text-amber-400 font-semibold">{"\ud83d\uded2 Aussi vendu seul (par " + (newProduct.coffeeAddonQty || 2) + ")"}</span>
+                      <span className="text-xs text-amber-400 font-semibold">{"\uD83D\uDED2 Aussi vendu seul (par " + (newProduct.coffeeAddonQty || 2) + ")"}</span>
                     </label>
                   )}
                   <div className="flex gap-2">
@@ -3456,6 +3850,87 @@ export default function AeroClubBar() {
                 >{"\uD83D\uDD13 Ouvrir tout"}</button>
               </div>
 
+              {/* Test LED WS2812B */}
+              <div className="bg-[#0f172a] border border-green-800/50 rounded-xl p-4 mb-2">
+                <span className="text-xs font-bold text-green-400 uppercase tracking-wider block mb-3">{"💡 Test LED frigo"}</span>
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <label className="text-[10px] text-slate-500 block mb-1">{"N° LED (ex: 0-5)"}</label>
+                    <input value={testLedNum} onChange={(e) => setTestLedNum(e.target.value)}
+                      placeholder="0-5 ou 3"
+                      className="w-full h-10 rounded-lg bg-[#131b2e] border border-slate-700 text-white text-sm px-3 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500 block mb-1">{"Couleur"}</label>
+                    <input type="color" value={testLedColor} onChange={(e) => setTestLedColor(e.target.value)}
+                      className="w-10 h-10 rounded-lg border border-slate-700 cursor-pointer bg-transparent" />
+                  </div>
+                  <button onClick={() => {
+                    const num = testLedNum.trim();
+                    if (!num) return;
+                    const color = testLedColor.replace("#", "");
+                    const range = num.includes("-") ? num : num + "-" + num;
+                    fetch("/api/fridge?action=trigger&lock=none&leds=" + range + ":" + color + "&anim=none").catch(() => {});
+                    showToast("💡 LED " + num + " allumee !");
+                  }} className="h-10 px-4 rounded-lg bg-green-600 text-white text-sm font-bold cursor-pointer active:scale-95">
+                    {"Allumer"}
+                  </button>
+                  <button onClick={() => {
+                    fetch("/api/fridge?action=trigger&lock=none&leds=&anim=none").catch(() => {});
+                    showToast("LED eteintes");
+                  }} className="h-10 px-4 rounded-lg bg-slate-700 text-slate-300 text-sm font-bold cursor-pointer active:scale-95">
+                    {"Eteindre"}
+                  </button>
+                </div>
+                <div className="flex gap-1 mt-2 flex-wrap">
+                  {["#FF0000","#FF6600","#FFFF00","#00FF00","#00FFFF","#0088FF","#AA00FF","#FF00AA","#FFFFFF"].map((c) => (
+                    <button key={c} onClick={() => setTestLedColor(c)}
+                      className={"w-6 h-6 rounded-full border " + (testLedColor === c ? "border-white border-2" : "border-slate-600")}
+                      style={{ backgroundColor: c }} />
+                  ))}
+                </div>
+                <div className="mt-3 pt-3 border-t border-slate-800">
+                  <label className="text-[10px] text-green-400 font-semibold block mb-2">{"🎬 Tester une animation (sur LED ci-dessus)"}</label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {["snake", "serpentin", "chase", "converge", "edges", "flash", "none"].map((a) => (
+                      <button key={a} onClick={() => {
+                        const num = testLedNum.trim() || "0-10";
+                        const color = testLedColor.replace("#", "");
+                        const range = num.includes("-") ? num : num + "-" + num;
+                        fetch("/api/fridge?action=trigger&lock=none&leds=" + range + ":" + color + "&anim=" + a).catch(() => {});
+                        showToast("🎬 Animation " + a + " lancee !");
+                      }} className="py-2 rounded-lg bg-[#131b2e] border border-green-800/30 text-green-400 text-xs font-bold cursor-pointer active:scale-95">
+                        {a === "snake" ? "🐍 Serpent" : a === "serpentin" ? "🐍 Serpentin" : a === "chase" ? "🔦 Scanner" : a === "converge" ? "🎯 Convergent" : a === "edges" ? "◻️ Bords" : a === "flash" ? "💥 Flash" : "💡 Direct"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Bouton ON/OFF — allumer toutes les LED configurées */}
+                <div className="mt-3 pt-3 border-t border-slate-800">
+                  <label className="text-[10px] text-green-400 font-semibold block mb-2">{"📍 Positionnement produits — allumer toutes les LED configurées"}</label>
+                  <div className="flex gap-2">
+                    <button onClick={() => {
+                      const ranges: string[] = [];
+                      products.filter(p => !p.archived && p.ledStart != null && p.ledEnd != null).forEach(p => {
+                        const color = (p.ledColor || "#FFFFFF").replace("#", "");
+                        ranges.push(p.ledStart + "-" + p.ledEnd + ":" + color);
+                      });
+                      if (ranges.length === 0) { showToast("Aucun produit avec LED configuree"); return; }
+                      fetch("/api/fridge?action=trigger&lock=none&leds=" + ranges.join(",") + "&anim=none").catch(() => {});
+                      showToast("💡 " + ranges.length + " produits allumes !");
+                    }} className="flex-1 py-3 rounded-lg bg-green-600 text-white text-sm font-bold cursor-pointer active:scale-95">
+                      {"💡 ON — Allumer tous les produits"}
+                    </button>
+                    <button onClick={() => {
+                      fetch("/api/fridge?action=trigger&lock=none&leds=&anim=none").catch(() => {});
+                      showToast("LED eteintes");
+                    }} className="flex-1 py-3 rounded-lg bg-red-900/50 text-red-400 text-sm font-bold cursor-pointer active:scale-95 border border-red-800/30">
+                      {"OFF — Tout eteindre"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* Créer un membre */}
               <div className="bg-[#0f172a] border border-emerald-800 rounded-xl p-4">
                 <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block mb-3">{"+ Ajouter un membre"}</span>
@@ -3522,6 +3997,7 @@ export default function AeroClubBar() {
                     {allNames.map((name) => {
                       const bal = getMemberBalance(name);
                       const totalCr = getMemberTotalCredits(name);
+                      // Collect per-product credits for display
                       const memberCredits: { emoji: string; name: string; count: number }[] = [];
                       for (const pid of Object.keys(productCredits)) {
                         const cnt = productCredits[pid]?.[name] || 0;
@@ -3619,6 +4095,140 @@ export default function AeroClubBar() {
                   {"Effacer toutes les suggestions"}
                 </button>
               )}
+            </div>
+          )}
+
+          {activeAdminTab === "instructor" && (
+            <div className="flex flex-col gap-4">
+              {/* Header + refresh */}
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white">{"✈️ Frigo Instructeurs"}</h3>
+                <button onClick={() => {
+                  fetch("/api/instructor-fridge?action=settings").then(r => r.json()).then(d => {
+                    setInstructorBadges(d.badges || []);
+                    setInstructorStock(d.stock || 0);
+                    setInstructorLog(d.accessLog || []);
+                  }).catch(() => {});
+                }} className="text-xs bg-[#1e2d4a] text-cyan-400 px-3 py-1.5 rounded-lg font-semibold cursor-pointer">{"🔄 Actualiser"}</button>
+              </div>
+
+              {/* Stock */}
+              <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-2xl p-4">
+                <h4 className="text-sm font-bold text-slate-300 mb-3">{"💧 Stock bouteilles d'eau"}</h4>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => {
+                    const n = Math.max(0, instructorStock - 1);
+                    setInstructorStock(n);
+                    fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ action: "update_stock", stock: n }) }).catch(() => {});
+                  }} className="w-12 h-12 rounded-xl bg-red-900/40 text-red-400 text-xl font-bold cursor-pointer">-</button>
+                  <div className="flex-1 text-center">
+                    <span className={"text-4xl font-black " + (instructorStock <= 3 ? "text-red-400" : instructorStock <= 10 ? "text-amber-400" : "text-emerald-400")}>{instructorStock}</span>
+                    <p className="text-[10px] text-slate-500 mt-1">{"bouteilles"}</p>
+                  </div>
+                  <button onClick={() => {
+                    const n = instructorStock + 1;
+                    setInstructorStock(n);
+                    fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ action: "update_stock", stock: n }) }).catch(() => {});
+                  }} className="w-12 h-12 rounded-xl bg-emerald-900/40 text-emerald-400 text-xl font-bold cursor-pointer">+</button>
+                  <input type="number" min={0} value={instructorStock}
+                    onChange={(e) => {
+                      const n = Math.max(0, parseInt(e.target.value, 10) || 0);
+                      setInstructorStock(n);
+                      fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ action: "update_stock", stock: n }) }).catch(() => {});
+                    }}
+                    className="w-20 h-12 rounded-xl bg-[#0f172a] border border-slate-700 text-white text-center text-lg font-bold outline-none" />
+                </div>
+              </div>
+
+              {/* Ajouter un badge */}
+              <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-2xl p-4">
+                <h4 className="text-sm font-bold text-slate-300 mb-3">{"🆕 Ajouter un badge"}</h4>
+                <div className="flex gap-2">
+                  <input placeholder="UID badge (ex: A3:F2:1B:04)" value={instructorNewUid}
+                    onChange={(e) => setInstructorNewUid(e.target.value)}
+                    className="flex-1 h-11 rounded-xl bg-[#0f172a] border border-slate-700 text-white text-sm px-3 outline-none" />
+                  <input placeholder="Nom instructeur" value={instructorNewName}
+                    onChange={(e) => setInstructorNewName(e.target.value)}
+                    className="flex-1 h-11 rounded-xl bg-[#0f172a] border border-slate-700 text-white text-sm px-3 outline-none" />
+                  <button onClick={() => {
+                    if (!instructorNewUid.trim() || !instructorNewName.trim()) return;
+                    fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"},
+                      body: JSON.stringify({ action: "add_badge", uid: instructorNewUid.trim(), name: instructorNewName.trim() })
+                    }).then(r => r.json()).then(d => {
+                      if (d.badges) setInstructorBadges(d.badges);
+                      setInstructorNewUid(""); setInstructorNewName("");
+                    }).catch(() => {});
+                  }} className="h-11 px-4 rounded-xl bg-cyan-600 text-white text-sm font-bold cursor-pointer">{"Ajouter"}</button>
+                </div>
+                <p className="text-[10px] text-slate-600 mt-2">{"Pour trouver le UID : scanner le badge avec l'ESP32, il s'affichera dans le moniteur série"}</p>
+              </div>
+
+              {/* Liste des badges */}
+              <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-2xl p-4">
+                <h4 className="text-sm font-bold text-slate-300 mb-3">{"🏷️ Badges enregistrés (" + instructorBadges.length + ")"}</h4>
+                {instructorBadges.length === 0 ? (
+                  <p className="text-sm text-slate-600 text-center py-4">{"Aucun badge enregistré"}</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {instructorBadges.map((badge) => (
+                      <div key={badge.uid} className={"flex items-center gap-3 rounded-xl px-3 py-2.5 " + (badge.active ? "bg-[#0f172a]" : "bg-red-900/20 border border-red-800/30")}>
+                        <span className="text-lg">{badge.active ? "🟢" : "🔴"}</span>
+                        <div className="flex-1">
+                          <span className="text-sm text-white font-semibold">{badge.name}</span>
+                          <span className="text-[10px] text-slate-500 ml-2 font-mono">{badge.uid}</span>
+                        </div>
+                        <button onClick={() => {
+                          fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"},
+                            body: JSON.stringify({ action: "toggle_badge", uid: badge.uid })
+                          }).then(r => r.json()).then(d => { if (d.badges) setInstructorBadges(d.badges); }).catch(() => {});
+                        }} className={"text-xs px-3 py-1.5 rounded-lg font-bold cursor-pointer " + (badge.active ? "bg-amber-900/30 text-amber-400" : "bg-emerald-900/30 text-emerald-400")}>
+                          {badge.active ? "Désactiver" : "Activer"}
+                        </button>
+                        <button onClick={() => {
+                          if (!confirm("Supprimer le badge de " + badge.name + " ?")) return;
+                          fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"},
+                            body: JSON.stringify({ action: "remove_badge", uid: badge.uid })
+                          }).then(r => r.json()).then(d => { if (d.badges) setInstructorBadges(d.badges); }).catch(() => {});
+                        }} className="text-xs px-2 py-1.5 rounded-lg bg-red-900/30 text-red-400 font-bold cursor-pointer">{"✕"}</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Journal d'accès */}
+              <div className="bg-[#131b2e] border border-[#1e2d4a] rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-bold text-slate-300">{"📋 Journal d'accès"}</h4>
+                  {instructorLog.length > 0 && (
+                    <button onClick={() => {
+                      if (!confirm("Effacer tout le journal ?")) return;
+                      fetch("/api/instructor-fridge", { method: "POST", headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({ action: "clear_log" })
+                      }).then(() => setInstructorLog([])).catch(() => {});
+                    }} className="text-[10px] text-red-400 cursor-pointer">{"Effacer"}</button>
+                  )}
+                </div>
+                {instructorLog.length === 0 ? (
+                  <p className="text-sm text-slate-600 text-center py-4">{"Aucun accès enregistré"}</p>
+                ) : (
+                  <div className="flex flex-col gap-1 max-h-[300px] overflow-y-auto">
+                    {instructorLog.slice(0, 50).map((log, i) => {
+                      const d = new Date(log.date);
+                      const dateStr = d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+                      const timeStr = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+                      return (
+                        <div key={i} className="flex items-center gap-2 text-xs py-1.5 border-b border-slate-800/50">
+                          <span className="text-slate-600 font-mono w-20">{dateStr + " " + timeStr}</span>
+                          <span className="text-white font-semibold">{log.name}</span>
+                          <span className="text-slate-600 font-mono text-[10px]">{log.uid}</span>
+                          <span className="ml-auto text-cyan-400">{"🔓 Ouvert"}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -3919,6 +4529,58 @@ export default function AeroClubBar() {
                     )}
                   </>
                 )}
+                {/* Config LED \u00E9tag\u00E8re */}
+                <div className="mt-3 pt-3 border-t border-slate-800">
+                  <span className="text-xs font-bold text-green-400 uppercase tracking-wider block mb-2">{"\uD83D\uDCD0 LED par \u00E9tag\u00E8re"}</span>
+                  <div className="flex items-center gap-3">
+                    <input type="number" min={1} value={settings.ledsPerShelf || 50}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, ledsPerShelf: Math.max(1, parseInt(e.target.value, 10) || 50) }))}
+                      className="w-24 h-10 rounded-xl border border-slate-700 bg-[#131b2e] text-white text-sm text-center outline-none" />
+                    <p className="text-[10px] text-slate-500 flex-1">{"Nombre de LED par \u00E9tag\u00E8re (pour les animations). Ex: 50 si tu as 50 LED par rang."}</p>
+                  </div>
+                </div>
+                {/* Luminosit\u00E9 LED */}
+                <div className="mt-3 pt-3 border-t border-slate-800">
+                  <span className="text-xs font-bold text-green-400 uppercase tracking-wider block mb-2">{"\uD83D\uDD06 Luminosit\u00E9 LED produit"}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-slate-600 text-xs">\uD83C\uDF11</span>
+                    <input type="range" min={5} max={255} value={settings.ledBrightness || 150}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, ledBrightness: parseInt(e.target.value, 10) }))}
+                      className="flex-1 accent-green-500 h-2 cursor-pointer" />
+                    <span className="text-slate-600 text-xs">\u2600\uFE0F</span>
+                    <span className="text-white text-sm font-bold w-12 text-center">{Math.round(((settings.ledBrightness || 150) / 255) * 100) + "%"}</span>
+                  </div>
+                </div>
+                {/* Animation LED produit */}
+                <div className="mt-3 pt-3 border-t border-slate-800">
+                  <span className="text-xs font-bold text-green-400 uppercase tracking-wider block mb-2">{"\uD83C\uDFAC Animation LED produit"}</span>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {([
+                      ["none", "Aucune", "Allumage direct sur le produit"],
+                      ["snake", "Serpent", "Train\u00E9e de LED qui parcourt l'\u00E9tag\u00E8re et s'arr\u00EAte sur le produit"],
+                      ["serpentin", "Serpentin", "Descend du haut en vert-jaune, d\u00E9pose chaque produit au passage"],
+                      ["chase", "Scanner", "Barre lumineuse aller-retour puis se fixe sur le produit"],
+                      ["converge", "Convergent", "LED partent des 2 bouts de l'\u00E9tag\u00E8re et convergent sur le produit"],
+                      ["edges", "Bords", "Les bords du produit s'allument puis se remplissent"],
+                      ["flash", "Flash", "Le produit clignote 3x puis reste allum\u00E9"],
+                    ] as const).map(([mode, label, desc]) => (
+                      <button key={mode}
+                        onClick={() => setSettings((prev) => ({ ...prev, ledAnimation: mode }))}
+                        title={desc}
+                        className={"py-2 rounded-xl text-xs font-bold cursor-pointer active:scale-95 transition-all " + ((settings.ledAnimation || "none") === mode ? "bg-green-600 text-white shadow-lg" : "bg-[#131b2e] border border-slate-700 text-slate-500")}
+                      >{label}</button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-600 mt-1">
+                    {(settings.ledAnimation || "none") === "none" ? "Les LED s'allument directement sur le produit" :
+                     (settings.ledAnimation || "none") === "snake" ? "\uD83D\uDC0D Une train\u00E9e lumineuse serpente sur l'\u00E9tag\u00E8re puis s'arr\u00EAte sur le produit" :
+                     (settings.ledAnimation || "none") === "serpentin" ? "\uD83D\uDC0D Descend du haut en vert-jaune \u00E0 travers toutes les \u00E9tag\u00E8res, d\u00E9pose chaque produit au passage" :
+                     (settings.ledAnimation || "none") === "chase" ? "\uD83D\uDD26 Une barre de lumi\u00E8re fait un aller-retour sur l'\u00E9tag\u00E8re puis se fixe" :
+                     (settings.ledAnimation || "none") === "converge" ? "\uD83C\uDFAF Les LED partent des 2 extr\u00E9mit\u00E9s et convergent vers le produit" :
+                     (settings.ledAnimation || "none") === "edges" ? "Les bords du produit s'allument en blanc puis se remplissent en couleur" :
+                     "\uD83D\uDCA5 Le produit clignote 3 fois rapidement puis reste allum\u00E9"}
+                  </p>
+                </div>
               </div>
               <div className="h-px bg-[#1e2d4a] my-3" />
               <h3 className="text-base font-bold">
@@ -4374,27 +5036,27 @@ export default function AeroClubBar() {
                 >{label}</button>
               ))}
             </div>
-            {/* LED frigo \u2014 position + couleur sur la bande WS2812B */}
+            {/* LED frigo — position + couleur sur la bande WS2812B */}
             {(editingProduct.location || "frigo") === "frigo" && (
               <div className="mb-3">
                 <div className="flex gap-2 mb-2">
                   <div className="flex-1">
-                    <label className="text-[10px] text-green-400 font-semibold uppercase">{"\ud83d\udca1 LED d\u00e9but"}</label>
+                    <label className="text-[10px] text-green-400 font-semibold uppercase">{"💡 LED début"}</label>
                     <input type="number" min={0} value={editingProduct.ledStart ?? ""}
                       onChange={(e) => setEditingProduct({ ...editingProduct, ledStart: e.target.value === "" ? undefined : parseInt(e.target.value, 10) })}
-                      placeholder="\u2014"
+                      placeholder="—"
                       className="w-full h-12 rounded-xl border border-green-700/50 bg-green-900/20 text-green-300 text-sm text-center outline-none" />
                   </div>
                   <div className="flex-1">
-                    <label className="text-[10px] text-green-400 font-semibold uppercase">{"\ud83d\udca1 LED fin"}</label>
+                    <label className="text-[10px] text-green-400 font-semibold uppercase">{"💡 LED fin"}</label>
                     <input type="number" min={0} value={editingProduct.ledEnd ?? ""}
                       onChange={(e) => setEditingProduct({ ...editingProduct, ledEnd: e.target.value === "" ? undefined : parseInt(e.target.value, 10) })}
-                      placeholder="\u2014"
+                      placeholder="—"
                       className="w-full h-12 rounded-xl border border-green-700/50 bg-green-900/20 text-green-300 text-sm text-center outline-none" />
                   </div>
                 </div>
                 <div>
-                  <label className="text-[10px] text-green-400 font-semibold uppercase mb-1 block">{"\ud83c\udfa8 Couleur LED"}</label>
+                  <label className="text-[10px] text-green-400 font-semibold uppercase mb-1 block">{"🎨 Couleur LED"}</label>
                   <div className="flex items-center gap-2">
                     {[
                       ["#FF0000", "Rouge"], ["#FF6600", "Orange"], ["#FFFF00", "Jaune"],
@@ -4412,6 +5074,23 @@ export default function AeroClubBar() {
                       onChange={(e) => setEditingProduct({ ...editingProduct, ledColor: e.target.value })}
                       className="w-8 h-8 rounded-full border border-slate-600 cursor-pointer bg-transparent" title="Couleur custom" />
                   </div>
+                </div>
+                {/* Bouton tester LED du produit */}
+                <div className="flex gap-2 mt-2">
+                  <button onClick={() => {
+                    if (editingProduct.ledStart == null || editingProduct.ledEnd == null) { showToast("Configure LED debut/fin d'abord"); return; }
+                    const color = (editingProduct.ledColor || "#FFFFFF").replace("#", "");
+                    fetch("/api/fridge?action=trigger&lock=none&leds=" + editingProduct.ledStart + "-" + editingProduct.ledEnd + ":" + color + "&anim=none").catch(() => {});
+                    showToast("💡 LED " + editingProduct.name + " allumee !");
+                  }} className="flex-1 py-2.5 rounded-xl bg-green-600 text-white text-xs font-bold cursor-pointer active:scale-95">
+                    {"💡 Tester cette LED"}
+                  </button>
+                  <button onClick={() => {
+                    fetch("/api/fridge?action=trigger&lock=none&leds=&anim=none").catch(() => {});
+                    showToast("LED eteinte");
+                  }} className="py-2.5 px-4 rounded-xl bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer active:scale-95">
+                    {"OFF"}
+                  </button>
                 </div>
               </div>
             )}
@@ -4440,7 +5119,7 @@ export default function AeroClubBar() {
             {editingProduct.coffeeAddon && (
               <div className="flex gap-2 mb-3">
                 <div className="flex-1">
-                  <label className="text-[10px] text-slate-500 block mb-1">{"Qte par lot"}</label>
+                  <label className="text-[10px] text-slate-500 block mb-1">{"Qte par lot (addon)"}</label>
                   <input type="number" value={editingProduct.coffeeAddonQty || 2} min={1}
                     onChange={(e) => setEditingProduct({ ...editingProduct, coffeeAddonQty: parseInt(e.target.value) || 2 })}
                     className="w-full bg-[#0f172a] border border-slate-700 rounded-lg px-3 py-2.5 text-white text-sm" />
@@ -4458,7 +5137,7 @@ export default function AeroClubBar() {
                 <input type="checkbox" checked={(editingProduct.madeleineServings || 0) >= 2}
                   onChange={(e) => setEditingProduct({ ...editingProduct, madeleineServings: e.target.checked ? (editingProduct.coffeeAddonQty || 2) : undefined })}
                   className="w-5 h-5 accent-amber-500" />
-                <span className="text-xs text-amber-400 font-semibold">{"\ud83d\uded2 Aussi vendu seul (par " + (editingProduct.coffeeAddonQty || 2) + ")"}</span>
+                <span className="text-xs text-amber-400 font-semibold">{"\uD83D\uDED2 Aussi vendu seul (par " + (editingProduct.coffeeAddonQty || 2) + ")"}</span>
               </label>
             )}
             <div className="flex gap-2">
@@ -4999,12 +5678,14 @@ export default function AeroClubBar() {
                 {"Deja incluses dans le paiement — comment les repartir ?"}
               </p>
               <div className="flex flex-col gap-2 mt-2">
+                {/* Toutes maintenant */}
                 <button
                   onClick={() => handleAddonChoice(totalAddon)}
                   className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 bg-emerald-600 text-white px-5"
                 >
                   {addonEmoji + " Les " + totalAddon + " maintenant"}
                 </button>
+                {/* Split : usedNow maintenant + reste en avoir */}
                 {usedNow > 0 && usedNow < totalAddon && (
                   <button
                     onClick={() => handleAddonChoice(usedNow)}
@@ -5013,6 +5694,7 @@ export default function AeroClubBar() {
                     <span>{addonEmoji + " " + usedNow + " maintenant + " + (totalAddon - usedNow) + " en avoir"}</span>
                   </button>
                 )}
+                {/* Toutes en avoir */}
                 <button
                   onClick={() => handleAddonChoice(0)}
                   className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 border border-slate-600 bg-slate-800/30 text-slate-300 px-5"
