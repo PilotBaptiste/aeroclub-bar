@@ -1640,7 +1640,7 @@ export default function AeroClubBarV2() {
           <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#0a0f1e]/80 border-b border-white/5">
             <div className="max-w-4xl mx-auto px-5 py-3 flex items-center justify-between">
               <button onClick={() => { setShowAllProducts(false); }} className="flex items-center gap-3 cursor-pointer">
-                <span className="text-3xl">{"✈️"}</span>
+                <img src="/logo-acba.png" alt="" className="w-10 h-10 rounded-xl object-contain" />
                 <div>
                   <h1 className="text-base font-black tracking-tight v2-shimmer">{settings.clubName.toUpperCase() + " BAR"}</h1>
                   <p className="text-[11px] text-slate-500 font-medium tracking-wider">{"BASSIN D'ARCACHON"}</p>
@@ -1787,21 +1787,29 @@ export default function AeroClubBarV2() {
             {popularProducts.length > 0 && !showAllProducts && (
               <section className="mb-6">
                 <div className="flex items-center gap-2 mb-3"><span className="text-base font-black text-white">{"🔥 Top ventes"}</span><span className="flex-1 h-px bg-white/5" /></div>
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                   {popularProducts.slice(0, 12).map((p, i) => {
                     const qty = getCartQty(p.id);
                     const out = effectiveStock(p) <= 0;
+                    const stock = effectiveStock(p);
                     return (
                       <button key={p.id} onClick={() => { if (!out) addToCart(p); }} disabled={out}
-                        className={"relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border transition-all active:scale-90 v2-fade-up " + (addedProductId === p.id ? "bg-amber-500/20 border-amber-500/50 scale-95 cursor-pointer" : out ? "bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed grayscale" : qty > 0 ? "bg-amber-500/10 border-amber-500/40 cursor-pointer" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-amber-500/20 cursor-pointer")}
+                        className={"relative flex flex-col items-center gap-2 p-4 rounded-2xl border transition-all active:scale-90 v2-fade-up " + (addedProductId === p.id ? "bg-amber-500/20 border-amber-500/50 scale-95 cursor-pointer" : out ? "bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed grayscale" : qty > 0 ? "bg-amber-500/10 border-amber-500/40 cursor-pointer" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-amber-500/20 cursor-pointer")}
                         style={{ animationDelay: (0.04 * i) + "s", animationFillMode: "both" }}
                       >
-                        {qty > 0 && <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-amber-500 text-black text-[11px] font-extrabold flex items-center justify-center shadow-lg">{String(qty)}</div>}
-                        {out && <span className="absolute top-1 right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">{"Epuise"}</span>}
-                        {!out && effectiveStock(p) <= 5 && <span className="absolute -top-1 -left-1 bg-amber-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-lg animate-pulse">{"x" + effectiveStock(p)}</span>}
-                        <div className={addedProductId === p.id ? "v2-pop-in" : ""}>{renderProductIcon(p.emoji, "text-3xl", "w-10 h-10")}</div>
-                        <span className="text-xs font-bold text-white text-center leading-tight line-clamp-2">{p.name}</span>
-                        <span className="text-sm font-black text-amber-400">{formatPrice(p.price)}</span>
+                        {qty > 0 && <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-amber-500 text-black text-xs font-extrabold flex items-center justify-center shadow-lg ring-2 ring-[#0a0f1e]">{String(qty)}</div>}
+                        {out && <span className="absolute top-1.5 right-1.5 bg-red-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full">{"Epuise"}</span>}
+                        <div className={"h-11 flex items-center justify-center " + (addedProductId === p.id ? "v2-pop-in" : "")}>{renderProductIcon(p.emoji, "text-4xl", "w-11 h-11")}</div>
+                        <span className="text-sm font-bold text-white text-center leading-tight line-clamp-2">{p.name}</span>
+                        <span className="text-base font-black text-amber-400">{formatPrice(p.price)}</span>
+                        {!out && (
+                          <div className="w-full flex items-center gap-2">
+                            <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                              <div className={"h-full rounded-full transition-all " + (stock <= 3 ? "bg-red-500" : stock <= 8 ? "bg-orange-400" : "bg-emerald-500/60")} style={{ width: Math.min(100, (stock / Math.max(stock, 30)) * 100) + "%" }} />
+                            </div>
+                            <span className={"text-[10px] font-bold tabular-nums " + (stock <= 3 ? "text-red-400" : stock <= 8 ? "text-orange-400" : "text-slate-600")}>{String(stock)}</span>
+                          </div>
+                        )}
                       </button>
                     );
                   })}

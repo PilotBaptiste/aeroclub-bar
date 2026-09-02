@@ -1466,29 +1466,22 @@ export default function AeroClubBar() {
 
       {view === "member" && (
         <div className="min-h-screen flex flex-col items-center px-4 pb-32">
-          <div className="text-center pt-10 pb-6 relative w-full">
-            <div className="text-5xl mb-2">{"\u2708\uFE0F"}</div>
-            <h1 className="text-3xl font-extrabold text-amber-500 tracking-tight">
-              {settings.clubName}
-            </h1>
-            <p className="text-slate-500 text-sm font-medium mt-1">
-              {"Touchez pour ajouter au panier"}
-            </p>
-            {/* Temperatures frigo/congelateur */}
-            <div className="flex items-center justify-center gap-4 mt-2">
-              <span className={"text-xs font-bold " + (temperatures.frigo === null ? "text-slate-600" : temperatures.frigo <= 10 ? "text-emerald-400" : "text-red-400")}>
-                {"🧊 Frigo " + (temperatures.frigo !== null ? temperatures.frigo.toFixed(1) + "°C" : "--")}
-              </span>
-              <span className={"text-xs font-bold " + (temperatures.congelateur === null ? "text-slate-600" : temperatures.congelateur <= -10 ? "text-emerald-400" : "text-red-400")}>
-                {"❄️ Congel " + (temperatures.congelateur !== null ? temperatures.congelateur.toFixed(1) + "°C" : "--")}
-              </span>
+          <div className="flex items-center justify-center gap-4 pt-6 pb-4 relative w-full">
+            <img src="/logo-acba.png" alt="" className="w-14 h-14 rounded-2xl object-contain" />
+            <div className="text-center">
+              <h1 className="text-2xl font-extrabold text-amber-500 tracking-tight">
+                {settings.clubName}
+              </h1>
+              <p className="text-slate-500 text-xs font-medium">
+                {"Touchez un produit pour l'ajouter"}
+              </p>
             </div>
             <button
               onClick={() => {
                 setView("login");
                 setPinInput("");
               }}
-              className="absolute top-5 right-2 text-slate-600 text-xl p-2 hover:text-slate-400 transition cursor-pointer"
+              className="absolute top-4 right-1 text-slate-700 text-base p-2 hover:text-slate-400 transition cursor-pointer"
             >
               {"\u2699\uFE0F"}
             </button>
@@ -1496,54 +1489,65 @@ export default function AeroClubBar() {
 
           {/* Filtres catégorie */}
           {products.some((p) => p.category) && (
-            <div className="flex items-center gap-0 w-full max-w-lg bg-[#0d1525] rounded-2xl p-1 mb-2 shadow-inner">
+            <div className="flex items-center gap-0.5 w-full max-w-2xl bg-[#0d1525] rounded-2xl p-1.5 mb-4 shadow-inner">
               <button
                 onClick={() => setSaleCategory(null)}
-                className={"flex-1 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer " + (saleCategory === null ? "bg-amber-500 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}
+                className={"flex-1 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 cursor-pointer " + (saleCategory === null ? "bg-amber-500 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}
               >{"Tout"}</button>
               {getCategories().filter((c) => products.some((p) => !p.archived && p.category === c.id)).map((cat) => (
                 <button
                   key={cat.id}
                   onClick={() => setSaleCategory(cat.id)}
-                  className={"flex-1 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer " + (saleCategory === cat.id ? "bg-amber-500 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}
+                  className={"flex-1 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 cursor-pointer " + (saleCategory === cat.id ? "bg-amber-500 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}
                 >
                   {cat.emoji + " " + cat.label}
                 </button>
               ))}
             </div>
           )}
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 w-full max-w-3xl">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 w-full max-w-2xl">
             {products.filter((p) => !p.archived && !p.coffeeAddon && (!saleCategory || p.category === saleCategory)).map((p) => {
               const out = effectiveStock(p) <= 0;
               const qty = getCartQty(p.id);
+              const stock = effectiveStock(p);
               return (
                 <button
                   key={p.id}
                   onClick={() => addToCart(p)}
                   disabled={out}
                   className={
-                    "bg-[#131b2e] border rounded-xl py-3 px-1.5 flex flex-col items-center gap-0.5 transition-all duration-200 relative " +
+                    "bg-[#131b2e] border-2 rounded-2xl py-4 px-3 flex flex-col items-center gap-1.5 transition-all duration-200 relative " +
                     (out
                       ? "opacity-40 cursor-not-allowed border-[#1e2d4a]"
                       : qty > 0
-                        ? "border-amber-500 shadow-lg shadow-amber-500/10 cursor-pointer active:scale-95"
+                        ? "border-amber-500 shadow-lg shadow-amber-500/20 cursor-pointer active:scale-95"
                         : "border-[#1e2d4a] hover:border-amber-500/40 cursor-pointer active:scale-95")
                   }
                 >
                   {qty > 0 && (
-                    <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-amber-500 text-black text-[11px] font-extrabold flex items-center justify-center shadow-lg">
+                    <div className="absolute -top-2.5 -right-2.5 w-7 h-7 rounded-full bg-amber-500 text-black text-sm font-extrabold flex items-center justify-center shadow-lg ring-2 ring-[#0a0f1c]">
                       {String(qty)}
                     </div>
                   )}
-                  {renderProductIcon(p.emoji, "text-3xl", "w-8 h-8")}
-                  <span className="text-[11px] font-bold text-center leading-tight">{p.name}</span>
-                  <span className="text-sm font-extrabold text-amber-500">
+                  <div className="h-12 flex items-center justify-center">
+                    {renderProductIcon(p.emoji, "text-5xl", "w-12 h-12")}
+                  </div>
+                  <span className="text-sm font-bold text-center leading-tight text-slate-100">{p.name}</span>
+                  <span className="text-lg font-extrabold text-amber-500">
                     {formatPrice(p.price)}
                   </span>
                   {!out && (
-                    <span className={"text-[9px] font-semibold " + (effectiveStock(p) <= 5 ? "text-orange-400" : "text-slate-500")}>
-                      {effectiveStock(p) <= 5 ? effectiveStock(p) + " restants" : effectiveStock(p)}
-                    </span>
+                    <div className="w-full flex items-center gap-2 mt-0.5">
+                      <div className="flex-1 h-1.5 rounded-full bg-[#0a0f1c] overflow-hidden">
+                        <div
+                          className={"h-full rounded-full transition-all " + (stock <= 3 ? "bg-red-500" : stock <= 8 ? "bg-orange-400" : "bg-emerald-500")}
+                          style={{ width: Math.min(100, (stock / Math.max(stock, 30)) * 100) + "%" }}
+                        />
+                      </div>
+                      <span className={"text-[10px] font-bold tabular-nums " + (stock <= 3 ? "text-red-400" : stock <= 8 ? "text-orange-400" : "text-slate-500")}>
+                        {String(stock)}
+                      </span>
+                    </div>
                   )}
                 </button>
               );
@@ -1553,7 +1557,7 @@ export default function AeroClubBar() {
           {/* Suggestion button */}
           <button
             onClick={() => setShowSuggestionModal(true)}
-            className="mt-4 w-full max-w-lg flex items-center justify-center gap-2 py-3 rounded-xl border border-[#1e2d4a] bg-[#131b2e] text-slate-400 text-sm font-semibold hover:border-amber-500/40 hover:text-amber-500 transition cursor-pointer"
+            className="mt-5 w-full max-w-2xl flex items-center justify-center gap-2 py-3.5 rounded-2xl border border-[#1e2d4a] bg-[#131b2e] text-slate-400 text-sm font-semibold hover:border-amber-500/40 hover:text-amber-500 transition cursor-pointer"
           >
             <span>{"\uD83D\uDCA1"}</span>
             <span>{"Une idee ? Proposez un produit ou une suggestion !"}</span>
@@ -1617,7 +1621,7 @@ export default function AeroClubBar() {
 
           {cartCount > 0 && !showCheckout && (
             <div className="fixed bottom-0 left-0 right-0 bg-[#131b2e] border-t border-[#1e2d4a] p-4 z-30">
-              <div className="max-w-lg mx-auto">
+              <div className="max-w-2xl mx-auto">
                 <div className="flex flex-wrap gap-2 mb-3">
                   {cart.map((item) => {
                     const expiry = cartExpiries[item.product.id];
