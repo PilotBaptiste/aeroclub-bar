@@ -633,7 +633,7 @@ export default function AdminDashboard() {
     } else if (key === "enter") {
       handlePinSubmit();
     } else {
-      if (pinInput.length < 8) {
+      if (pinInput.length < (settings.adminPin.length || 4)) {
         setPinInput(prev => prev + key);
         setPinError(false);
       }
@@ -661,7 +661,7 @@ export default function AdminDashboard() {
             <p className="text-sm text-gray-400 mt-1">{"Administration"}</p>
           </div>
           <div className="flex justify-center gap-3 mb-6 h-8">
-            {Array.from({ length: 8 }).map((_, i) => (
+            {Array.from({ length: settings.adminPin.length || 4 }).map((_, i) => (
               <div
                 key={i}
                 className={"w-3 h-3 rounded-full transition-all " + (i < pinInput.length ? "bg-amber-500 scale-125" : "bg-[#1e2d4a]")}
