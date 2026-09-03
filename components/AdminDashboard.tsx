@@ -233,6 +233,11 @@ export default function AdminDashboard() {
   const [categoryFormData, setCategoryFormData] = useState({ id: "", label: "", emoji: "", hasCupCost: false });
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
 
+  const [dragProductId, setDragProductId] = useState<string | null>(null);
+  const [dragOverProductId, setDragOverProductId] = useState<string | null>(null);
+  const [dragOverSection, setDragOverSection] = useState<string | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+
   const saveTimeout = useRef<Record<string, NodeJS.Timeout>>({});
   const hasLoaded = useRef(false);
   const toastTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -616,7 +621,7 @@ export default function AdminDashboard() {
   };
 
   const handlePinSubmit = () => {
-    if (pinInput === settings.adminPin) {
+    if (pinInput === settings.adminPin || pinInput === (settings.bureauPin || "1215")) {
       setAuthenticated(true);
       setPinInput("");
       setPinError(false);
@@ -633,7 +638,7 @@ export default function AdminDashboard() {
     } else if (key === "enter") {
       handlePinSubmit();
     } else {
-      if (pinInput.length < (settings.adminPin.length || 4)) {
+      if (pinInput.length < Math.max(settings.adminPin.length, (settings.bureauPin || "1215").length, 4)) {
         setPinInput(prev => prev + key);
         setPinError(false);
       }
@@ -661,7 +666,7 @@ export default function AdminDashboard() {
             <p className="text-sm text-gray-400 mt-1">{"Administration"}</p>
           </div>
           <div className="flex justify-center gap-3 mb-6 h-8">
-            {Array.from({ length: settings.adminPin.length || 4 }).map((_, i) => (
+            {Array.from({ length: Math.max(settings.adminPin.length, (settings.bureauPin || "1215").length, 4) }).map((_, i) => (
               <div
                 key={i}
                 className={"w-3 h-3 rounded-full transition-all " + (i < pinInput.length ? "bg-amber-500 scale-125" : "bg-[#1e2d4a]")}
@@ -713,6 +718,59 @@ export default function AdminDashboard() {
     if (!a.archived && b.archived) return -1;
     return 0;
   });
+
+  const STOCK_SECTIONS = [
+    { id: "frigo", label: "Frigo", emoji: "❄️", cols: 8, border: "border-blue-500/30", bg: "bg-blue-500/5" },
+    { id: "cafe", label: "Café", emoji: "☕", cols: 4, border: "border-amber-500/30", bg: "bg-amber-500/5" },
+    { id: "congelateur", label: "Congélateur", emoji: "🧊", cols: 6, border: "border-cyan-500/30", bg: "bg-cyan-500/5" },
+    { id: "_other", label: "Non assigné", emoji: "📦", cols: 6, border: "border-gray-500/30", bg: "bg-gray-500/5" },
+  ];
+
+  const productsBySection = (sectionId: string) => {
+    return sortedProducts.filter(p => {
+      const loc = p.location || "";
+      if (sectionId === "_other") return !loc;
+      return loc === sectionId;
+    });
+  };
+
+  const handleDragStart = (e: React.DragEvent, productId: string) => {
+    setDragProductId(productId);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragEnd = () => {
+    setDragProductId(null);
+    setDragOverProductId(null);
+    setDragOverSection(null);
+  };
+
+  const handleDropOnProduct = (targetId: string, sectionId: string) => {
+    if (!dragProductId || dragProductId === targetId) { handleDragEnd(); return; }
+    setProducts(prev => {
+      const arr = [...prev];
+      const fromIdx = arr.findIndex(p => p.id === dragProductId);
+      const toIdx = arr.findIndex(p => p.id === targetId);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const moved = { ...arr[fromIdx], location: sectionId === "_other" ? undefined : sectionId as Product["location"] };
+      arr.splice(fromIdx, 1);
+      arr.splice(toIdx, 0, moved);
+      return arr;
+    });
+    handleDragEnd();
+  };
+
+  const handleDropOnSection = (sectionId: string) => {
+    if (!dragProductId) return;
+    setProducts(prev => {
+      const arr = [...prev];
+      const idx = arr.findIndex(p => p.id === dragProductId);
+      if (idx === -1) return prev;
+      arr[idx] = { ...arr[idx], location: sectionId === "_other" ? undefined : sectionId as Product["location"] };
+      return arr;
+    });
+    handleDragEnd();
+  };
 
   const filteredTx = transactions
     .filter(t => {
@@ -802,143 +860,90 @@ export default function AdminDashboard() {
               <h2 className="text-2xl font-bold">{"📦 Stock & Produits"}</h2>
               <button onClick={openAddProduct} className={btnPrimary}>{"+ Ajouter un produit"}</button>
             </div>
-            <div className={cardClass}>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-[#1e2d4a] text-left text-gray-400 text-xs uppercase tracking-wider">
-                      <th className="pb-3 font-medium w-10">{""}</th>
-                      <th className="pb-3 font-medium">{"Nom"}</th>
-                      <th className="pb-3 font-medium">{"Catégorie"}</th>
-                      <th className="pb-3 font-medium text-right">{"Prix"}</th>
-                      <th className="pb-3 font-medium text-right">{"Coût"}</th>
-                      <th className="pb-3 font-medium text-center">{"Stock"}</th>
-                      <th className="pb-3 font-medium">{"Emplacement"}</th>
-                      <th className="pb-3 font-medium text-center">{"Portions"}</th>
-                      <th className="pb-3 font-medium text-right">{"Actions"}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedProducts.map(p => {
-                      const cat = categories.find(c => c.id === p.category);
-                      const productBatches = batches.filter(b => b.productId === p.id);
-                      const hasExpiringSoon = productBatches.some(b => {
-                        if (!b.expiryDate) return false;
-                        const diff = new Date(b.expiryDate).getTime() - Date.now();
-                        return diff < 7 * 24 * 60 * 60 * 1000 && diff > 0;
-                      });
-                      const hasExpired = productBatches.some(b => {
-                        if (!b.expiryDate) return false;
-                        return new Date(b.expiryDate).getTime() < Date.now();
-                      });
-                      return (
-                        <tr
-                          key={p.id}
-                          className={"border-b border-[#1e2d4a]/50 hover:bg-[#1a2340] transition-colors " + (p.archived ? "opacity-40" : "")}
-                        >
-                          <td className="py-3">{renderProductIcon(p.emoji, "text-xl", "w-6 h-6")}</td>
-                          <td className="py-3 font-medium">
-                            <div className="flex items-center gap-2">
-                              <span>{p.name}</span>
-                              {p.archived && <span className="text-[10px] bg-gray-600 px-1.5 py-0.5 rounded text-gray-300">{"archivé"}</span>}
-                              {hasExpired && <span className="text-[10px] bg-red-500/20 px-1.5 py-0.5 rounded text-red-400">{"DLC!"}</span>}
-                              {hasExpiringSoon && !hasExpired && <span className="text-[10px] bg-orange-500/20 px-1.5 py-0.5 rounded text-orange-400">{"DLC bientôt"}</span>}
-                            </div>
-                          </td>
-                          <td className="py-3 text-gray-400">{cat ? cat.emoji + " " + cat.label : "-"}</td>
-                          <td className="py-3 text-right text-amber-500 font-medium">{formatPrice(p.price)}</td>
-                          <td className="py-3 text-right text-gray-400">{formatPrice(p.cost)}</td>
-                          <td className="py-3">
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                onClick={() => updateProductStock(p.id, -1)}
-                                className="w-7 h-7 rounded bg-[#1a2340] border border-[#1e2d4a] text-gray-400 hover:text-white cursor-pointer flex items-center justify-center text-sm"
-                              >{"-"}</button>
-                              <input
-                                type="number"
-                                value={p.stock}
-                                onChange={(e) => updateProductStock(p.id, 0, parseInt(e.target.value) || 0)}
-                                className="w-14 text-center bg-[#1a2340] border border-[#1e2d4a] rounded px-1 py-1 text-sm text-white outline-none focus:border-amber-500"
-                              />
-                              <button
-                                onClick={() => updateProductStock(p.id, 1)}
-                                className="w-7 h-7 rounded bg-[#1a2340] border border-[#1e2d4a] text-gray-400 hover:text-white cursor-pointer flex items-center justify-center text-sm"
-                              >{"+"}</button>
-                            </div>
-                          </td>
-                          <td className="py-3 text-gray-400 text-xs">{p.location || "-"}</td>
-                          <td className="py-3 text-center text-gray-400">{String(getServings(p))}</td>
-                          <td className="py-3">
-                            <div className="flex items-center justify-end gap-1">
-                              <button onClick={() => openRestock(p)} className="px-2 py-1 bg-emerald-500/20 text-emerald-400 rounded text-xs cursor-pointer hover:bg-emerald-500/30 transition-colors" title="Restock">{"+"}</button>
-                              <button onClick={() => openEditProduct(p)} className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-xs cursor-pointer hover:bg-blue-500/30 transition-colors">{"✏️"}</button>
-                              <button onClick={() => archiveProduct(p.id)} className="px-2 py-1 bg-gray-500/20 text-gray-400 rounded text-xs cursor-pointer hover:bg-gray-500/30 transition-colors">{p.archived ? "👁" : "🚫"}</button>
-                              <button onClick={() => deleteProduct(p.id, p.name)} className="px-2 py-1 bg-red-500/20 text-red-400 rounded text-xs cursor-pointer hover:bg-red-500/30 transition-colors">{"🗑"}</button>
-                              {(p.ledStart || p.ledEnd) ? (
-                                <button onClick={() => ledTest(p)} className="px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded text-xs cursor-pointer hover:bg-yellow-500/30 transition-colors">{"💡"}</button>
-                              ) : null}
-                              {productBatches.length > 0 && (
-                                <button
-                                  onClick={() => setExpandedBatchProduct(expandedBatchProduct === p.id ? null : p.id)}
-                                  className="px-2 py-1 bg-purple-500/20 text-purple-400 rounded text-xs cursor-pointer hover:bg-purple-500/30 transition-colors"
-                                >{"Lots (" + productBatches.length + ")"}</button>
+
+            {STOCK_SECTIONS.map(section => {
+              const sectionProducts = productsBySection(section.id);
+              if (sectionProducts.length === 0 && section.id !== "_other") return null;
+              const gridCols = section.cols === 8 ? "grid-cols-4 sm:grid-cols-6 lg:grid-cols-8" : section.cols === 6 ? "grid-cols-3 sm:grid-cols-4 lg:grid-cols-6" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4";
+              return (
+                <div key={section.id} className="mb-6">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">{section.emoji}</span>
+                    <h3 className="text-lg font-bold">{section.label}</h3>
+                    <span className="text-sm text-gray-500">{"(" + sectionProducts.length + ")"}</span>
+                  </div>
+                  <div
+                    className={"rounded-xl border border-dashed p-3 min-h-[90px] transition-colors " + section.border + " " + section.bg + (dragOverSection === section.id && dragProductId ? " !border-amber-500 !bg-amber-500/10" : "")}
+                    onDragOver={(e) => { e.preventDefault(); setDragOverSection(section.id); }}
+                    onDragLeave={() => setDragOverSection(null)}
+                    onDrop={(e) => { e.preventDefault(); handleDropOnSection(section.id); }}
+                  >
+                    {sectionProducts.length === 0 ? (
+                      <div className="flex items-center justify-center h-16 text-gray-600 text-sm">{"Glissez des produits ici"}</div>
+                    ) : (
+                      <div className={"grid gap-2 " + gridCols}>
+                        {sectionProducts.map(p => {
+                          const isSelected = selectedCardId === p.id;
+                          const isDragging = dragProductId === p.id;
+                          const isDragOver = dragOverProductId === p.id;
+                          const stockColor = p.stock <= 0 ? "text-red-500" : p.stock <= 3 ? "text-red-400" : p.stock <= 8 ? "text-orange-400" : "text-emerald-400";
+                          return (
+                            <div
+                              key={p.id}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, p.id)}
+                              onDragEnd={handleDragEnd}
+                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverProductId(p.id); setDragOverSection(null); }}
+                              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); handleDropOnProduct(p.id, section.id); }}
+                              onClick={() => setSelectedCardId(isSelected ? null : p.id)}
+                              className={"group relative rounded-lg border p-2 text-center cursor-grab active:cursor-grabbing transition-all select-none "
+                                + (isDragging ? "opacity-30 scale-95 " : "")
+                                + (isDragOver ? "border-amber-500 bg-amber-500/10 scale-105 " : "border-[#1e2d4a] ")
+                                + (isSelected ? "bg-[#1a2340] border-amber-500/60 " : "bg-[#141e35] hover:bg-[#1a2340] ")
+                                + (p.archived ? "opacity-40 " : "")
+                                + (p.stock <= 0 ? "ring-1 ring-red-500/30 " : "")
+                              }
+                            >
+                              <div className="flex items-center justify-center h-9">
+                                {renderProductIcon(p.emoji, "text-2xl", "w-8 h-8")}
+                              </div>
+                              <div className="text-[11px] text-white truncate mt-1 leading-tight" title={p.name}>{p.name}</div>
+                              <div className={"text-sm font-bold mt-0.5 tabular-nums " + stockColor}>
+                                {p.stock <= 0 ? "Épuisé" : String(p.stock)}
+                              </div>
+                              <div className="text-[10px] text-gray-500">{formatPrice(p.price)}</div>
+                              {isSelected && (
+                                <div className="mt-2 flex flex-col gap-1">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); updateProductStock(p.id, -1); }}
+                                      className="w-6 h-6 rounded bg-[#0d1526] border border-[#1e2d4a] text-gray-400 hover:text-white cursor-pointer flex items-center justify-center text-xs"
+                                    >{"-"}</button>
+                                    <span className={"text-sm font-bold tabular-nums " + stockColor}>{String(p.stock)}</span>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); updateProductStock(p.id, 1); }}
+                                      className="w-6 h-6 rounded bg-[#0d1526] border border-[#1e2d4a] text-gray-400 hover:text-white cursor-pointer flex items-center justify-center text-xs"
+                                    >{"+"}</button>
+                                  </div>
+                                  <div className="flex items-center justify-center gap-1 mt-1">
+                                    <button onClick={(e) => { e.stopPropagation(); openEditProduct(p); }} className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded text-[10px] cursor-pointer hover:bg-blue-500/30" title="Modifier">{"✏️"}</button>
+                                    <button onClick={(e) => { e.stopPropagation(); openRestock(p); }} className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-[10px] cursor-pointer hover:bg-emerald-500/30" title="Restock">{"📥"}</button>
+                                    {(p.ledStart || p.ledEnd) ? (
+                                      <button onClick={(e) => { e.stopPropagation(); ledTest(p); }} className="px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 rounded text-[10px] cursor-pointer hover:bg-yellow-500/30" title="Test LED">{"💡"}</button>
+                                    ) : null}
+                                    <button onClick={(e) => { e.stopPropagation(); deleteProduct(p.id, p.name); }} className="px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded text-[10px] cursor-pointer hover:bg-red-500/30" title="Supprimer">{"🗑"}</button>
+                                  </div>
+                                </div>
                               )}
                             </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              {sortedProducts.map(p => {
-                if (expandedBatchProduct !== p.id) return null;
-                const productBatches = batches.filter(b => b.productId === p.id);
-                if (productBatches.length === 0) return null;
-                return (
-                  <div key={"batch-" + p.id} className="mt-4 ml-8 bg-[#0a0f1c] rounded-lg border border-[#1e2d4a] p-4">
-                    <h4 className="text-sm font-semibold text-purple-400 mb-3">{"Lots de " + p.name}</h4>
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-[#1e2d4a] text-gray-400">
-                          <th className="pb-2 text-left font-medium">{"Quantité"}</th>
-                          <th className="pb-2 text-left font-medium">{"Emplacement"}</th>
-                          <th className="pb-2 text-left font-medium">{"Date achat"}</th>
-                          <th className="pb-2 text-left font-medium">{"DLC"}</th>
-                          <th className="pb-2 text-right font-medium">{"Coût unit."}</th>
-                          <th className="pb-2 text-right font-medium">{"Actions"}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {productBatches.map(b => {
-                          const expired = b.expiryDate && new Date(b.expiryDate).getTime() < Date.now();
-                          const expiringSoon = b.expiryDate && !expired && (new Date(b.expiryDate).getTime() - Date.now()) < 7 * 24 * 60 * 60 * 1000;
-                          return (
-                            <tr key={b.id} className="border-b border-[#1e2d4a]/30">
-                              <td className="py-2">{String(b.qty)}</td>
-                              <td className="py-2 text-gray-400">{b.location}</td>
-                              <td className="py-2 text-gray-400">{formatDate(b.purchaseDate)}</td>
-                              <td className={"py-2 " + (expired ? "text-red-400 font-semibold" : expiringSoon ? "text-orange-400" : "text-gray-400")}>
-                                {b.expiryDate ? new Date(b.expiryDate).toLocaleDateString("fr-FR") : "-"}
-                                {expired ? " (expiré)" : ""}
-                                {expiringSoon ? " (⚠)" : ""}
-                              </td>
-                              <td className="py-2 text-right text-gray-400">{formatPrice(b.unitCost)}</td>
-                              <td className="py-2 text-right">
-                                <button
-                                  onClick={() => setBatches(prev => prev.filter(x => x.id !== b.id))}
-                                  className="text-red-400 hover:text-red-300 cursor-pointer text-xs"
-                                >{"🗑"}</button>
-                              </td>
-                            </tr>
                           );
                         })}
-                      </tbody>
-                    </table>
+                      </div>
+                    )}
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
