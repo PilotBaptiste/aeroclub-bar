@@ -3079,119 +3079,83 @@ export default function AeroClubBarV2() {
                 </div>
               )}
 
-              {/* Product list — tappable rows */}
-              {products.filter(p => !p.archived).map((p, idx) => {
-                const pBatches = batchesForProduct(p.id);
-                const hasExpired = pBatches.some(b => b.expiryDate && new Date(b.expiryDate) < new Date());
-                const hasExpiring = pBatches.some(b => {
-                  if (!b.expiryDate) return false;
-                  const exp = new Date(b.expiryDate);
-                  const now = new Date();
-                  return exp >= now && exp <= new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-                });
-                const stockLevel = p.stock;
-                const stockBg = stockLevel <= 0 ? "bg-red-950/60 border-red-800/60" : stockLevel <= 2 ? "bg-red-950/40 border-red-800/40" : stockLevel <= 5 ? "bg-amber-950/40 border-amber-700/40" : "bg-[#131b2e] border-[#1e2d4a]";
-                return (
-                  <div key={p.id} className={"flex flex-col rounded-xl border overflow-hidden " + stockBg}>
-                    <button
-                      onClick={() => setDetailProduct(p)}
-                      className="flex items-center gap-3 px-3 py-3 w-full text-left cursor-pointer active:bg-[#1e2d4a] transition"
-                    >
-                      {/* Reorder number */}
-                      <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="number"
-                          min={1}
-                          max={products.filter(x => !x.archived).length}
-                          value={idx + 1}
-                          onChange={(e) => {
-                            const target = parseInt(e.target.value) - 1;
-                            if (isNaN(target) || target < 0 || target >= products.filter(x => !x.archived).length) return;
-                            setProducts((prev) => {
-                              const active = prev.filter(x => !x.archived);
-                              const archived = prev.filter(x => x.archived);
-                              const item = active[idx];
-                              const without = [...active.slice(0, idx), ...active.slice(idx + 1)];
-                              without.splice(target, 0, item);
-                              return [...without, ...archived];
+              {/* Product grid by location */}
+              {(() => {
+                const sections = [
+                  { id: "frigo" as const, label: "Frigo", emoji: "🧊", cols: 8, border: "border-blue-500/30", bg: "bg-blue-500/5" },
+                  { id: "cafe" as const, label: "Café", emoji: "☕", cols: 4, border: "border-amber-500/30", bg: "bg-amber-500/5" },
+                  { id: "congelateur" as const, label: "Congélateur", emoji: "❄️", cols: 8, border: "border-cyan-500/30", bg: "bg-cyan-500/5" },
+                ];
+                return sections.map(section => {
+                  const sectionProducts = products.filter(p => !p.archived && (p.location || "frigo") === section.id);
+                  if (sectionProducts.length === 0) return null;
+                  return (
+                    <div key={section.id} className="mb-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-lg">{section.emoji}</span>
+                        <h3 className="text-sm font-bold">{section.label}</h3>
+                        <span className="text-xs text-slate-500">{"(" + sectionProducts.length + ")"}</span>
+                      </div>
+                      <div className={"rounded-xl border border-dashed p-2 " + section.border + " " + section.bg}>
+                        <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(" + section.cols + ", minmax(0, 1fr))" }}>
+                          {sectionProducts.map(p => {
+                            const stockColor = p.stock <= 0 ? "text-red-500" : p.stock <= 3 ? "text-red-400" : p.stock <= 5 ? "text-orange-400" : "text-emerald-400";
+                            const pBatches = batchesForProduct(p.id);
+                            const hasExpired = pBatches.some(b => b.expiryDate && new Date(b.expiryDate) < new Date());
+                            const hasExpiring = !hasExpired && pBatches.some(b => {
+                              if (!b.expiryDate) return false;
+                              const exp = new Date(b.expiryDate);
+                              const now = new Date();
+                              return exp >= now && exp <= new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
                             });
-                          }}
-                          className="w-8 h-8 rounded-lg bg-[#0f172a] border border-slate-700 text-center text-xs font-bold text-slate-400 outline-none focus:border-blue-500 focus:text-white"
-                        />
-                      </div>
-                      {/* Icon */}
-                      <span className="w-10 h-10 flex items-center justify-center shrink-0">
-                        {renderProductIcon(p.emoji, "text-2xl", "w-10 h-10")}
-                      </span>
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm font-bold block truncate">{p.name}</span>
-                        <span className="text-xs text-amber-500 font-semibold">
-                          {formatPrice(p.price)}
-                          <span className="text-slate-600">{" \u00B7 " + formatPrice(p.cost || 0)}</span>
-                        </span>
-                      </div>
-                      {/* DLC indicator */}
-                      {hasExpired && <span className="w-3 h-3 rounded-full bg-red-500 shrink-0" title="Lot(s) p\u00E9rim\u00E9(s)" />}
-                      {!hasExpired && hasExpiring && <span className="w-3 h-3 rounded-full bg-orange-500 shrink-0" title="Lot(s) bient\u00F4t p\u00E9rim\u00E9(s)" />}
-                      {/* Stock summary */}
-                      <div className="text-right shrink-0">
-                        <div className="flex items-center gap-1.5 text-xs font-bold">
-                          <span className={p.stock <= 2 ? "text-red-400" : p.stock <= 5 ? "text-orange-400" : "text-white"}>
-                            {"\uD83E\uDDCA " + p.stock}
-                          </span>
-                          <span className="text-slate-600">{"\u00B7"}</span>
-                          <span className="text-purple-300">
-                            {"\uD83D\uDCE6 " + (p.stockReserve ?? 0)}
-                          </span>
+                            return (
+                              <button
+                                key={p.id}
+                                draggable
+                                onDragStart={(e) => { e.dataTransfer.setData("text/plain", p.id); e.dataTransfer.effectAllowed = "move"; }}
+                                onDragOver={(e) => e.preventDefault()}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  const fromId = e.dataTransfer.getData("text/plain");
+                                  if (!fromId || fromId === p.id) return;
+                                  setProducts(prev => {
+                                    const arr = [...prev];
+                                    const fi = arr.findIndex(x => x.id === fromId);
+                                    const ti = arr.findIndex(x => x.id === p.id);
+                                    if (fi === -1 || ti === -1) return prev;
+                                    const [item] = arr.splice(fi, 1);
+                                    arr.splice(ti, 0, item);
+                                    return arr;
+                                  });
+                                }}
+                                onClick={() => setDetailProduct(p)}
+                                className={"relative rounded-lg border p-2 text-center cursor-pointer active:scale-95 transition-all select-none "
+                                  + (p.stock <= 0 ? "bg-red-950/40 border-red-800/40 " : p.stock <= 3 ? "bg-amber-950/30 border-amber-700/30 " : "bg-[#131b2e] border-[#1e2d4a] ")
+                                  + "hover:border-blue-500/50"
+                                }
+                              >
+                                {(hasExpired || hasExpiring) && (
+                                  <span className={"absolute top-0.5 right-0.5 w-2 h-2 rounded-full " + (hasExpired ? "bg-red-500" : "bg-orange-500")} />
+                                )}
+                                <div className="flex items-center justify-center h-8">
+                                  {renderProductIcon(p.emoji, "text-xl", "w-7 h-7")}
+                                </div>
+                                <div className="text-[9px] text-white truncate mt-0.5 leading-tight font-medium">{p.name}</div>
+                                <div className={"text-sm font-bold mt-0.5 tabular-nums " + stockColor}>
+                                  {p.stock <= 0 ? "×" : String(p.stock)}
+                                </div>
+                                {p.stock <= 5 && (p.stockReserve ?? 0) === 0 && (
+                                  <div className="text-[8px] text-red-400 font-bold truncate">{"⚠ Réappro"}</div>
+                                )}
+                              </button>
+                            );
+                          })}
                         </div>
-                        {p.stock <= 5 && (p.stockReserve ?? 0) === 0 && (
-                          <span className="text-[9px] text-red-400 font-bold">{"\u26A0 R\u00E9appro!"}</span>
-                        )}
                       </div>
-                      {/* Chevron */}
-                      <span className="text-slate-600 text-sm shrink-0">{"\u203A"}</span>
-                    </button>
-                    {/* Quick action bar */}
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-black/20 border-t border-white/5">
-                      <div className="flex-1 flex items-center gap-1 flex-wrap">
-                        {getCategories().map((cat) => (
-                          <button key={cat.id}
-                            onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, category: x.category === cat.id ? undefined : cat.id } : x))}
-                            className={"text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer " + (p.category === cat.id ? "bg-blue-600 text-white" : "bg-[#0f172a] text-slate-500 hover:text-slate-300")}
-                          >{cat.emoji}</button>
-                        ))}
-                        <span className="text-slate-700 mx-0.5">{"|"}</span>
-                        {([["frigo", "\uD83E\uDDCA"], ["cafe", "\u2615"], ["congelateur", "\u2744\uFE0F"]] as const).map(([loc, emoji]) => (
-                          <button key={loc}
-                            onClick={() => setProducts((prev) => prev.map((x) => x.id === p.id ? { ...x, location: loc } : x))}
-                            className={"text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer " + ((p.location || "frigo") === loc ? "bg-cyan-600 text-white" : "bg-[#0f172a] text-slate-500 hover:text-slate-300")}
-                            title={loc === "frigo" ? "Frigo" : loc === "cafe" ? "Caf\u00E9" : "Cong\u00E9lateur"}
-                          >{emoji}</button>
-                        ))}
-                      </div>
-                      {p.ledStart != null && p.ledEnd != null && (
-                        <button
-                          onClick={() => {
-                            const color = (p.ledColor || "#FFFFFF").replace("#", "");
-                            fetch("/api/fridge?action=trigger&lock=none&leds=" + p.ledStart + "-" + p.ledEnd + ":" + color + "&anim=none").catch(() => {});
-                            showToast("\uD83D\uDCA1 " + p.name + " \u2014 LED " + p.ledStart + "-" + p.ledEnd);
-                            setTimeout(() => {
-                              fetch("/api/fridge?action=trigger&lock=none&leds=&anim=none").catch(() => {});
-                            }, 5000);
-                          }}
-                          className="text-[11px] px-2 py-1 rounded-lg border border-green-700 bg-green-900/20 text-green-400 font-bold cursor-pointer"
-                          title={"Tester LED " + p.ledStart + "-" + p.ledEnd}
-                        >{"\uD83D\uDCA1"}</button>
-                      )}
-                      <button
-                        onClick={() => { setRestockingProduct(p); setRestockForm({ qty: 1, newPrice: p.price, newCost: p.cost, method: "especes" }); }}
-                        className="text-[11px] px-2.5 py-1 rounded-lg border border-emerald-700 bg-emerald-900/20 text-emerald-400 font-bold cursor-pointer"
-                      >{"+ R\u00E9appro"}</button>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
 
               {/* Archived products */}
               {products.filter(p => p.archived).length > 0 && (
