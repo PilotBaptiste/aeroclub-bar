@@ -372,19 +372,49 @@ export default function AeroClubBarV2() {
 
   // Debounced save to avoid too many API calls
   // CRITICAL: never save if load never succeeded (prevents overwriting real data with defaults)
+  const pendingValues = useRef<Record<string, unknown>>({});
+
   const debouncedSave = useCallback((key: string, value: unknown) => {
     if (!hasLoaded.current) return;
     if (saveTimeout.current[key]) clearTimeout(saveTimeout.current[key]);
+    pendingValues.current[key] = value;
+    backupToLocalStorage(key, value);
     setSaveStatus("saving");
     saveTimeout.current[key] = setTimeout(async () => {
+      delete pendingValues.current[key];
       const ok = await saveToServer(key, value);
       setSaveStatus(ok ? "idle" : "error");
-      // Backup to localStorage on every successful save
-      if (ok) backupToLocalStorage(key, value);
     }, 1000);
   }, []);
 
-  // Load data from server with retry + localStorage fallback
+  useEffect(() => {
+    const flushPending = () => {
+      const keys = Object.keys(pendingValues.current);
+      if (keys.length === 0) return;
+      for (const key of Object.keys(saveTimeout.current)) {
+        if (saveTimeout.current[key]) {
+          clearTimeout(saveTimeout.current[key]);
+          delete saveTimeout.current[key];
+        }
+      }
+      for (const key of keys) {
+        try {
+          const blob = new Blob([JSON.stringify({ key, value: pendingValues.current[key] })], { type: "application/json" });
+          navigator.sendBeacon("/api/data", blob);
+        } catch {}
+      }
+      pendingValues.current = {};
+    };
+    const onVisChange = () => { if (document.visibilityState === "hidden") flushPending(); };
+    document.addEventListener("visibilitychange", onVisChange);
+    window.addEventListener("beforeunload", flushPending);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisChange);
+      window.removeEventListener("beforeunload", flushPending);
+    };
+  }, []);
+
+    // Load data from server with retry + localStorage fallback
   useEffect(() => {
     (async () => {
       const { data, ok } = await loadFromServerWithRetry(3);
@@ -3035,50 +3065,6 @@ export default function AeroClubBarV2() {
 
           {activeAdminTab === "stock" && (
             <div className="flex flex-col gap-3">
-              {/* DLC Alerts */}
-              {expiredBatches.length > 0 && (
-                <div className="bg-red-950/50 border border-red-700 rounded-xl p-3 flex items-start gap-2">
-                  <span className="text-lg">{"\u26A0\uFE0F"}</span>
-                  <div className="flex-1">
-                    <span className="text-sm font-bold text-red-400 block">
-                      {expiredBatches.length + " lot(s) \u00E9rim\u00E9(s)"}
-                    </span>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {[...new Set(expiredBatches.map(b => b.productId))].map((pid) => {
-                        const p = products.find(x => x.id === pid);
-                        return p ? (
-                          <button key={pid} onClick={() => setDetailProduct(p)}
-                            className="text-xs px-2 py-0.5 rounded-full bg-red-900/50 text-red-300 cursor-pointer hover:bg-red-800/50">
-                            {p.name}
-                          </button>
-                        ) : null;
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {expiringBatches.length > 0 && (
-                <div className="bg-orange-950/40 border border-orange-700 rounded-xl p-3 flex items-start gap-2">
-                  <span className="text-lg">{"\uD83D\uDD51"}</span>
-                  <div className="flex-1">
-                    <span className="text-sm font-bold text-orange-400 block">
-                      {expiringBatches.length + " lot(s) expirent dans 7 jours"}
-                    </span>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {[...new Set(expiringBatches.map(b => b.productId))].map((pid) => {
-                        const p = products.find(x => x.id === pid);
-                        return p ? (
-                          <button key={pid} onClick={() => setDetailProduct(p)}
-                            className="text-xs px-2 py-0.5 rounded-full bg-orange-900/50 text-orange-300 cursor-pointer hover:bg-orange-800/50">
-                            {p.name}
-                          </button>
-                        ) : null;
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* Product grid by location */}
               {(() => {
                 const sections = [
@@ -5251,6 +5237,39 @@ export default function AeroClubBarV2() {
                       </div>
                     )}
                   </div>
+                )}
+              </div>
+
+              {/* ── Catégorie & Emplacement ── */}
+              <div className="bg-[#0f172a] rounded-2xl border border-[#1e2d4a] p-3 flex flex-col gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase">{"Catégorie"}</span>
+                  {getCategories().map((cat) => (
+                    <button key={cat.id}
+                      onClick={() => { setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, category: x.category === cat.id ? undefined : cat.id } : x)); setDetailProduct(prev => prev ? {...prev, category: prev.category === cat.id ? undefined : cat.id} : null); }}
+                      className={"text-xs px-2.5 py-1.5 rounded-lg font-bold cursor-pointer transition " + (detailProduct.category === cat.id ? "bg-blue-600 text-white" : "bg-[#131b2e] text-slate-500 border border-slate-700")}
+                    >{cat.emoji + " " + cat.label}</button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] text-slate-500 font-semibold uppercase">{"Emplacement"}</span>
+                  {([["frigo", "\uD83E\uDDCA Frigo"], ["cafe", "\u2615 Café"], ["congelateur", "\u2744\uFE0F Congélateur"]] as const).map(([loc, label]) => (
+                    <button key={loc}
+                      onClick={() => { setProducts((prev) => prev.map((x) => x.id === detailProduct.id ? { ...x, location: loc } : x)); setDetailProduct(prev => prev ? {...prev, location: loc} : null); }}
+                      className={"text-xs px-2.5 py-1.5 rounded-lg font-bold cursor-pointer transition " + ((detailProduct.location || "frigo") === loc ? "bg-cyan-600 text-white" : "bg-[#131b2e] text-slate-500 border border-slate-700")}
+                    >{label}</button>
+                  ))}
+                </div>
+                {detailProduct.ledStart != null && detailProduct.ledEnd != null && (
+                  <button
+                    onClick={() => {
+                      const color = (detailProduct.ledColor || "#FFFFFF").replace("#", "");
+                      fetch("/api/fridge?action=trigger&lock=none&leds=" + detailProduct.ledStart + "-" + detailProduct.ledEnd + ":" + color + "&anim=none").catch(() => {});
+                      showToast("\uD83D\uDCA1 LED " + detailProduct.name + " allumée !");
+                      setTimeout(() => { fetch("/api/fridge?action=trigger&lock=none&leds=&anim=none").catch(() => {}); }, 5000);
+                    }}
+                    className="self-start text-xs px-3 py-2 rounded-lg bg-green-900/30 border border-green-700 text-green-400 font-bold cursor-pointer active:scale-95"
+                  >{"\uD83D\uDCA1 Tester LED " + detailProduct.ledStart + "-" + detailProduct.ledEnd}</button>
                 )}
               </div>
 
