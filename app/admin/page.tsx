@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 import type { Organization } from "@/lib/types";
 
 export default function AdminDashboard() {
@@ -9,9 +8,9 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const supabase = createClient();
-    supabase.from("organizations").select("*").order("created_at", { ascending: false })
-      .then(({ data }) => { setOrgs(data || []); setLoading(false); });
+    fetch("/api/admin/orgs")
+      .then(r => r.json())
+      .then(data => { setOrgs(Array.isArray(data) ? data : []); setLoading(false); });
   }, []);
 
   const totalProducts = 0; // TODO: aggregate from all orgs

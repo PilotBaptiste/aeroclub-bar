@@ -1,12 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import type { Organization } from "@/lib/types";
 
 export default function ClientsPage() {
   const router = useRouter();
-  const supabase = createClient();
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -18,8 +16,9 @@ export default function ClientsPage() {
   }, []);
 
   async function loadOrgs() {
-    const { data } = await supabase.from("organizations").select("*").order("created_at");
-    setOrgs(data || []);
+    const res = await fetch("/api/admin/orgs");
+    const data = await res.json();
+    setOrgs(Array.isArray(data) ? data : []);
     setLoading(false);
   }
 
@@ -28,14 +27,14 @@ export default function ClientsPage() {
     if (!form.name || !form.slug) return;
     setCreating(true);
     const slug = form.slug.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-");
-    const { error } = await supabase.from("organizations").insert({
-      name: form.name,
-      slug,
-      settings: { barName: form.name, adminPin: "1234", bureauPin: "1234" },
-      theme: {},
+    const res = await fetch("/api/admin/orgs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: form.name, slug, settings: { barName: form.name, adminPin: "1234", bureauPin: "1234" } }),
     });
-    if (error) {
-      alert("Erreur : " + error.message);
+    const data = await res.json();
+    if (!res.ok) {
+      alert("Erreur : " + (data.error || "Erreur inconnue"));
       setCreating(false);
       return;
     }
@@ -47,7 +46,7 @@ export default function ClientsPage() {
 
   async function handleDelete(org: Organization) {
     if (!confirm("Supprimer " + org.name + " et toutes ses données ? Cette action est irréversible.")) return;
-    await supabase.from("organizations").delete().eq("id", org.id);
+    await fetch("/api/admin/orgs?id=" + org.id, { method: "DELETE" });
     loadOrgs();
   }
 
