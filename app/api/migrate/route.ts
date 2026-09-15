@@ -67,11 +67,11 @@ export async function POST(request: Request) {
     }
 
     // Migrate settings
-    const settings = (await kv.get("aeroclub-settings")) as Record<string, unknown> | null;
+    const settings = await kv.get("aeroclub-settings");
     if (settings) {
       await supabase
         .from("organizations")
-        .update({ settings })
+        .update({ settings: settings as import("@/lib/types/database").Json })
         .eq("id", orgId);
     }
 

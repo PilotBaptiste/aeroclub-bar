@@ -1,3 +1,4 @@
+import type { Database } from './database'
 export type { Database, Json } from './database'
 
 // Convenience row types
