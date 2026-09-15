@@ -95,6 +95,8 @@ interface Settings {
   cashInitialFund?: number; // reprise CA espèces
   cbInitialFund?: number;   // reprise CA CB
   costReprise?: number;     // reprise coûts (avant suivi)
+  logoUrl?: string;
+  subtitle?: string;
   cupCost?: number;
   sumupFeeRate?: number;
   categories?: Category[];
@@ -187,7 +189,10 @@ function formatPrice(p: number) {
   return p.toFixed(2).replace(".", ",") + " \u20AC";
 }
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("fr-FR", {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("fr-FR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -702,7 +707,7 @@ export default function AeroClubBarV2({ orgSlug }: { orgSlug?: string } = {}) {
 
   // Popular products by sales count
   const popularProducts = [...saleProducts].map((p) => {
-    const salesCount = transactions.reduce((s, t) => s + (t.items.includes(p.name) ? 1 : 0), 0);
+    const salesCount = transactions.reduce((s, t) => s + ((typeof t.items === "string" ? t.items : "").includes(p.name) ? 1 : 0), 0);
     return { ...p, salesCount };
   }).sort((a, b) => b.salesCount - a.salesCount).filter((p) => p.salesCount > 0);
 
@@ -794,7 +799,8 @@ export default function AeroClubBarV2({ orgSlug }: { orgSlug?: string } = {}) {
 
   // Normalize a full name by sorting tokens alphabetically so
   // Rendu de l'icône produit : emoji texte OU image si l'emoji est une URL http
-  const renderProductIcon = (emoji: string, className: string, imgSize = "w-8 h-8") => {
+  const renderProductIcon = (emoji: string | null | undefined, className: string, imgSize = "w-8 h-8") => {
+    if (!emoji) return <span className={className}>{"📦"}</span>;
     if (emoji.startsWith("http")) {
       return <img src={emoji} alt="" className={imgSize + " object-contain rounded"} />;
     }
@@ -803,7 +809,7 @@ export default function AeroClubBarV2({ orgSlug }: { orgSlug?: string } = {}) {
 
   // "DUPONT Jean", "Jean Dupont", "jean dupont" all map to the same key
   const normalizeNameFuzzy = (n: string) =>
-    n.trim().toLowerCase().split(/\s+/).sort().join(" ");
+    (n || "").trim().toLowerCase().split(/\s+/).sort().join(" ");
 
   // Autocomplete suggestions: names that contain any token of the input
   const getNameSuggestions = (input: string): string[] => {
@@ -1443,7 +1449,7 @@ export default function AeroClubBarV2({ orgSlug }: { orgSlug?: string } = {}) {
 
   const deleteTransaction = (tx: Transaction) => {
     if (!confirm("Supprimer cette vente ? Le stock sera restaure.")) return;
-    const itemParts = tx.items.split(", ");
+    const itemParts = (typeof tx.items === "string" ? tx.items : String(tx.items || "")).split(", ");
     setProducts((prev) => {
       let u = [...prev];
       for (const part of itemParts) {
@@ -1548,7 +1554,7 @@ export default function AeroClubBarV2({ orgSlug }: { orgSlug?: string } = {}) {
   };
 
   const todayStr = new Date().toISOString().slice(0, 10);
-  const todayTx = transactions.filter((t) => t.date.slice(0, 10) === todayStr);
+  const todayTx = transactions.filter((t) => (t.date || "").slice(0, 10) === todayStr);
   const todayRevenue = todayTx.reduce((s, t) => s + t.total, 0);
   const totalRevenue = transactions.reduce((s, t) => s + t.total, 0);
   const totalCost = transactions.reduce((s, t) => s + (t.totalCost || 0), 0);
@@ -1675,10 +1681,16 @@ export default function AeroClubBarV2({ orgSlug }: { orgSlug?: string } = {}) {
           <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#0a0f1e]/80 border-b border-white/5">
             <div className="max-w-4xl mx-auto px-5 py-3 flex items-center justify-between">
               <button onClick={() => { setShowAllProducts(false); }} className="flex items-center gap-3 cursor-pointer">
-                <img src="/logo-acba.png" alt="" className="w-10 h-10 rounded-xl object-contain" />
+                {settings.logoUrl ? (
+                  <img src={settings.logoUrl} alt="" className="w-10 h-10 rounded-xl object-contain" />
+                ) : (
+                  <div className="w-10 h-10 rounded-xl bg-blue-600/20 flex items-center justify-center text-lg font-bold text-blue-400">
+                    {(settings.clubName || "B").charAt(0)}
+                  </div>
+                )}
                 <div>
                   <h1 className="text-base font-black tracking-tight v2-shimmer">{(settings.clubName || "BAR").toUpperCase() + " BAR"}</h1>
-                  <p className="text-[11px] text-slate-500 font-medium tracking-wider">{"BASSIN D'ARCACHON"}</p>
+                  <p className="text-[11px] text-slate-500 font-medium tracking-wider">{(settings.subtitle || "").toUpperCase()}</p>
                 </div>
               </button>
               {/* Temperatures */}

@@ -111,10 +111,12 @@ export async function POST(request: Request) {
     if (transactions && transactions.length > 0) {
       const rows = transactions.map(t => ({
         org_id: orgId,
-        items: (t.items || []) as import("@/lib/types/database").Json,
+        items: (typeof t.items === "string" ? t.items : JSON.stringify(t.items ?? "")) as import("@/lib/types/database").Json,
         total: Number(t.total) || 0,
-        payment_method: String(t.paymentMethod || t.payment_method || "cash"),
-        member_id: t.memberId ? String(t.memberId) : t.member_id ? String(t.member_id) : null,
+        total_cost: Number(t.totalCost || t.total_cost) || 0,
+        amount_paid: (t.amountPaid ?? t.amount_paid ?? null) as number | null,
+        payment_method: String(t.method || t.paymentMethod || t.payment_method || "especes"),
+        member_id: t.buyer ? String(t.buyer) : t.memberId ? String(t.memberId) : t.member_id ? String(t.member_id) : null,
         created_by: t.createdBy ? String(t.createdBy) : t.created_by ? String(t.created_by) : null,
         ...(t.created_at ? { created_at: String(t.created_at) } : t.date ? { created_at: String(t.date) } : {}),
       }));
@@ -146,10 +148,11 @@ export async function POST(request: Request) {
       const rows = procurements.map(p => ({
         org_id: orgId,
         product_id: String(p.productId || p.product_id || ""),
+        product_name: String(p.productName || p.product_name || ""),
         quantity: Number(p.quantity || p.qty) || 0,
         unit_cost: Number(p.unitCost || p.unit_cost) || 0,
         total_cost: Number(p.totalCost || p.total_cost) || 0,
-        payment_method: String(p.paymentMethod || p.payment_method || "cash"),
+        payment_method: String(p.method || p.paymentMethod || p.payment_method || "especes"),
         supplier: p.supplier ? String(p.supplier) : null,
         created_by: p.createdBy ? String(p.createdBy) : p.created_by ? String(p.created_by) : null,
         ...(p.created_at ? { created_at: String(p.created_at) } : p.date ? { created_at: String(p.date) } : {}),
@@ -166,8 +169,10 @@ export async function POST(request: Request) {
         org_id: orgId,
         product_id: String(b.productId || b.product_id || ""),
         quantity: Number(b.quantity || b.qty) || 0,
+        location: String(b.location ?? "frigo"),
+        unit_cost: Number(b.unitCost || b.unit_cost) || 0,
         expiry_date: b.expiryDate ? String(b.expiryDate) : b.expiry_date ? String(b.expiry_date) : null,
-        ...(b.created_at ? { created_at: String(b.created_at) } : {}),
+        ...(b.created_at ? { created_at: String(b.created_at) } : b.purchaseDate ? { created_at: String(b.purchaseDate) } : {}),
       }));
       const { error } = await supabase.from("batches").insert(rows);
       if (error) return NextResponse.json({ error: "Batches: " + error.message }, { status: 500 });

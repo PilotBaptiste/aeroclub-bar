@@ -11,6 +11,7 @@ const DATA_KEYS = [
   "aeroclub-procurements",
   "aeroclub-coffee-credits",
   "aeroclub-madeleine-credits",
+  "aeroclub-product-credits",
   "aeroclub-batches",
 ];
 
@@ -59,7 +60,7 @@ async function resolveOrg(slug: string) {
 
 async function supabaseReadAll(orgSlug: string) {
   const supabase = createAdminClient();
-  const { data: org } = await supabase.from("organizations").select("id, settings").eq("slug", orgSlug).single();
+  const { data: org } = await supabase.from("organizations").select("id, name, settings").eq("slug", orgSlug).single();
   if (!org) return null;
   const orgId = org.id;
   const [products, transactions, suggestions, members, procurements, credits, batches] = await Promise.all([
@@ -74,13 +75,18 @@ async function supabaseReadAll(orgSlug: string) {
   const productCredits: Record<string, Record<string, number>> = {};
   for (const r of (credits.data || []) as Array<{ member_id: string; product_id: string | null; total_bought: number }>) {
     if (!r.product_id) continue;
-    if (!productCredits[r.member_id]) productCredits[r.member_id] = {};
-    productCredits[r.member_id][r.product_id] = r.total_bought;
+    if (!productCredits[r.product_id]) productCredits[r.product_id] = {};
+    productCredits[r.product_id][r.member_id] = r.total_bought;
   }
-  const txToRedis = (t: Record<string, unknown>) => ({
-    id: t.id, items: t.items ?? "", total: t.total ?? 0, totalCost: t.total_cost ?? 0,
-    buyer: t.member_id ?? "", date: t.created_at ?? "", method: t.payment_method ?? "especes",
-  });
+  const txToRedis = (t: Record<string, unknown>) => {
+    const items = t.items;
+    return {
+      id: t.id, items: typeof items === "string" ? items : (items ? JSON.stringify(items) : ""),
+      total: t.total ?? 0, totalCost: t.total_cost ?? t.totalCost ?? 0,
+      buyer: t.member_id ?? "", date: t.created_at ?? "", method: t.payment_method ?? "especes",
+      amountPaid: t.amount_paid ?? null,
+    };
+  };
   const sugToRedis = (s: Record<string, unknown>) => ({
     id: s.id, text: s.text ?? "", author: s.author ?? "", date: s.created_at ?? "",
   });
@@ -98,7 +104,7 @@ async function supabaseReadAll(orgSlug: string) {
   return {
     products: products.data ? products.data.map(p => productToRedisFormat(p as Record<string, unknown>)) : null,
     transactions: transactions.data ? transactions.data.map(t => txToRedis(t as Record<string, unknown>)) : null,
-    settings: org.settings || null,
+    settings: { clubName: org.name, ...((org.settings as Record<string, unknown>) || {}) },
     suggestions: suggestions.data ? suggestions.data.map(s => sugToRedis(s as Record<string, unknown>)) : null,
     members: members.data ? members.data.map(m => memToRedis(m as Record<string, unknown>)) : null,
     procurements: procurements.data ? procurements.data.map(p => procToRedis(p as Record<string, unknown>)) : null,
@@ -106,6 +112,61 @@ async function supabaseReadAll(orgSlug: string) {
     madeleineCredits: null,
     productCredits,
     batches: batches.data ? batches.data.map(b => batchToRedis(b as Record<string, unknown>)) : null,
+  };
+}
+
+function txToSupabase(t: Record<string, unknown>, orgId: string) {
+  const items = t.items;
+  return {
+    org_id: orgId,
+    ...(t.id ? { id: t.id } : {}),
+    items: typeof items === "string" ? items : JSON.stringify(items ?? ""),
+    total: Number(t.total) || 0,
+    total_cost: Number(t.totalCost ?? t.total_cost) || 0,
+    amount_paid: t.amountPaid ?? t.amount_paid ?? null,
+    payment_method: t.method ?? t.payment_method ?? "especes",
+    member_id: t.buyer ?? t.member_id ?? null,
+    created_by: t.createdBy ?? t.created_by ?? null,
+    ...(t.date ? { created_at: t.date } : t.created_at ? { created_at: t.created_at } : {}),
+  };
+}
+function sugToSupabase(s: Record<string, unknown>, orgId: string) {
+  return {
+    org_id: orgId, ...(s.id ? { id: s.id } : {}),
+    text: String(s.text || s.name || ""), author: s.author ?? null,
+    status: (["pending", "accepted", "rejected"].includes(String(s.status)) ? s.status : "pending"),
+    ...(s.date ? { created_at: s.date } : s.created_at ? { created_at: s.created_at } : {}),
+  };
+}
+function memToSupabase(m: Record<string, unknown>, orgId: string) {
+  return {
+    org_id: orgId, ...(m.id ? { id: m.id } : {}),
+    name: String(m.name || ""), email: m.email ? String(m.email) : null,
+    balance: Number(m.balance) || 0, archived: Boolean(m.archived),
+  };
+}
+function procToSupabase(p: Record<string, unknown>, orgId: string) {
+  return {
+    org_id: orgId, ...(p.id ? { id: p.id } : {}),
+    product_id: p.productId ?? p.product_id ?? "",
+    product_name: p.productName ?? p.product_name ?? "",
+    quantity: Number(p.qty ?? p.quantity) || 0,
+    unit_cost: Number(p.unitCost ?? p.unit_cost) || 0,
+    total_cost: Number(p.totalCost ?? p.total_cost) || 0,
+    payment_method: p.method ?? p.payment_method ?? "especes",
+    supplier: p.supplier ?? null,
+    ...(p.date ? { created_at: p.date } : p.created_at ? { created_at: p.created_at } : {}),
+  };
+}
+function batchToSupabase(b: Record<string, unknown>, orgId: string) {
+  return {
+    org_id: orgId, ...(b.id ? { id: b.id } : {}),
+    product_id: b.productId ?? b.product_id ?? "",
+    quantity: Number(b.qty ?? b.quantity) || 0,
+    location: b.location ?? "frigo",
+    unit_cost: Number(b.unitCost ?? b.unit_cost) || 0,
+    expiry_date: b.expiryDate ?? b.expiry_date ?? null,
+    ...(b.purchaseDate ? { created_at: b.purchaseDate } : b.created_at ? { created_at: b.created_at } : {}),
   };
 }
 
@@ -120,26 +181,26 @@ async function supabaseWriteAll(orgSlug: string, data: Record<string, unknown>) 
   }
   if (Array.isArray(data.transactions) && data.transactions.length > 0) {
     await supabase.from("transactions").delete().eq("org_id", orgId);
-    await supabase.from("transactions").insert(data.transactions.map((t: Record<string, unknown>) => ({ ...t, org_id: orgId })) as never[]);
+    await supabase.from("transactions").insert(data.transactions.map((t: Record<string, unknown>) => txToSupabase(t, orgId)) as never[]);
   }
   if (data.settings) {
     await supabase.from("organizations").update({ settings: data.settings as never }).eq("id", orgId);
   }
   if (Array.isArray(data.suggestions)) {
     await supabase.from("suggestions").delete().eq("org_id", orgId);
-    if (data.suggestions.length > 0) await supabase.from("suggestions").insert(data.suggestions.map((s: Record<string, unknown>) => ({ ...s, org_id: orgId })) as never[]);
+    if (data.suggestions.length > 0) await supabase.from("suggestions").insert(data.suggestions.map((s: Record<string, unknown>) => sugToSupabase(s, orgId)) as never[]);
   }
   if (Array.isArray(data.members) && data.members.length > 0) {
     await supabase.from("members").delete().eq("org_id", orgId);
-    await supabase.from("members").insert(data.members.map((m: Record<string, unknown>) => ({ ...m, org_id: orgId })) as never[]);
+    await supabase.from("members").insert(data.members.map((m: Record<string, unknown>) => memToSupabase(m, orgId)) as never[]);
   }
   if (Array.isArray(data.procurements)) {
     await supabase.from("procurements").delete().eq("org_id", orgId);
-    if (data.procurements.length > 0) await supabase.from("procurements").insert(data.procurements.map((p: Record<string, unknown>) => ({ ...p, org_id: orgId })) as never[]);
+    if (data.procurements.length > 0) await supabase.from("procurements").insert(data.procurements.map((p: Record<string, unknown>) => procToSupabase(p, orgId)) as never[]);
   }
   if (Array.isArray(data.batches)) {
     await supabase.from("batches").delete().eq("org_id", orgId);
-    if (data.batches.length > 0) await supabase.from("batches").insert(data.batches.map((b: Record<string, unknown>) => ({ ...b, org_id: orgId })) as never[]);
+    if (data.batches.length > 0) await supabase.from("batches").insert(data.batches.map((b: Record<string, unknown>) => batchToSupabase(b, orgId)) as never[]);
   }
   return true;
 }

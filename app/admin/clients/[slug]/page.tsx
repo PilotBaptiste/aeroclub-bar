@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 import type { Organization, Product, Member, Category } from "@/lib/types";
 
 type Tab = "products" | "members" | "categories" | "settings";
@@ -12,14 +11,17 @@ function isUrl(s: string | null | undefined): boolean {
 }
 
 function ProductIcon({ emoji }: { emoji: string | null }) {
-  if (!emoji) return <span className="text-lg">📦</span>;
+  if (!emoji) return <span className="text-lg">{"📦"}</span>;
   if (isUrl(emoji)) return <img src={emoji} alt="" className="w-8 h-8 rounded object-cover" />;
   return <span className="text-lg">{emoji}</span>;
 }
 
+async function adminFetch(path: string, init?: RequestInit) {
+  return fetch("/api/admin/client-data" + path, init);
+}
+
 export default function ClientManagePage() {
   const { slug } = useParams<{ slug: string }>();
-  const supabase = createClient();
   const [org, setOrg] = useState<Organization | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -32,62 +34,79 @@ export default function ClientManagePage() {
 
   async function load() {
     setLoading(true);
-    const { data: orgData } = await supabase.from("organizations").select("*").eq("slug", slug).single();
-    if (!orgData) { setLoading(false); return; }
-    setOrg(orgData);
-    setSettings((orgData.settings as Record<string, unknown>) || {});
-    const [prods, mems, cats] = await Promise.all([
-      supabase.from("products").select("*").eq("org_id", orgData.id).order("position"),
-      supabase.from("members").select("*").eq("org_id", orgData.id).order("name"),
-      supabase.from("categories").select("*").eq("org_id", orgData.id).order("position"),
-    ]);
-    setProducts(prods.data || []);
-    setMembers(mems.data || []);
-    setCategories(cats.data || []);
+    const res = await adminFetch("?slug=" + slug);
+    if (!res.ok) { setLoading(false); return; }
+    const data = await res.json();
+    setOrg(data.org);
+    setSettings((data.org?.settings as Record<string, unknown>) || {});
+    setProducts(data.products || []);
+    setMembers(data.members || []);
+    setCategories(data.categories || []);
     setLoading(false);
   }
 
   async function updateProduct(id: string, updates: Partial<Product>) {
-    await supabase.from("products").update(updates).eq("id", id);
+    await adminFetch("?action=update-product", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, updates }),
+    });
     setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
   }
 
   async function deleteProduct(id: string) {
-    await supabase.from("products").delete().eq("id", id);
+    await adminFetch("?action=delete-product", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
     setProducts(prev => prev.filter(p => p.id !== id));
   }
 
   async function addProduct() {
     if (!org) return;
-    const { data } = await supabase.from("products").insert({
-      org_id: org.id, name: "Nouveau produit", emoji: "📦", price: 1, cost: 0,
-      stock: 0, stock_reserve: 0, location: "frigo" as const, position: products.length,
-    }).select().single();
-    if (data) setProducts(prev => [...prev, data]);
+    const res = await adminFetch("?action=add-product", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        org_id: org.id, name: "Nouveau produit", emoji: "📦", price: 1, cost: 0,
+        stock: 0, stock_reserve: 0, location: "frigo", position: products.length,
+      }),
+    });
+    const data = await res.json();
+    if (data.product) setProducts(prev => [...prev, data.product]);
   }
 
   async function addMember() {
     if (!org) return;
-    const { data } = await supabase.from("members").insert({
-      org_id: org.id, name: "Nouveau membre", balance: 0,
-    }).select().single();
-    if (data) setMembers(prev => [...prev, data]);
+    const res = await adminFetch("?action=add-member", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ org_id: org.id, name: "Nouveau membre", balance: 0 }),
+    });
+    const data = await res.json();
+    if (data.member) setMembers(prev => [...prev, data.member]);
   }
 
   async function addCategory() {
     if (!org) return;
-    const { data } = await supabase.from("categories").insert({
-      org_id: org.id, name: "Nouvelle catégorie", emoji: "📂", position: categories.length,
-    }).select().single();
-    if (data) setCategories(prev => [...prev, data]);
+    const res = await adminFetch("?action=add-category", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ org_id: org.id, name: "Nouvelle categorie", emoji: "📂", position: categories.length }),
+    });
+    const data = await res.json();
+    if (data.category) setCategories(prev => [...prev, data.category]);
   }
 
   async function saveSettings(newSettings: Record<string, unknown>) {
     if (!org) return;
     setSettings(newSettings);
-    await supabase.from("organizations").update({
-      settings: newSettings as import("@/lib/types/database").Json,
-    }).eq("id", org.id);
+    await adminFetch("?action=save-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ org_id: org.id, settings: newSettings }),
+    });
   }
 
   if (loading) return <div className="flex items-center justify-center h-full text-slate-500">Chargement...</div>;
@@ -223,7 +242,7 @@ export default function ClientManagePage() {
                 </div>
                 <input value={m.name}
                   onChange={e => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, name: e.target.value } : x))}
-                  onBlur={() => supabase.from("members").update({ name: m.name }).eq("id", m.id)}
+                  onBlur={() => adminFetch("?action=update-member", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: m.id, updates: { name: m.name } }) })}
                   className="flex-1 bg-transparent text-sm font-medium outline-none" />
                 <span className={"text-sm font-bold tabular-nums " + (Number(m.balance) < 0 ? "text-red-400" : "text-emerald-400")}>
                   {Number(m.balance).toFixed(2) + " €"}
@@ -270,13 +289,13 @@ export default function ClientManagePage() {
                 <div key={c.id} className="flex items-center gap-3 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 py-2 group">
                   <input value={c.emoji || ""}
                     onChange={e => setCategories(prev => prev.map(x => x.id === c.id ? { ...x, emoji: e.target.value } : x))}
-                    onBlur={() => supabase.from("categories").update({ emoji: c.emoji }).eq("id", c.id)}
+                    onBlur={() => adminFetch("?action=update-category", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, updates: { emoji: c.emoji } }) })}
                     className="w-10 bg-transparent text-center text-lg outline-none" />
                   <input value={c.name}
                     onChange={e => setCategories(prev => prev.map(x => x.id === c.id ? { ...x, name: e.target.value } : x))}
-                    onBlur={() => supabase.from("categories").update({ name: c.name }).eq("id", c.id)}
+                    onBlur={() => adminFetch("?action=update-category", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, updates: { name: c.name } }) })}
                     className="flex-1 bg-transparent text-sm font-medium outline-none" />
-                  <button onClick={async () => { await supabase.from("categories").delete().eq("id", c.id); setCategories(prev => prev.filter(x => x.id !== c.id)); }}
+                  <button onClick={async () => { await adminFetch("?action=delete-category", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id }) }); setCategories(prev => prev.filter(x => x.id !== c.id)); }}
                     className="text-red-500/50 hover:text-red-400 text-sm cursor-pointer opacity-0 group-hover:opacity-100 transition">🗑</button>
                 </div>
               ))}
@@ -287,14 +306,15 @@ export default function ClientManagePage() {
 
       {/* Settings tab */}
       {tab === "settings" && (
-        <div className="max-w-lg">
+        <div className="max-w-2xl">
           <h2 className="font-bold mb-4">Paramètres du bar</h2>
           <div className="space-y-4">
+            {/* Identity */}
             <div>
-              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Nom du bar</label>
+              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Nom du club</label>
               <input value={org.name}
                 onChange={e => setOrg({ ...org, name: e.target.value })}
-                onBlur={() => supabase.from("organizations").update({ name: org.name }).eq("id", org.id)}
+                onBlur={() => adminFetch("?action=update-org", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: org.id, updates: { name: org.name } }) })}
                 className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
             </div>
             <div>
@@ -306,16 +326,40 @@ export default function ClientManagePage() {
               </div>
             </div>
             <div>
-              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">URL du logo</label>
-              <input value={org.logo_url || ""}
-                onChange={e => setOrg({ ...org, logo_url: e.target.value })}
-                onBlur={() => supabase.from("organizations").update({ logo_url: org.logo_url }).eq("id", org.id)}
-                placeholder="https://..."
+              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Nom affiché sur le bar (en-tete)</label>
+              <input value={String(settings.clubName || "")}
+                onChange={e => setSettings({ ...settings, clubName: e.target.value })}
+                onBlur={() => saveSettings({ ...settings })}
+                placeholder={org.name}
                 className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Sous-titre (sous le nom du bar)</label>
+              <input value={String(settings.subtitle || "")}
+                onChange={e => setSettings({ ...settings, subtitle: e.target.value })}
+                onBlur={() => saveSettings({ ...settings })}
+                placeholder="Ex: Bassin d'Arcachon"
+                className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">URL du logo</label>
+              <div className="flex items-center gap-3">
+                <input value={String(settings.logoUrl || org.logo_url || "")}
+                  onChange={e => setSettings({ ...settings, logoUrl: e.target.value })}
+                  onBlur={() => {
+                    saveSettings({ ...settings });
+                    adminFetch("?action=update-org", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: org.id, updates: { logo_url: settings.logoUrl || null } }) });
+                  }}
+                  placeholder="https://..."
+                  className="flex-1 h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+                {(settings.logoUrl || org.logo_url) && (
+                  <img src={String(settings.logoUrl || org.logo_url)} alt="" className="w-10 h-10 rounded-lg object-contain bg-white/5" />
+                )}
+              </div>
             </div>
 
             <hr className="border-[#1e2d4a]" />
-            <h3 className="font-semibold text-sm">Codes d'accès</h3>
+            <h3 className="font-semibold text-sm">Codes d'acces</h3>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -345,20 +389,62 @@ export default function ClientManagePage() {
                 className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
             </div>
 
-            <div>
-              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Nom affiché sur le bar</label>
-              <input value={String(settings.barName || "")}
-                onChange={e => setSettings({ ...settings, barName: e.target.value })}
-                onBlur={() => saveSettings({ ...settings })}
-                placeholder={org.name}
-                className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+            <hr className="border-[#1e2d4a]" />
+            <h3 className="font-semibold text-sm">Infos pratiques (affichees sur la page d'accueil)</h3>
+            <div className="space-y-2">
+              {(((settings.homepage as Record<string, unknown>)?.infos as Array<{ emoji: string; title: string; subtitle: string }>) || []).map((info, i) => (
+                <div key={i} className="flex items-center gap-2 bg-[#0f172a] border border-[#1e2d4a] rounded-lg px-3 py-2">
+                  <input value={info.emoji}
+                    onChange={e => {
+                      const hp = (settings.homepage || {}) as Record<string, unknown>;
+                      const infos = [...((hp.infos as Array<Record<string, string>>) || [])];
+                      infos[i] = { ...infos[i], emoji: e.target.value };
+                      setSettings({ ...settings, homepage: { ...hp, infos } });
+                    }}
+                    onBlur={() => saveSettings({ ...settings })}
+                    className="w-10 bg-transparent text-center text-lg outline-none" />
+                  <input value={info.title} placeholder="Titre"
+                    onChange={e => {
+                      const hp = (settings.homepage || {}) as Record<string, unknown>;
+                      const infos = [...((hp.infos as Array<Record<string, string>>) || [])];
+                      infos[i] = { ...infos[i], title: e.target.value };
+                      setSettings({ ...settings, homepage: { ...hp, infos } });
+                    }}
+                    onBlur={() => saveSettings({ ...settings })}
+                    className="flex-1 bg-transparent text-sm font-medium outline-none" />
+                  <input value={info.subtitle} placeholder="Description"
+                    onChange={e => {
+                      const hp = (settings.homepage || {}) as Record<string, unknown>;
+                      const infos = [...((hp.infos as Array<Record<string, string>>) || [])];
+                      infos[i] = { ...infos[i], subtitle: e.target.value };
+                      setSettings({ ...settings, homepage: { ...hp, infos } });
+                    }}
+                    onBlur={() => saveSettings({ ...settings })}
+                    className="flex-1 bg-transparent text-sm text-slate-400 outline-none" />
+                  <button onClick={() => {
+                    const hp = (settings.homepage || {}) as Record<string, unknown>;
+                    const infos = [...((hp.infos as Array<Record<string, string>>) || [])];
+                    infos.splice(i, 1);
+                    const next = { ...settings, homepage: { ...hp, infos } };
+                    setSettings(next); saveSettings(next);
+                  }} className="text-red-500/50 hover:text-red-400 text-sm cursor-pointer">{"x"}</button>
+                </div>
+              ))}
+              <button onClick={() => {
+                const hp = (settings.homepage || {}) as Record<string, unknown>;
+                const infos = [...((hp.infos as Array<Record<string, string>>) || []), { emoji: "📌", title: "Titre", subtitle: "Description" }];
+                const next = { ...settings, homepage: { ...hp, infos } };
+                setSettings(next); saveSettings(next);
+              }} className="px-3 py-1.5 bg-blue-600/20 border border-blue-500/30 rounded-lg text-xs text-blue-400 cursor-pointer hover:bg-blue-600/30 transition">
+                + Ajouter une info
+              </button>
             </div>
 
             <hr className="border-[#1e2d4a]" />
-            <h3 className="font-semibold text-sm">Fidélité</h3>
+            <h3 className="font-semibold text-sm">Fidelite</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Cafés pour 1 gratuit</label>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Cafes pour 1 gratuit</label>
                 <input type="number" min="1"
                   value={String((settings.loyaltyThresholds as Record<string, number> | undefined)?.coffee || 10)}
                   onChange={e => {
@@ -378,6 +464,95 @@ export default function ClientManagePage() {
                   }}
                   onBlur={() => saveSettings({ ...settings })}
                   className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+              </div>
+            </div>
+
+            <hr className="border-[#1e2d4a]" />
+            <h3 className="font-semibold text-sm">SumUp (paiement par carte)</h3>
+            <div>
+              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Taux de commission SumUp (%)</label>
+              <input type="number" step="0.1" min="0" max="10"
+                value={String(settings.sumupFeeRate ?? 2.5)}
+                onChange={e => setSettings({ ...settings, sumupFeeRate: parseFloat(e.target.value) || 2.5 })}
+                onBlur={() => saveSettings({ ...settings })}
+                className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Cle API SumUp (Merchant Code)</label>
+              <input value={String(settings.sumupMerchantCode || "")}
+                onChange={e => setSettings({ ...settings, sumupMerchantCode: e.target.value })}
+                onBlur={() => saveSettings({ ...settings })}
+                placeholder="MC..."
+                className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500 font-mono" />
+            </div>
+
+            <hr className="border-[#1e2d4a]" />
+            <h3 className="font-semibold text-sm">ESP32 / LED Frigo</h3>
+            <p className="text-xs text-slate-500 mb-2">{"L'ESP32 doit etre connecte au meme reseau ou accessible via une IP publique/VPN pour le controle a distance."}</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">IP de l'ESP32</label>
+                <input value={String(settings.esp32Ip || "")}
+                  onChange={e => setSettings({ ...settings, esp32Ip: e.target.value })}
+                  onBlur={() => saveSettings({ ...settings })}
+                  placeholder="192.168.1.100"
+                  className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500 font-mono" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Port</label>
+                <input type="number" value={String(settings.esp32Port || 80)}
+                  onChange={e => setSettings({ ...settings, esp32Port: parseInt(e.target.value) || 80 })}
+                  onBlur={() => saveSettings({ ...settings })}
+                  className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500 font-mono" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">LED activees</label>
+                <select value={settings.ledEnabled ? "true" : "false"}
+                  onChange={e => {
+                    const next = { ...settings, ledEnabled: e.target.value === "true" };
+                    setSettings(next); saveSettings(next);
+                  }}
+                  className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500 cursor-pointer">
+                  <option value="true">Oui</option>
+                  <option value="false">Non</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">LED par etagere</label>
+                <input type="number" min="1"
+                  value={String(settings.ledsPerShelf || 30)}
+                  onChange={e => setSettings({ ...settings, ledsPerShelf: parseInt(e.target.value) || 30 })}
+                  onBlur={() => saveSettings({ ...settings })}
+                  className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Luminosite (0-255)</label>
+                <input type="number" min="0" max="255"
+                  value={String(settings.ledBrightness ?? 100)}
+                  onChange={e => setSettings({ ...settings, ledBrightness: parseInt(e.target.value) || 100 })}
+                  onBlur={() => saveSettings({ ...settings })}
+                  className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Animation produit</label>
+                <select value={String(settings.ledAnimation || "none")}
+                  onChange={e => {
+                    const next = { ...settings, ledAnimation: e.target.value };
+                    setSettings(next); saveSettings(next);
+                  }}
+                  className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500 cursor-pointer">
+                  <option value="none">Aucune</option>
+                  <option value="chase">Chase</option>
+                  <option value="flash">Flash</option>
+                  <option value="snake">Snake</option>
+                  <option value="edges">Edges</option>
+                  <option value="serpentin">Serpentin</option>
+                  <option value="converge">Converge</option>
+                </select>
               </div>
             </div>
           </div>

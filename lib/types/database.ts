@@ -215,8 +215,10 @@ export interface Database {
         Row: {
           id: string
           org_id: string
-          items: Json
+          items: string
           total: number
+          total_cost: number
+          amount_paid: number | null
           payment_method: string
           member_id: string | null
           created_by: string | null
@@ -225,8 +227,10 @@ export interface Database {
         Insert: {
           id?: string
           org_id: string
-          items: Json
+          items: string | Json
           total: number
+          total_cost?: number
+          amount_paid?: number | null
           payment_method: string
           member_id?: string | null
           created_by?: string | null
@@ -235,8 +239,10 @@ export interface Database {
         Update: {
           id?: string
           org_id?: string
-          items?: Json
+          items?: string | Json
           total?: number
+          total_cost?: number
+          amount_paid?: number | null
           payment_method?: string
           member_id?: string | null
           created_by?: string | null
@@ -248,20 +254,6 @@ export interface Database {
             columns: ['org_id']
             isOneToOne: false
             referencedRelation: 'organizations'
-            referencedColumns: ['id']
-          },
-          {
-            foreignKeyName: 'transactions_member_id_fkey'
-            columns: ['member_id']
-            isOneToOne: false
-            referencedRelation: 'members'
-            referencedColumns: ['id']
-          },
-          {
-            foreignKeyName: 'transactions_created_by_fkey'
-            columns: ['created_by']
-            isOneToOne: false
-            referencedRelation: 'users'
             referencedColumns: ['id']
           },
         ]
@@ -312,6 +304,7 @@ export interface Database {
           id: string
           org_id: string
           product_id: string
+          product_name: string | null
           quantity: number
           unit_cost: number
           total_cost: number
@@ -324,6 +317,7 @@ export interface Database {
           id?: string
           org_id: string
           product_id: string
+          product_name?: string | null
           quantity: number
           unit_cost: number
           total_cost: number
@@ -336,6 +330,7 @@ export interface Database {
           id?: string
           org_id?: string
           product_id?: string
+          product_name?: string | null
           quantity?: number
           unit_cost?: number
           total_cost?: number
@@ -352,20 +347,6 @@ export interface Database {
             referencedRelation: 'organizations'
             referencedColumns: ['id']
           },
-          {
-            foreignKeyName: 'procurements_product_id_fkey'
-            columns: ['product_id']
-            isOneToOne: false
-            referencedRelation: 'products'
-            referencedColumns: ['id']
-          },
-          {
-            foreignKeyName: 'procurements_created_by_fkey'
-            columns: ['created_by']
-            isOneToOne: false
-            referencedRelation: 'users'
-            referencedColumns: ['id']
-          },
         ]
       }
       batches: {
@@ -374,6 +355,8 @@ export interface Database {
           org_id: string
           product_id: string
           quantity: number
+          location: string | null
+          unit_cost: number
           expiry_date: string | null
           created_at: string
         }
@@ -382,6 +365,8 @@ export interface Database {
           org_id: string
           product_id: string
           quantity: number
+          location?: string | null
+          unit_cost?: number
           expiry_date?: string | null
           created_at?: string
         }
@@ -390,6 +375,8 @@ export interface Database {
           org_id?: string
           product_id?: string
           quantity?: number
+          location?: string | null
+          unit_cost?: number
           expiry_date?: string | null
           created_at?: string
         }
@@ -401,13 +388,6 @@ export interface Database {
             referencedRelation: 'organizations'
             referencedColumns: ['id']
           },
-          {
-            foreignKeyName: 'batches_product_id_fkey'
-            columns: ['product_id']
-            isOneToOne: false
-            referencedRelation: 'products'
-            referencedColumns: ['id']
-          },
         ]
       }
       suggestions: {
@@ -415,6 +395,7 @@ export interface Database {
           id: string
           org_id: string
           text: string
+          author: string | null
           status: 'pending' | 'accepted' | 'rejected'
           created_at: string
         }
@@ -422,6 +403,7 @@ export interface Database {
           id?: string
           org_id: string
           text: string
+          author?: string | null
           status?: 'pending' | 'accepted' | 'rejected'
           created_at?: string
         }
@@ -429,6 +411,7 @@ export interface Database {
           id?: string
           org_id?: string
           text?: string
+          author?: string | null
           status?: 'pending' | 'accepted' | 'rejected'
           created_at?: string
         }
@@ -484,21 +467,37 @@ export interface Database {
             referencedRelation: 'organizations'
             referencedColumns: ['id']
           },
-          {
-            foreignKeyName: 'credits_member_id_fkey'
-            columns: ['member_id']
-            isOneToOne: false
-            referencedRelation: 'members'
-            referencedColumns: ['id']
-          },
-          {
-            foreignKeyName: 'credits_product_id_fkey'
-            columns: ['product_id']
-            isOneToOne: false
-            referencedRelation: 'products'
-            referencedColumns: ['id']
-          },
         ]
+      }
+      contact_messages: {
+        Row: {
+          id: string
+          name: string
+          email: string
+          club: string | null
+          message: string
+          recipients: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          email: string
+          club?: string | null
+          message: string
+          recipients?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          email?: string
+          club?: string | null
+          message?: string
+          recipients?: Json
+          created_at?: string
+        }
+        Relationships: []
       }
     }
     Views: {

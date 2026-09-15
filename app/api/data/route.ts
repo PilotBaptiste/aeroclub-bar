@@ -90,25 +90,29 @@ function productToSupabaseFormat(
 
 /** Supabase transaction → Redis format */
 function transactionToRedisFormat(t: Record<string, unknown>): Record<string, unknown> {
+  const items = t.items;
   return {
     id: t.id,
-    items: t.items ?? "",
+    items: typeof items === "string" ? items : (items ? JSON.stringify(items) : ""),
     total: t.total ?? 0,
-    totalCost: t.total_cost ?? 0,
+    totalCost: t.total_cost ?? t.totalCost ?? 0,
     buyer: t.member_id ?? t.buyer ?? "",
     date: t.created_at ?? t.date ?? "",
     method: t.payment_method ?? t.method ?? "especes",
-    amountPaid: t.amount_paid ?? t.amountPaid,
+    amountPaid: t.amount_paid ?? t.amountPaid ?? null,
   };
 }
 
 /** Redis transaction → Supabase format */
 function transactionToSupabaseFormat(t: Record<string, unknown>, orgId: string): Record<string, unknown> {
+  const items = t.items;
   return {
     org_id: orgId,
     ...(t.id ? { id: t.id } : {}),
-    items: t.items ?? "",
+    items: typeof items === "string" ? items : JSON.stringify(items ?? ""),
     total: Number(t.total) || 0,
+    total_cost: Number(t.totalCost ?? t.total_cost) || 0,
+    amount_paid: t.amountPaid ?? t.amount_paid ?? null,
     payment_method: t.method ?? t.payment_method ?? "especes",
     member_id: t.buyer ?? t.member_id ?? null,
     created_by: t.createdBy ?? t.created_by ?? null,
@@ -139,7 +143,9 @@ function suggestionToSupabaseFormat(s: Record<string, unknown>, orgId: string): 
     org_id: orgId,
     ...(s.id ? { id: s.id } : {}),
     text: String(s.text || s.name || ""),
+    author: s.author ?? null,
     status: (["pending", "accepted", "rejected"].includes(String(s.status)) ? s.status : "pending"),
+    ...(s.date ? { created_at: s.date } : s.created_at ? { created_at: s.created_at } : {}),
   };
 }
 
@@ -164,6 +170,7 @@ function procurementToSupabaseFormat(p: Record<string, unknown>, orgId: string):
     org_id: orgId,
     ...(p.id ? { id: p.id } : {}),
     product_id: p.productId ?? p.product_id ?? "",
+    product_name: p.productName ?? p.product_name ?? "",
     quantity: Number(p.qty ?? p.quantity) || 0,
     unit_cost: Number(p.unitCost ?? p.unit_cost) || 0,
     total_cost: Number(p.totalCost ?? p.total_cost) || 0,
@@ -194,20 +201,22 @@ function batchToSupabaseFormat(b: Record<string, unknown>, orgId: string): Recor
     ...(b.id ? { id: b.id } : {}),
     product_id: b.productId ?? b.product_id ?? "",
     quantity: Number(b.qty ?? b.quantity) || 0,
+    location: b.location ?? "frigo",
+    unit_cost: Number(b.unitCost ?? b.unit_cost) || 0,
     expiry_date: b.expiryDate ?? b.expiry_date ?? null,
     ...(b.purchaseDate ? { created_at: b.purchaseDate } : b.created_at ? { created_at: b.created_at } : {}),
   };
 }
 
-/** Credits table rows → Redis productCredits shape: Record<memberId, Record<productId, count>> */
+/** Credits table rows → Redis productCredits shape: Record<productId, Record<memberName, count>> */
 function creditsToRedisFormat(
   rows: Array<{ member_id: string; product_id: string | null; total_bought: number }>
 ): Record<string, Record<string, number>> {
   const out: Record<string, Record<string, number>> = {};
   for (const r of rows) {
     if (!r.product_id) continue;
-    if (!out[r.member_id]) out[r.member_id] = {};
-    out[r.member_id][r.product_id] = r.total_bought;
+    if (!out[r.product_id]) out[r.product_id] = {};
+    out[r.product_id][r.member_id] = r.total_bought;
   }
   return out;
 }
@@ -254,7 +263,7 @@ async function supabaseGet(orgSlug: string) {
   return NextResponse.json({
     products: productsRes.data ? productsRes.data.map(p => productToRedisFormat(p as Record<string, unknown>)) : null,
     transactions: transactionsRes.data ? transactionsRes.data.map(t => transactionToRedisFormat(t as Record<string, unknown>)) : null,
-    settings: { clubName: org.name, adminPin: "1234", ...((org.settings as Record<string, unknown>) || {}) },
+    settings: { clubName: org.name, ...((org.settings as Record<string, unknown>) || {}) },
     suggestions: suggestionsRes.data ? suggestionsRes.data.map(s => suggestionToRedisFormat(s as Record<string, unknown>)) : null,
     members: membersRes.data ? membersRes.data.map(m => memberToRedisFormat(m as Record<string, unknown>)) : null,
     procurements: procurementsRes.data ? procurementsRes.data.map(p => procurementToRedisFormat(p as Record<string, unknown>)) : null,
