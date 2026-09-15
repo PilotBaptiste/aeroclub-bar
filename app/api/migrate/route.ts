@@ -66,9 +66,22 @@ export async function POST(request: Request) {
       if (error) return NextResponse.json({ error: "Members: " + error.message }, { status: 500 });
     }
 
-    // Migrate settings
-    const settings = await kv.get("aeroclub-settings");
+    // Migrate settings + categories from settings.categories
+    const settings = await kv.get("aeroclub-settings") as Record<string, unknown> | null;
+    let categoriesMigrated = 0;
     if (settings) {
+      const cats = settings.categories as Array<Record<string, unknown>> | undefined;
+      if (cats && cats.length > 0) {
+        const catRows = cats.map((c, i) => ({
+          org_id: orgId,
+          name: String(c.name || ""),
+          emoji: String(c.emoji || "📂"),
+          position: i,
+        }));
+        const { error } = await supabase.from("categories").insert(catRows);
+        if (error) return NextResponse.json({ error: "Categories: " + error.message }, { status: 500 });
+        categoriesMigrated = catRows.length;
+      }
       await supabase
         .from("organizations")
         .update({ settings: settings as import("@/lib/types/database").Json })
@@ -80,6 +93,7 @@ export async function POST(request: Request) {
       migrated: {
         products: products?.length || 0,
         members: members?.length || 0,
+        categories: categoriesMigrated,
         settings: settings ? true : false,
       },
     });
