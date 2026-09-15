@@ -157,6 +157,7 @@ export interface Database {
           led_start: number | null
           led_end: number | null
           led_color: string | null
+          extra: Json
           created_at: string
           updated_at: string
         }
@@ -176,6 +177,7 @@ export interface Database {
           led_start?: number | null
           led_end?: number | null
           led_color?: string | null
+          extra?: Json
           created_at?: string
           updated_at?: string
         }
@@ -195,6 +197,7 @@ export interface Database {
           led_start?: number | null
           led_end?: number | null
           led_color?: string | null
+          extra?: Json
           created_at?: string
           updated_at?: string
         }

@@ -14,15 +14,30 @@ const DATA_KEYS = [
   "aeroclub-batches",
 ];
 
+const KNOWN_PRODUCT_COLS = new Set([
+  "id", "org_id", "name", "emoji", "price", "cost", "stock", "stock_reserve",
+  "category_id", "location", "archived", "position", "led_start", "led_end",
+  "led_color", "created_at", "updated_at", "extra",
+]);
+const CAMEL_TO_SNAKE: Record<string, string> = {
+  stockReserve: "stock_reserve", ledStart: "led_start", ledEnd: "led_end",
+  ledColor: "led_color", category: "category_id",
+};
+
 function productToRedisFormat(p: Record<string, unknown>): Record<string, unknown> {
-  const { org_id: _, stock_reserve, led_start, led_end, led_color, category_id, ...rest } = p;
-  return { ...rest, stockReserve: stock_reserve, ledStart: led_start, ledEnd: led_end, ledColor: led_color, category: category_id };
+  const { org_id: _, stock_reserve, led_start, led_end, led_color, category_id, extra, created_at: _ca, updated_at: _ua, ...rest } = p;
+  const extraObj = (typeof extra === "object" && extra !== null ? extra : {}) as Record<string, unknown>;
+  return { ...rest, ...extraObj, stockReserve: stock_reserve, ledStart: led_start, ledEnd: led_end, ledColor: led_color, category: category_id };
 }
 
 function productToSupabaseFormat(p: Record<string, unknown>, orgId: string): Record<string, unknown> {
+  const extra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(p)) {
+    if (k in CAMEL_TO_SNAKE || KNOWN_PRODUCT_COLS.has(k)) continue;
+    if (v !== undefined && v !== null) extra[k] = v;
+  }
   return {
-    org_id: orgId,
-    ...(p.id ? { id: p.id } : {}),
+    org_id: orgId, ...(p.id ? { id: p.id } : {}),
     name: p.name ?? "", emoji: p.emoji ?? "📦",
     price: Number(p.price) || 0, cost: Number(p.cost) || 0,
     stock: Number(p.stock) || 0, stock_reserve: Number(p.stockReserve) || 0,
@@ -32,6 +47,7 @@ function productToSupabaseFormat(p: Record<string, unknown>, orgId: string): Rec
     led_end: p.ledEnd != null ? Number(p.ledEnd) : null,
     led_color: p.ledColor ? String(p.ledColor) : null,
     category_id: p.category ? String(p.category) : null,
+    extra: Object.keys(extra).length > 0 ? extra : {},
   };
 }
 
