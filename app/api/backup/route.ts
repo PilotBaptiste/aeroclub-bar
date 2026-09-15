@@ -77,17 +77,35 @@ async function supabaseReadAll(orgSlug: string) {
     if (!productCredits[r.member_id]) productCredits[r.member_id] = {};
     productCredits[r.member_id][r.product_id] = r.total_bought;
   }
+  const txToRedis = (t: Record<string, unknown>) => ({
+    id: t.id, items: t.items ?? "", total: t.total ?? 0, totalCost: t.total_cost ?? 0,
+    buyer: t.member_id ?? "", date: t.created_at ?? "", method: t.payment_method ?? "especes",
+  });
+  const sugToRedis = (s: Record<string, unknown>) => ({
+    id: s.id, text: s.text ?? "", author: s.author ?? "", date: s.created_at ?? "",
+  });
+  const memToRedis = (m: Record<string, unknown>) => {
+    const { org_id: _, created_at: _ca, updated_at: _ua, ...rest } = m; return rest;
+  };
+  const procToRedis = (p: Record<string, unknown>) => ({
+    id: p.id, date: p.created_at ?? "", productId: p.product_id ?? "", productName: p.product_name ?? "",
+    qty: p.quantity ?? 0, unitCost: p.unit_cost ?? 0, totalCost: p.total_cost ?? 0, method: p.payment_method ?? "especes",
+  });
+  const batchToRedis = (b: Record<string, unknown>) => ({
+    id: b.id, productId: b.product_id ?? "", qty: b.quantity ?? 0, location: b.location ?? "frigo",
+    purchaseDate: b.created_at ?? "", expiryDate: b.expiry_date ?? null, unitCost: b.unit_cost ?? 0,
+  });
   return {
     products: products.data ? products.data.map(p => productToRedisFormat(p as Record<string, unknown>)) : null,
-    transactions: transactions.data || null,
+    transactions: transactions.data ? transactions.data.map(t => txToRedis(t as Record<string, unknown>)) : null,
     settings: org.settings || null,
-    suggestions: suggestions.data || null,
-    members: members.data || null,
-    procurements: procurements.data || null,
+    suggestions: suggestions.data ? suggestions.data.map(s => sugToRedis(s as Record<string, unknown>)) : null,
+    members: members.data ? members.data.map(m => memToRedis(m as Record<string, unknown>)) : null,
+    procurements: procurements.data ? procurements.data.map(p => procToRedis(p as Record<string, unknown>)) : null,
     coffeeCredits: null,
     madeleineCredits: null,
     productCredits,
-    batches: batches.data || null,
+    batches: batches.data ? batches.data.map(b => batchToRedis(b as Record<string, unknown>)) : null,
   };
 }
 

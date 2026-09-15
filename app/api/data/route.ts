@@ -88,10 +88,118 @@ function productToSupabaseFormat(
   };
 }
 
-/**
- * Convert the credits table rows into the Redis productCredits shape:
- *   Record<memberId, Record<productId, total_bought>>
- */
+/** Supabase transaction → Redis format */
+function transactionToRedisFormat(t: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: t.id,
+    items: t.items ?? "",
+    total: t.total ?? 0,
+    totalCost: t.total_cost ?? 0,
+    buyer: t.member_id ?? t.buyer ?? "",
+    date: t.created_at ?? t.date ?? "",
+    method: t.payment_method ?? t.method ?? "especes",
+    amountPaid: t.amount_paid ?? t.amountPaid,
+  };
+}
+
+/** Redis transaction → Supabase format */
+function transactionToSupabaseFormat(t: Record<string, unknown>, orgId: string): Record<string, unknown> {
+  return {
+    org_id: orgId,
+    ...(t.id ? { id: t.id } : {}),
+    items: t.items ?? "",
+    total: Number(t.total) || 0,
+    payment_method: t.method ?? t.payment_method ?? "especes",
+    member_id: t.buyer ?? t.member_id ?? null,
+    created_by: t.createdBy ?? t.created_by ?? null,
+    ...(t.date ? { created_at: t.date } : t.created_at ? { created_at: t.created_at } : {}),
+  };
+}
+
+/** Supabase member → Redis format (mostly same, strip org_id) */
+function memberToRedisFormat(m: Record<string, unknown>): Record<string, unknown> {
+  const { org_id: _, created_at: _ca, updated_at: _ua, ...rest } = m;
+  return rest;
+}
+
+/** Supabase suggestion → Redis format */
+function suggestionToRedisFormat(s: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: s.id,
+    text: s.text ?? "",
+    author: s.author ?? "",
+    date: s.created_at ?? s.date ?? "",
+    status: s.status,
+  };
+}
+
+/** Redis suggestion → Supabase format */
+function suggestionToSupabaseFormat(s: Record<string, unknown>, orgId: string): Record<string, unknown> {
+  return {
+    org_id: orgId,
+    ...(s.id ? { id: s.id } : {}),
+    text: String(s.text || s.name || ""),
+    status: (["pending", "accepted", "rejected"].includes(String(s.status)) ? s.status : "pending"),
+  };
+}
+
+/** Supabase procurement → Redis format */
+function procurementToRedisFormat(p: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: p.id,
+    date: p.created_at ?? p.date ?? "",
+    productId: p.product_id ?? p.productId ?? "",
+    productName: p.product_name ?? p.productName ?? "",
+    qty: p.quantity ?? p.qty ?? 0,
+    unitCost: p.unit_cost ?? p.unitCost ?? 0,
+    totalCost: p.total_cost ?? p.totalCost ?? 0,
+    method: p.payment_method ?? p.method ?? "especes",
+    supplier: p.supplier ?? null,
+  };
+}
+
+/** Redis procurement → Supabase format */
+function procurementToSupabaseFormat(p: Record<string, unknown>, orgId: string): Record<string, unknown> {
+  return {
+    org_id: orgId,
+    ...(p.id ? { id: p.id } : {}),
+    product_id: p.productId ?? p.product_id ?? "",
+    quantity: Number(p.qty ?? p.quantity) || 0,
+    unit_cost: Number(p.unitCost ?? p.unit_cost) || 0,
+    total_cost: Number(p.totalCost ?? p.total_cost) || 0,
+    payment_method: p.method ?? p.payment_method ?? "especes",
+    supplier: p.supplier ?? null,
+    created_by: p.createdBy ?? p.created_by ?? null,
+    ...(p.date ? { created_at: p.date } : p.created_at ? { created_at: p.created_at } : {}),
+  };
+}
+
+/** Supabase batch → Redis format */
+function batchToRedisFormat(b: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: b.id,
+    productId: b.product_id ?? b.productId ?? "",
+    qty: b.quantity ?? b.qty ?? 0,
+    location: b.location ?? "frigo",
+    purchaseDate: b.created_at ?? b.purchaseDate ?? "",
+    expiryDate: b.expiry_date ?? b.expiryDate ?? null,
+    unitCost: b.unit_cost ?? b.unitCost ?? 0,
+  };
+}
+
+/** Redis batch → Supabase format */
+function batchToSupabaseFormat(b: Record<string, unknown>, orgId: string): Record<string, unknown> {
+  return {
+    org_id: orgId,
+    ...(b.id ? { id: b.id } : {}),
+    product_id: b.productId ?? b.product_id ?? "",
+    quantity: Number(b.qty ?? b.quantity) || 0,
+    expiry_date: b.expiryDate ?? b.expiry_date ?? null,
+    ...(b.purchaseDate ? { created_at: b.purchaseDate } : b.created_at ? { created_at: b.created_at } : {}),
+  };
+}
+
+/** Credits table rows → Redis productCredits shape: Record<memberId, Record<productId, count>> */
 function creditsToRedisFormat(
   rows: Array<{ member_id: string; product_id: string | null; total_bought: number }>
 ): Record<string, Record<string, number>> {
@@ -144,16 +252,16 @@ async function supabaseGet(orgSlug: string) {
   ]);
 
   return NextResponse.json({
-    products: productsRes.data ? productsRes.data.map(productToRedisFormat) : null,
-    transactions: transactionsRes.data || null,
+    products: productsRes.data ? productsRes.data.map(p => productToRedisFormat(p as Record<string, unknown>)) : null,
+    transactions: transactionsRes.data ? transactionsRes.data.map(t => transactionToRedisFormat(t as Record<string, unknown>)) : null,
     settings: org.settings || null,
-    suggestions: suggestionsRes.data || null,
-    members: membersRes.data || null,
-    procurements: procurementsRes.data || null,
+    suggestions: suggestionsRes.data ? suggestionsRes.data.map(s => suggestionToRedisFormat(s as Record<string, unknown>)) : null,
+    members: membersRes.data ? membersRes.data.map(m => memberToRedisFormat(m as Record<string, unknown>)) : null,
+    procurements: procurementsRes.data ? procurementsRes.data.map(p => procurementToRedisFormat(p as Record<string, unknown>)) : null,
     coffeeCredits: null,
     madeleineCredits: null,
     productCredits: creditsRes.data ? creditsToRedisFormat(creditsRes.data as Array<{ member_id: string; product_id: string | null; total_bought: number }>) : {},
-    batches: batchesRes.data || null,
+    batches: batchesRes.data ? batchesRes.data.map(b => batchToRedisFormat(b as Record<string, unknown>)) : null,
   });
 }
 
@@ -195,7 +303,7 @@ async function supabasePost(orgSlug: string, key: string, value: unknown) {
       }
       await supabase.from("transactions").delete().eq("org_id", orgId);
       if (value.length > 0) {
-        const rows = value.map((t: Record<string, unknown>) => ({ ...t, org_id: orgId })) as TransactionInsert[];
+        const rows = value.map((t: Record<string, unknown>) => transactionToSupabaseFormat(t, orgId)) as TransactionInsert[];
         const { error } = await supabase.from("transactions").insert(rows);
         if (error) {
           console.error("Supabase transactions insert error:", error);
@@ -225,7 +333,7 @@ async function supabasePost(orgSlug: string, key: string, value: unknown) {
       }
       await supabase.from("suggestions").delete().eq("org_id", orgId);
       if (value.length > 0) {
-        const rows = value.map((s: Record<string, unknown>) => ({ ...s, org_id: orgId })) as SuggestionInsert[];
+        const rows = value.map((s: Record<string, unknown>) => suggestionToSupabaseFormat(s, orgId)) as SuggestionInsert[];
         const { error } = await supabase.from("suggestions").insert(rows);
         if (error) {
           console.error("Supabase suggestions insert error:", error);
@@ -242,7 +350,14 @@ async function supabasePost(orgSlug: string, key: string, value: unknown) {
       }
       await supabase.from("members").delete().eq("org_id", orgId);
       if (value.length > 0) {
-        const rows = value.map((m: Record<string, unknown>) => ({ ...m, org_id: orgId })) as MemberInsert[];
+        const rows = value.map((m: Record<string, unknown>) => ({
+          org_id: orgId,
+          ...(m.id ? { id: m.id } : {}),
+          name: String(m.name || ""),
+          email: m.email ? String(m.email) : null,
+          balance: Number(m.balance) || 0,
+          archived: Boolean(m.archived),
+        })) as MemberInsert[];
         const { error } = await supabase.from("members").insert(rows);
         if (error) {
           console.error("Supabase members insert error:", error);
@@ -259,7 +374,7 @@ async function supabasePost(orgSlug: string, key: string, value: unknown) {
       }
       await supabase.from("procurements").delete().eq("org_id", orgId);
       if (value.length > 0) {
-        const rows = value.map((p: Record<string, unknown>) => ({ ...p, org_id: orgId })) as ProcurementInsert[];
+        const rows = value.map((p: Record<string, unknown>) => procurementToSupabaseFormat(p, orgId)) as ProcurementInsert[];
         const { error } = await supabase.from("procurements").insert(rows);
         if (error) {
           console.error("Supabase procurements insert error:", error);
@@ -304,7 +419,7 @@ async function supabasePost(orgSlug: string, key: string, value: unknown) {
       }
       await supabase.from("batches").delete().eq("org_id", orgId);
       if (value.length > 0) {
-        const rows = value.map((b: Record<string, unknown>) => ({ ...b, org_id: orgId })) as BatchInsert[];
+        const rows = value.map((b: Record<string, unknown>) => batchToSupabaseFormat(b, orgId)) as BatchInsert[];
         const { error } = await supabase.from("batches").insert(rows);
         if (error) {
           console.error("Supabase batches insert error:", error);
