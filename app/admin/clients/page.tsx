@@ -30,7 +30,7 @@ export default function ClientsPage() {
     const res = await fetch("/api/admin/orgs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: form.name, slug, settings: { barName: form.name, adminPin: "1234", bureauPin: "1234" } }),
+      body: JSON.stringify({ name: form.name, slug, settings: { clubName: form.name, adminPin: "1234", bureauPin: "1234" } }),
     });
     const data = await res.json();
     if (!res.ok) {
