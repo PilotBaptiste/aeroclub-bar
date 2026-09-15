@@ -1677,7 +1677,7 @@ export default function AeroClubBarV2({ orgSlug }: { orgSlug?: string } = {}) {
               <button onClick={() => { setShowAllProducts(false); }} className="flex items-center gap-3 cursor-pointer">
                 <img src="/logo-acba.png" alt="" className="w-10 h-10 rounded-xl object-contain" />
                 <div>
-                  <h1 className="text-base font-black tracking-tight v2-shimmer">{settings.clubName.toUpperCase() + " BAR"}</h1>
+                  <h1 className="text-base font-black tracking-tight v2-shimmer">{(settings.clubName || "BAR").toUpperCase() + " BAR"}</h1>
                   <p className="text-[11px] text-slate-500 font-medium tracking-wider">{"BASSIN D'ARCACHON"}</p>
                 </div>
               </button>

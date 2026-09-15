@@ -222,7 +222,7 @@ async function supabaseGet(orgSlug: string) {
   // Resolve org
   const { data: org, error: orgErr } = await supabase
     .from("organizations")
-    .select("id, settings")
+    .select("id, name, settings")
     .eq("slug", orgSlug)
     .single();
 
@@ -254,7 +254,7 @@ async function supabaseGet(orgSlug: string) {
   return NextResponse.json({
     products: productsRes.data ? productsRes.data.map(p => productToRedisFormat(p as Record<string, unknown>)) : null,
     transactions: transactionsRes.data ? transactionsRes.data.map(t => transactionToRedisFormat(t as Record<string, unknown>)) : null,
-    settings: org.settings || null,
+    settings: { clubName: org.name, adminPin: "1234", ...((org.settings as Record<string, unknown>) || {}) },
     suggestions: suggestionsRes.data ? suggestionsRes.data.map(s => suggestionToRedisFormat(s as Record<string, unknown>)) : null,
     members: membersRes.data ? membersRes.data.map(m => memberToRedisFormat(m as Record<string, unknown>)) : null,
     procurements: procurementsRes.data ? procurementsRes.data.map(p => procurementToRedisFormat(p as Record<string, unknown>)) : null,
