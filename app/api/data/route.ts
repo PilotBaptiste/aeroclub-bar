@@ -43,21 +43,27 @@ function productToRedisFormat(p: Record<string, unknown>): Record<string, unknow
   };
 }
 
-/** Convert a Redis/camelCase product back to Supabase snake_case columns. */
+/** Convert a Redis/camelCase product back to Supabase snake_case columns. Only known columns. */
 function productToSupabaseFormat(
   p: Record<string, unknown>,
   orgId: string
 ): Record<string, unknown> {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { stockReserve, ledStart, ledEnd, ledColor, category, ...rest } = p;
   return {
-    ...rest,
     org_id: orgId,
-    stock_reserve: stockReserve ?? 0,
-    led_start: ledStart ?? null,
-    led_end: ledEnd ?? null,
-    led_color: ledColor ?? null,
-    category_id: category ?? null,
+    ...(p.id ? { id: p.id } : {}),
+    name: p.name ?? "",
+    emoji: p.emoji ?? "📦",
+    price: Number(p.price) || 0,
+    cost: Number(p.cost) || 0,
+    stock: Number(p.stock) || 0,
+    stock_reserve: Number(p.stockReserve) || 0,
+    location: (["frigo", "cafe", "congelateur"].includes(String(p.location)) ? p.location : "frigo"),
+    archived: Boolean(p.archived),
+    position: p.position != null ? Number(p.position) : 0,
+    led_start: p.ledStart != null ? Number(p.ledStart) : null,
+    led_end: p.ledEnd != null ? Number(p.ledEnd) : null,
+    led_color: p.ledColor ? String(p.ledColor) : null,
+    category_id: p.category ? String(p.category) : null,
   };
 }
 

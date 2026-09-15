@@ -47,6 +47,7 @@ export async function POST(request: Request) {
         led_start: p.ledStart != null ? Number(p.ledStart) : null,
         led_end: p.ledEnd != null ? Number(p.ledEnd) : null,
         led_color: p.ledColor ? String(p.ledColor) : null,
+        category_id: p.category ? String(p.category) : null,
       }));
       const { error } = await supabase.from("products").insert(rows);
       if (error) return NextResponse.json({ error: "Products: " + error.message }, { status: 500 });
