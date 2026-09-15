@@ -7,6 +7,16 @@ import type { Organization, Product, Member, Category } from "@/lib/types";
 
 type Tab = "products" | "members" | "categories" | "settings";
 
+function isUrl(s: string | null | undefined): boolean {
+  return !!s && (s.startsWith("http://") || s.startsWith("https://"));
+}
+
+function ProductIcon({ emoji }: { emoji: string | null }) {
+  if (!emoji) return <span className="text-lg">📦</span>;
+  if (isUrl(emoji)) return <img src={emoji} alt="" className="w-8 h-8 rounded object-cover" />;
+  return <span className="text-lg">{emoji}</span>;
+}
+
 export default function ClientManagePage() {
   const { slug } = useParams<{ slug: string }>();
   const supabase = createClient();
@@ -16,6 +26,7 @@ export default function ClientManagePage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [tab, setTab] = useState<Tab>("products");
   const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState<Record<string, unknown>>({});
 
   useEffect(() => { load(); }, [slug]);
 
@@ -24,6 +35,7 @@ export default function ClientManagePage() {
     const { data: orgData } = await supabase.from("organizations").select("*").eq("slug", slug).single();
     if (!orgData) { setLoading(false); return; }
     setOrg(orgData);
+    setSettings((orgData.settings as Record<string, unknown>) || {});
     const [prods, mems, cats] = await Promise.all([
       supabase.from("products").select("*").eq("org_id", orgData.id).order("position"),
       supabase.from("members").select("*").eq("org_id", orgData.id).order("name"),
@@ -70,6 +82,14 @@ export default function ClientManagePage() {
     if (data) setCategories(prev => [...prev, data]);
   }
 
+  async function saveSettings(newSettings: Record<string, unknown>) {
+    if (!org) return;
+    setSettings(newSettings);
+    await supabase.from("organizations").update({
+      settings: newSettings as import("@/lib/types/database").Json,
+    }).eq("id", org.id);
+  }
+
   if (loading) return <div className="flex items-center justify-center h-full text-slate-500">Chargement...</div>;
   if (!org) return <div className="flex items-center justify-center h-full text-slate-500">Client introuvable</div>;
 
@@ -79,6 +99,8 @@ export default function ClientManagePage() {
     { id: "categories", label: "Catégories", icon: "🏷️" },
     { id: "settings", label: "Paramètres", icon: "⚙️" },
   ];
+
+  const activeProducts = products.filter(p => !p.archived);
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -109,14 +131,14 @@ export default function ClientManagePage() {
       {tab === "products" && (
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold">{"Produits (" + products.filter(p => !p.archived).length + ")"}</h2>
+            <h2 className="font-bold">{"Produits (" + activeProducts.length + ")"}</h2>
             <button onClick={addProduct}
               className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-xs font-semibold cursor-pointer transition">
               + Ajouter
             </button>
           </div>
           {(["frigo", "cafe", "congelateur"] as const).map(loc => {
-            const locProducts = products.filter(p => !p.archived && p.location === loc);
+            const locProducts = activeProducts.filter(p => p.location === loc);
             if (locProducts.length === 0) return null;
             const label = loc === "frigo" ? "🧊 Frigo" : loc === "cafe" ? "☕ Café" : "❄️ Congélateur";
             return (
@@ -125,17 +147,19 @@ export default function ClientManagePage() {
                 <div className="space-y-1">
                   {locProducts.map(p => (
                     <div key={p.id} className="flex items-center gap-3 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 py-2 group">
-                      <span className="text-lg shrink-0">{p.emoji}</span>
+                      <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                        <ProductIcon emoji={p.emoji} />
+                      </div>
                       <input value={p.name}
                         onChange={e => setProducts(prev => prev.map(x => x.id === p.id ? { ...x, name: e.target.value } : x))}
                         onBlur={() => updateProduct(p.id, { name: p.name })}
                         className="flex-1 bg-transparent text-sm font-medium outline-none min-w-0" />
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-1 shrink-0">
                         <input type="number" value={p.price} step="0.1" min="0"
                           onChange={e => { const v = parseFloat(e.target.value) || 0; setProducts(prev => prev.map(x => x.id === p.id ? { ...x, price: v } : x)); }}
                           onBlur={() => updateProduct(p.id, { price: p.price })}
-                          className="w-16 bg-[#0B1120] border border-[#1e2d4a] rounded px-2 py-1 text-xs text-right outline-none focus:border-blue-500" />
-                        <span className="text-[10px] text-slate-500">{"€"}</span>
+                          className="w-14 bg-[#0B1120] border border-[#1e2d4a] rounded px-2 py-1 text-xs text-right outline-none focus:border-blue-500" />
+                        <span className="text-[10px] text-slate-500">€</span>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button onClick={() => updateProduct(p.id, { stock: Math.max(0, p.stock - 1) })}
@@ -154,7 +178,7 @@ export default function ClientManagePage() {
                         <option value="congelateur">Congél.</option>
                       </select>
                       <button onClick={() => deleteProduct(p.id)}
-                        className="text-red-500/50 hover:text-red-400 text-sm cursor-pointer opacity-0 group-hover:opacity-100 transition">{"🗑"}</button>
+                        className="text-red-500/50 hover:text-red-400 text-sm cursor-pointer opacity-0 group-hover:opacity-100 transition">🗑</button>
                     </div>
                   ))}
                 </div>
@@ -169,7 +193,8 @@ export default function ClientManagePage() {
               <div className="mt-2 space-y-1">
                 {products.filter(p => p.archived).map(p => (
                   <div key={p.id} className="flex items-center gap-3 bg-[#0f172a] border border-[#1e2d4a] rounded-lg px-3 py-2 opacity-50">
-                    <span>{p.emoji + " " + p.name}</span>
+                    <ProductIcon emoji={p.emoji} />
+                    <span className="text-sm">{p.name}</span>
                     <button onClick={() => updateProduct(p.id, { archived: false })}
                       className="ml-auto text-xs text-amber-400 cursor-pointer">Réactiver</button>
                   </div>
@@ -184,28 +209,43 @@ export default function ClientManagePage() {
       {tab === "members" && (
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold">{"Membres (" + members.length + ")"}</h2>
+            <h2 className="font-bold">{"Membres (" + members.filter(m => !m.archived).length + ")"}</h2>
             <button onClick={addMember}
               className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-xs font-semibold cursor-pointer transition">
               + Ajouter
             </button>
           </div>
           <div className="space-y-1">
-            {members.map(m => (
+            {members.filter(m => !m.archived).map(m => (
               <div key={m.id} className="flex items-center gap-3 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 py-2">
-                <div className="w-8 h-8 rounded-full bg-blue-600/20 flex items-center justify-center text-xs font-bold text-blue-400">
+                <div className="w-8 h-8 rounded-full bg-blue-600/20 flex items-center justify-center text-xs font-bold text-blue-400 shrink-0">
                   {m.name.charAt(0)}
                 </div>
                 <input value={m.name}
                   onChange={e => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, name: e.target.value } : x))}
                   onBlur={() => supabase.from("members").update({ name: m.name }).eq("id", m.id)}
                   className="flex-1 bg-transparent text-sm font-medium outline-none" />
-                <span className={"text-sm font-bold " + (m.balance < 0 ? "text-red-400" : "text-emerald-400")}>
-                  {m.balance.toFixed(2) + " €"}
+                <span className={"text-sm font-bold tabular-nums " + (Number(m.balance) < 0 ? "text-red-400" : "text-emerald-400")}>
+                  {Number(m.balance).toFixed(2) + " €"}
                 </span>
               </div>
             ))}
           </div>
+          {members.filter(m => m.archived).length > 0 && (
+            <details className="mt-4">
+              <summary className="text-xs text-slate-500 cursor-pointer">
+                {"Archivés (" + members.filter(m => m.archived).length + ")"}
+              </summary>
+              <div className="mt-2 space-y-1">
+                {members.filter(m => m.archived).map(m => (
+                  <div key={m.id} className="flex items-center gap-3 bg-[#0f172a] border border-[#1e2d4a] rounded-lg px-3 py-2 opacity-50">
+                    <span className="text-sm">{m.name}</span>
+                    <span className="ml-auto text-sm">{Number(m.balance).toFixed(2)} €</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       )}
 
@@ -219,22 +259,29 @@ export default function ClientManagePage() {
               + Ajouter
             </button>
           </div>
-          <div className="space-y-1">
-            {categories.map(c => (
-              <div key={c.id} className="flex items-center gap-3 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 py-2">
-                <input value={c.emoji}
-                  onChange={e => setCategories(prev => prev.map(x => x.id === c.id ? { ...x, emoji: e.target.value } : x))}
-                  onBlur={() => supabase.from("categories").update({ emoji: c.emoji }).eq("id", c.id)}
-                  className="w-10 bg-transparent text-center text-lg outline-none" />
-                <input value={c.name}
-                  onChange={e => setCategories(prev => prev.map(x => x.id === c.id ? { ...x, name: e.target.value } : x))}
-                  onBlur={() => supabase.from("categories").update({ name: c.name }).eq("id", c.id)}
-                  className="flex-1 bg-transparent text-sm font-medium outline-none" />
-                <button onClick={async () => { await supabase.from("categories").delete().eq("id", c.id); setCategories(prev => prev.filter(x => x.id !== c.id)); }}
-                  className="text-red-500/50 hover:text-red-400 text-sm cursor-pointer">{"🗑"}</button>
-              </div>
-            ))}
-          </div>
+          {categories.length === 0 ? (
+            <div className="text-center py-8 text-slate-500 text-sm">
+              <p>Aucune catégorie. Les catégories de l'ancien système sont dans les paramètres (settings).</p>
+              <p className="mt-1">Cliquez sur "+ Ajouter" pour en créer, ou relancez la migration.</p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {categories.map(c => (
+                <div key={c.id} className="flex items-center gap-3 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 py-2 group">
+                  <input value={c.emoji || ""}
+                    onChange={e => setCategories(prev => prev.map(x => x.id === c.id ? { ...x, emoji: e.target.value } : x))}
+                    onBlur={() => supabase.from("categories").update({ emoji: c.emoji }).eq("id", c.id)}
+                    className="w-10 bg-transparent text-center text-lg outline-none" />
+                  <input value={c.name}
+                    onChange={e => setCategories(prev => prev.map(x => x.id === c.id ? { ...x, name: e.target.value } : x))}
+                    onBlur={() => supabase.from("categories").update({ name: c.name }).eq("id", c.id)}
+                    className="flex-1 bg-transparent text-sm font-medium outline-none" />
+                  <button onClick={async () => { await supabase.from("categories").delete().eq("id", c.id); setCategories(prev => prev.filter(x => x.id !== c.id)); }}
+                    className="text-red-500/50 hover:text-red-400 text-sm cursor-pointer opacity-0 group-hover:opacity-100 transition">🗑</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -265,6 +312,73 @@ export default function ClientManagePage() {
                 onBlur={() => supabase.from("organizations").update({ logo_url: org.logo_url }).eq("id", org.id)}
                 placeholder="https://..."
                 className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+            </div>
+
+            <hr className="border-[#1e2d4a]" />
+            <h3 className="font-semibold text-sm">Codes d'accès</h3>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">PIN Admin</label>
+                <input value={String(settings.adminPin || "")}
+                  onChange={e => setSettings({ ...settings, adminPin: e.target.value })}
+                  onBlur={() => saveSettings({ ...settings })}
+                  placeholder="1234"
+                  className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500 font-mono tracking-widest" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">PIN Bureau</label>
+                <input value={String(settings.bureauPin || "")}
+                  onChange={e => setSettings({ ...settings, bureauPin: e.target.value })}
+                  onBlur={() => saveSettings({ ...settings })}
+                  placeholder="0000"
+                  className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500 font-mono tracking-widest" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Horaires d'ouverture</label>
+              <input value={String(settings.openingHours || "")}
+                onChange={e => setSettings({ ...settings, openingHours: e.target.value })}
+                onBlur={() => saveSettings({ ...settings })}
+                placeholder="Mer 18h-20h, Sam 10h-12h"
+                className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Nom affiché sur le bar</label>
+              <input value={String(settings.barName || "")}
+                onChange={e => setSettings({ ...settings, barName: e.target.value })}
+                onBlur={() => saveSettings({ ...settings })}
+                placeholder={org.name}
+                className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+            </div>
+
+            <hr className="border-[#1e2d4a]" />
+            <h3 className="font-semibold text-sm">Fidélité</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Cafés pour 1 gratuit</label>
+                <input type="number" min="1"
+                  value={String((settings.loyaltyThresholds as Record<string, number> | undefined)?.coffee || 10)}
+                  onChange={e => {
+                    const lt = { ...((settings.loyaltyThresholds as Record<string, number>) || {}), coffee: parseInt(e.target.value) || 10 };
+                    setSettings({ ...settings, loyaltyThresholds: lt });
+                  }}
+                  onBlur={() => saveSettings({ ...settings })}
+                  className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Madeleines pour 1 gratuite</label>
+                <input type="number" min="1"
+                  value={String((settings.loyaltyThresholds as Record<string, number> | undefined)?.madeleine || 10)}
+                  onChange={e => {
+                    const lt = { ...((settings.loyaltyThresholds as Record<string, number>) || {}), madeleine: parseInt(e.target.value) || 10 };
+                    setSettings({ ...settings, loyaltyThresholds: lt });
+                  }}
+                  onBlur={() => saveSettings({ ...settings })}
+                  className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
+              </div>
             </div>
           </div>
         </div>
