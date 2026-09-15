@@ -196,10 +196,16 @@ function formatDate(iso: string) {
   });
 }
 
-// ─── API helpers for Vercel KV ───
-async function loadFromServer(): Promise<{ data: Record<string, unknown> | null; ok: boolean }> {
+// ─── API helpers ───
+function buildApiUrl(path: string, orgSlug?: string): string {
+  if (!orgSlug) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return path + sep + "org=" + orgSlug;
+}
+
+async function loadFromServer(orgSlug?: string): Promise<{ data: Record<string, unknown> | null; ok: boolean }> {
   try {
-    const res = await fetch("/api/data");
+    const res = await fetch(buildApiUrl("/api/data", orgSlug));
     if (!res.ok) return { data: null, ok: false };
     const json = await res.json();
     if (json.error) return { data: null, ok: false };
@@ -209,19 +215,18 @@ async function loadFromServer(): Promise<{ data: Record<string, unknown> | null;
   }
 }
 
-async function loadFromServerWithRetry(maxRetries = 3): Promise<{ data: Record<string, unknown> | null; ok: boolean }> {
+async function loadFromServerWithRetry(orgSlug?: string, maxRetries = 3): Promise<{ data: Record<string, unknown> | null; ok: boolean }> {
   for (let i = 0; i < maxRetries; i++) {
-    const result = await loadFromServer();
+    const result = await loadFromServer(orgSlug);
     if (result.ok) return result;
-    // Wait before retrying (1s, 2s, 4s)
     await new Promise((r) => setTimeout(r, Math.min(1000 * Math.pow(2, i), 4000)));
   }
   return { data: null, ok: false };
 }
 
-async function saveToServer(key: string, value: unknown): Promise<boolean> {
+async function saveToServer(key: string, value: unknown, orgSlug?: string): Promise<boolean> {
   try {
-    const res = await fetch("/api/data", {
+    const res = await fetch(buildApiUrl("/api/data", orgSlug), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key, value }),
@@ -249,7 +254,7 @@ function restoreFromLocalStorage(key: string): unknown | null {
   } catch { return null; }
 }
 
-export default function AeroClubBarV2() {
+export default function AeroClubBarV2({ orgSlug }: { orgSlug?: string } = {}) {
   const [view, setView] = useState("member");
   const [products, setProducts] = useState<Product[]>(DEFAULT_PRODUCTS);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -382,10 +387,10 @@ export default function AeroClubBarV2() {
     setSaveStatus("saving");
     saveTimeout.current[key] = setTimeout(async () => {
       delete pendingValues.current[key];
-      const ok = await saveToServer(key, value);
+      const ok = await saveToServer(key, value, orgSlug);
       setSaveStatus(ok ? "idle" : "error");
     }, 1000);
-  }, []);
+  }, [orgSlug]);
 
   useEffect(() => {
     const flushPending = () => {
@@ -400,7 +405,7 @@ export default function AeroClubBarV2() {
       for (const key of keys) {
         try {
           const blob = new Blob([JSON.stringify({ key, value: pendingValues.current[key] })], { type: "application/json" });
-          navigator.sendBeacon("/api/data", blob);
+          navigator.sendBeacon(buildApiUrl("/api/data", orgSlug), blob);
         } catch {}
       }
       pendingValues.current = {};
@@ -417,7 +422,7 @@ export default function AeroClubBarV2() {
     // Load data from server with retry + localStorage fallback
   useEffect(() => {
     (async () => {
-      const { data, ok } = await loadFromServerWithRetry(3);
+      const { data, ok } = await loadFromServerWithRetry(orgSlug, 3);
       if (ok && data) {
         // Server load succeeded — apply data
         if (data.products) setProducts(data.products as Product[]);
@@ -547,7 +552,7 @@ export default function AeroClubBarV2() {
     if (!hasLoaded.current && !loading) return;
     const backupInterval = setInterval(() => {
       if (!hasLoaded.current) return;
-      fetch("/api/backup", {
+      fetch(buildApiUrl("/api/backup", orgSlug), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "save" }),
@@ -556,7 +561,7 @@ export default function AeroClubBarV2() {
     // Premier backup 30s après le chargement
     const initialBackup = setTimeout(() => {
       if (hasLoaded.current) {
-        fetch("/api/backup", {
+        fetch(buildApiUrl("/api/backup", orgSlug), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "save" }),
@@ -1597,7 +1602,7 @@ export default function AeroClubBarV2() {
   const retryLoad = async () => {
     setLoading(true);
     setLoadFailed(false);
-    const { data, ok } = await loadFromServerWithRetry(3);
+    const { data, ok } = await loadFromServerWithRetry(orgSlug, 3);
     if (ok && data) {
       if (data.products) setProducts(data.products as Product[]);
       if (data.transactions) setTransactions(data.transactions as Transaction[]);
@@ -4656,7 +4661,7 @@ export default function AeroClubBarV2() {
                   <button
                     onClick={async () => {
                       try {
-                        const res = await fetch("/api/backup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "save" }) });
+                        const res = await fetch(buildApiUrl("/api/backup", orgSlug), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "save" }) });
                         const d = await res.json();
                         if (d.ok) showToast("Backup serveur cr\u00E9\u00E9 !");
                         else showToast("Erreur: " + (d.error || "?"), "error");
@@ -4668,7 +4673,7 @@ export default function AeroClubBarV2() {
                     onClick={async () => {
                       if (!confirm("Restaurer le dernier backup serveur ?\n\nCela remplacera TOUTES les donn\u00E9es actuelles par le backup.")) return;
                       try {
-                        const res = await fetch("/api/backup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "restore" }) });
+                        const res = await fetch(buildApiUrl("/api/backup", orgSlug), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "restore" }) });
                         const d = await res.json();
                         if (d.ok) {
                           showToast("Backup restaur\u00E9 ! Rechargement...");
@@ -4682,7 +4687,7 @@ export default function AeroClubBarV2() {
                 <button
                   onClick={async () => {
                     try {
-                      const res = await fetch("/api/backup");
+                      const res = await fetch(buildApiUrl("/api/backup", orgSlug));
                       if (!res.ok) { showToast("Aucun backup trouv\u00E9", "error"); return; }
                       const backup = await res.json();
                       showToast("Backup du " + (backup._backupDate ? new Date(backup._backupDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "?"));
@@ -4739,7 +4744,7 @@ export default function AeroClubBarV2() {
                           }
                           if (!confirm("Restaurer le backup du " + (backup.exportDate ? new Date(backup.exportDate).toLocaleDateString("fr-FR") : "?") + " ?\n\nCela remplacera TOUTES les donn\u00E9es actuelles dans la base.")) return;
                           // Envoyer \u00E0 l'API pour \u00E9crire directement dans Redis
-                          const res = await fetch("/api/backup", {
+                          const res = await fetch(buildApiUrl("/api/backup", orgSlug), {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ action: "restore-upload", data: backup }),
