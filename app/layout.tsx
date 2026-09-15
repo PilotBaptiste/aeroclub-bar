@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Aéro-Club Bar",
-  description: "Bar en libre-service",
+  title: "BarManager — Gestion multi-clients",
+  description: "Plateforme de gestion de bars en libre-service",
 };
 
 export default function RootLayout({
