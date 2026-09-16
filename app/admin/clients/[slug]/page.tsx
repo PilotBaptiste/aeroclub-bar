@@ -478,12 +478,38 @@ export default function ClientManagePage() {
                 className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Cle API SumUp (Merchant Code)</label>
+              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Merchant Code</label>
               <input value={String(settings.sumupMerchantCode || "")}
                 onChange={e => setSettings({ ...settings, sumupMerchantCode: e.target.value })}
                 onBlur={() => saveSettings({ ...settings })}
-                placeholder="MC..."
+                placeholder="MQxxxxxx"
                 className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500 font-mono" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Cle API SumUp (secret)</label>
+              <input type="password" value={String(settings.sumupApiKey || "")}
+                onChange={e => setSettings({ ...settings, sumupApiKey: e.target.value })}
+                onBlur={() => saveSettings({ ...settings })}
+                placeholder="sup_sk_xxx"
+                className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500 font-mono" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Reader ID</label>
+                <input value={String(settings.sumupReaderId || "")}
+                  onChange={e => setSettings({ ...settings, sumupReaderId: e.target.value })}
+                  onBlur={() => saveSettings({ ...settings })}
+                  placeholder="ID du terminal Solo"
+                  className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500 font-mono" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 font-semibold uppercase block mb-1">Affiliate Key</label>
+                <input value={String(settings.sumupAffiliateKey || "")}
+                  onChange={e => setSettings({ ...settings, sumupAffiliateKey: e.target.value })}
+                  onBlur={() => saveSettings({ ...settings })}
+                  placeholder="Optionnel"
+                  className="w-full h-10 bg-[#131b2e] border border-[#1e2d4a] rounded-lg px-3 text-sm outline-none focus:border-blue-500 font-mono" />
+              </div>
             </div>
 
             <hr className="border-[#1e2d4a]" />

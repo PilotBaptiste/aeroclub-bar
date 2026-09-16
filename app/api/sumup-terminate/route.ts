@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
+import { getSumUpCredentials } from "@/lib/sumup";
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    const API_KEY = process.env.SUMUP_API_KEY;
-    const MERCHANT_CODE = process.env.SUMUP_MERCHANT_CODE;
-    const READER_ID = process.env.SUMUP_READER_ID;
+    const { searchParams } = new URL(request.url);
+    const org = searchParams.get("org");
 
-    if (!API_KEY || !MERCHANT_CODE || !READER_ID) {
+    const creds = await getSumUpCredentials(org);
+    if (!creds) {
       return NextResponse.json(
         { error: "SumUp non configure" },
         { status: 500 },
@@ -14,10 +15,10 @@ export async function POST() {
     }
 
     const res = await fetch(
-      `https://api.sumup.com/v0.1/merchants/${MERCHANT_CODE}/readers/${READER_ID}/terminate`,
+      `https://api.sumup.com/v0.1/merchants/${creds.merchantCode}/readers/${creds.readerId}/terminate`,
       {
         method: "POST",
-        headers: { Authorization: "Bearer " + API_KEY },
+        headers: { Authorization: "Bearer " + creds.apiKey },
       },
     );
 

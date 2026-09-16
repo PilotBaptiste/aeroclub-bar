@@ -1023,7 +1023,7 @@ export default function AeroClubBarV2({ orgSlug }: { orgSlug?: string } = {}) {
       const descParts = cart.map((c) => c.qty + "x " + c.product.name);
       if (madeleineAdded && madeleineProduct) descParts.push(madeleineOfferQty + "x " + madeleineProduct.name);
       const desc = descParts.join(", ");
-      const res = await fetch("/api/sumup-checkout", {
+      const res = await fetch(buildApiUrl("/api/sumup-checkout", orgSlug), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1045,7 +1045,7 @@ export default function AeroClubBarV2({ orgSlug }: { orgSlug?: string } = {}) {
       sumupIntervalRef.current = setInterval(async () => {
         try {
           const cid = data.checkoutId;
-          const url = "/api/sumup-webhook" + (cid ? "?checkoutId=" + cid : "");
+          const url = buildApiUrl("/api/sumup-webhook" + (cid ? "?checkoutId=" + cid : ""), orgSlug);
           const poll = await fetch(url);
           const result = await poll.json();
           if (result.status === "success") {
@@ -2549,7 +2549,7 @@ export default function AeroClubBarV2({ orgSlug }: { orgSlug?: string } = {}) {
                               setSumupPolling(false);
                               setSumupCheckoutId(null);
                               try {
-                                await fetch("/api/sumup-terminate", {
+                                await fetch(buildApiUrl("/api/sumup-terminate", orgSlug), {
                                   method: "POST",
                                 });
                               } catch {

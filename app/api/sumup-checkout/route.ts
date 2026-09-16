@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
+import { getSumUpCredentials } from "@/lib/sumup";
 
 export async function POST(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const org = searchParams.get("org");
     const { amount, description, buyer } = await request.json();
 
-    const API_KEY = process.env.SUMUP_API_KEY;
-    const MERCHANT_CODE = process.env.SUMUP_MERCHANT_CODE;
-    const READER_ID = process.env.SUMUP_READER_ID;
-    const AFFILIATE_KEY = process.env.SUMUP_AFFILIATE_KEY;
-    const APP_ID = process.env.SUMUP_APP_ID || "aeroclub-bar.vercel.app";
-
-    if (!API_KEY || !MERCHANT_CODE || !READER_ID || !AFFILIATE_KEY) {
+    const creds = await getSumUpCredentials(org);
+    if (!creds) {
       return NextResponse.json(
         { error: "SumUp non configure" },
         { status: 500 },
@@ -19,27 +17,31 @@ export async function POST(request: Request) {
 
     const valueInCents = Math.round(amount * 100);
 
-    // Envoie au terminal Solo et récupère le checkout ID
+    const body: Record<string, unknown> = {
+      total_amount: {
+        currency: "EUR",
+        minor_unit: 2,
+        value: valueInCents,
+      },
+      description: buyer ? `${buyer} — ${description}` : description,
+    };
+
+    if (creds.affiliateKey) {
+      body.affiliate = {
+        app_id: creds.appId || "aeroclub-bar.vercel.app",
+        key: creds.affiliateKey,
+      };
+    }
+
     const res = await fetch(
-      `https://api.sumup.com/v0.1/merchants/${MERCHANT_CODE}/readers/${READER_ID}/checkout`,
+      `https://api.sumup.com/v0.1/merchants/${creds.merchantCode}/readers/${creds.readerId}/checkout`,
       {
         method: "POST",
         headers: {
-          Authorization: "Bearer " + API_KEY,
+          Authorization: "Bearer " + creds.apiKey,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          total_amount: {
-            currency: "EUR",
-            minor_unit: 2,
-            value: valueInCents,
-          },
-          description: buyer ? `${buyer} — ${description}` : description,
-          affiliate: {
-            app_id: APP_ID,
-            key: AFFILIATE_KEY,
-          },
-        }),
+        body: JSON.stringify(body),
       },
     );
 

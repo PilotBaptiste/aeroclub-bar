@@ -263,7 +263,11 @@ async function supabaseGet(orgSlug: string) {
   return NextResponse.json({
     products: productsRes.data ? productsRes.data.map(p => productToRedisFormat(p as Record<string, unknown>)) : null,
     transactions: transactionsRes.data ? transactionsRes.data.map(t => transactionToRedisFormat(t as Record<string, unknown>)) : null,
-    settings: { clubName: org.name, ...((org.settings as Record<string, unknown>) || {}) },
+    settings: (() => {
+      const raw = (org.settings as Record<string, unknown>) || {};
+      const { sumupApiKey, sumupReaderId, sumupAffiliateKey, ...safe } = raw;
+      return { clubName: org.name, ...safe };
+    })(),
     suggestions: suggestionsRes.data ? suggestionsRes.data.map(s => suggestionToRedisFormat(s as Record<string, unknown>)) : null,
     members: membersRes.data ? membersRes.data.map(m => memberToRedisFormat(m as Record<string, unknown>)) : null,
     procurements: procurementsRes.data ? procurementsRes.data.map(p => procurementToRedisFormat(p as Record<string, unknown>)) : null,

@@ -1,26 +1,22 @@
 import { NextResponse } from "next/server";
-
-export const runtime = "edge";
+import { getSumUpCredentials } from "@/lib/sumup";
 
 // GET : polling — interroge directement l'API SumUp pour le statut du reader
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const checkoutId = searchParams.get("checkoutId");
+    const org = searchParams.get("org");
 
-    const API_KEY = process.env.SUMUP_API_KEY;
-    const MERCHANT_CODE = process.env.SUMUP_MERCHANT_CODE;
-    const READER_ID = process.env.SUMUP_READER_ID;
-
-    if (!API_KEY || !MERCHANT_CODE || !READER_ID) {
+    const creds = await getSumUpCredentials(org);
+    if (!creds) {
       return NextResponse.json({ status: "pending" });
     }
 
-    // Récupère le statut du reader (dernière transaction)
     const res = await fetch(
-      `https://api.sumup.com/v0.1/merchants/${MERCHANT_CODE}/readers/${READER_ID}/status`,
+      `https://api.sumup.com/v0.1/merchants/${creds.merchantCode}/readers/${creds.readerId}/status`,
       {
-        headers: { Authorization: "Bearer " + API_KEY },
+        headers: { Authorization: "Bearer " + creds.apiKey },
         cache: "no-store",
       },
     );
@@ -35,7 +31,6 @@ export async function GET(request: Request) {
     const readerState = (data?.data?.state || data?.state || "").toUpperCase();
     console.log("Reader state:", readerState);
 
-    // Terminal occupé = paiement en cours → on continue à poller
     if (
       readerState === "WAITING_FOR_CARD" ||
       readerState === "PROCESSING" ||
@@ -46,13 +41,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ status: "pending" });
     }
 
-    // IDLE = terminal libre = paiement terminé → vérifie si succès ou échec
-    // via les transactions récentes filtrées par client_transaction_id
     const since = new Date(Date.now() - 60000).toISOString();
     const txRes = await fetch(
       `https://api.sumup.com/v0.1/me/transactions/history?limit=10&newest_time=${new Date().toISOString()}&oldest_time=${since}`,
       {
-        headers: { Authorization: "Bearer " + API_KEY },
+        headers: { Authorization: "Bearer " + creds.apiKey },
         cache: "no-store",
       },
     );
@@ -62,7 +55,6 @@ export async function GET(request: Request) {
       console.log("Transactions history:", JSON.stringify(txData));
       const items = txData?.items || (Array.isArray(txData) ? txData : []);
 
-      // Cherche la transaction correspondant au checkoutId
       let matchedTx = checkoutId
         ? items.find(
             (t: { client_transaction_id?: string }) =>
@@ -70,7 +62,6 @@ export async function GET(request: Request) {
           )
         : items[0];
 
-      // Fallback sur la plus récente si pas trouvée
       if (!matchedTx) matchedTx = items[0];
 
       if (matchedTx) {
